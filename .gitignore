@@ -1,0 +1,49 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Application data (not in repo)
+_AppConfig/
+_AppLogs/
+
+# Old migration files
+*.json.migrated
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code settings (local)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database files
+*.db-journal
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Data files (not in repo)
+data/
+
+# Temporary files
+*.tmp
+nul
