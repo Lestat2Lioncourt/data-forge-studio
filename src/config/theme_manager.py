@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import logging
 import json
 import os
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,48 @@ class ThemeManager:
         # Create directory if it doesn't exist
         themes_dir.mkdir(parents=True, exist_ok=True)
 
+        # Ensure default themes are present
+        self._ensure_default_themes(themes_dir)
+
         return themes_dir
+
+    def _ensure_default_themes(self, themes_dir: Path):
+        """
+        Copy default themes to _AppConfig/themes if they don't exist
+
+        Args:
+            themes_dir: Path to the themes directory
+        """
+        # Check if themes directory is empty or missing default themes
+        existing_themes = list(themes_dir.glob("*.json"))
+
+        if len(existing_themes) == 0:
+            logger.info("No themes found, copying default themes...")
+
+            # Get path to default themes (shipped with the application)
+            # The default_themes folder is in src/default_themes/
+            src_dir = Path(__file__).parent.parent  # Go up to src/
+            default_themes_dir = src_dir / "default_themes"
+
+            if not default_themes_dir.exists():
+                logger.error(f"Default themes directory not found: {default_themes_dir}")
+                return
+
+            # Copy all JSON theme files
+            theme_files = list(default_themes_dir.glob("*.json"))
+            if not theme_files:
+                logger.warning(f"No default theme files found in {default_themes_dir}")
+                return
+
+            for theme_file in theme_files:
+                try:
+                    dest_file = themes_dir / theme_file.name
+                    shutil.copy2(theme_file, dest_file)
+                    logger.info(f"Copied default theme: {theme_file.name}")
+                except Exception as e:
+                    logger.error(f"Error copying theme {theme_file.name}: {e}")
+
+            logger.info(f"Copied {len(theme_files)} default theme(s)")
 
     def _load_all_themes(self):
         """Load all themes from JSON files"""
