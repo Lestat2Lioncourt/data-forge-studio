@@ -1,6 +1,6 @@
 [project]
 name = "data-forge-studio"
-version = "0.2.0"
+version = "0.3.0"
 description = "Multi-database query manager with data transformation and project organization"
 readme = "README.md"
 requires-python = ">=3.14"

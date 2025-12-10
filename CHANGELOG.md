@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-12-10
+
+### Added
+- **Automatic Update Checker**: Checks GitHub for new releases on startup
+  - 24-hour cooldown after dismissal to avoid notification spam
+  - Status bar notification with clickable link to details
+  - Manual check option in Help menu
+- **Update Dialog** with detailed release notes and instructions
+  - View release on GitHub button
+  - "Update on Quit" feature for automatic update when closing app
+  - "Remind Tomorrow" option to defer update
+- **One-Click Update Script**: `uv run run.py --update`
+  - Automatically runs `git pull` and `uv sync`
+  - Opens in new terminal window with progress display
+  - Error handling with fallback to manual instructions
+- **Enhanced Status Bar**:
+  - Now visible at bottom of window
+  - Shows "Your version is up to date" / "Votre version est à jour"
+  - Update notifications in bold dark green for better readability
+  - Internationalized messages (EN/FR)
+
+### Changed
+- Improved status bar visibility and positioning
+- Update notifications now use bold dark green text instead of orange
+
 ## [0.2.0] - 2025-12-09
 
 ### Added
@@ -50,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simple GUI interface
 - CLI support
 
-[Unreleased]: https://github.com/Lestat2Lioncourt/data-forge-studio/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Lestat2Lioncourt/data-forge-studio/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Lestat2Lioncourt/data-forge-studio/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Lestat2Lioncourt/data-forge-studio/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Lestat2Lioncourt/data-forge-studio/releases/tag/v0.1.0

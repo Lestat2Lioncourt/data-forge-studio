@@ -14,6 +14,7 @@ from ..core.data_loader import DataLoader
 # Import from utils
 from ..utils.config import Config
 from ..utils.logger import logger, LogLevel
+from ..utils.update_checker import get_update_checker
 
 # Import from database
 from ..database.config_db import DatabaseConnection
@@ -246,11 +247,12 @@ class DataLakeLoaderGUI:
         self.current_frame = None
         self.log_text = None
         self.toolbar_buttons = {}  # Store toolbar button references
+        self.update_on_quit = False  # Flag for automatic update on quit
 
         self._create_menubar()
         self._create_toolbar()
-        self._create_main_container()
         self._create_status_bar()
+        self._create_main_container()
 
         logger.set_gui_callback(self._log_from_logger)
 
@@ -259,6 +261,12 @@ class DataLakeLoaderGUI:
 
         # Show Data Explorer by default
         self._show_data_explorer()
+
+        # Check for updates (with 24h cooldown)
+        self._check_for_updates_startup()
+
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def _create_menubar(self):
         """Create menu bar"""
@@ -300,6 +308,7 @@ class DataLakeLoaderGUI:
         self.menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="📚 Documentation", command=self._show_documentation)
         help_menu.add_separator()
+        help_menu.add_command(label="🔄 Check for Updates...", command=self._check_for_updates_manual)
         help_menu.add_command(label="About", command=self._show_about)
         help_menu.add_separator()
         help_menu.add_command(label="Exit", command=self.root.quit)
@@ -365,13 +374,15 @@ class DataLakeLoaderGUI:
         self.container.gui = self
 
     def _create_status_bar(self):
-        """Create status bar - DISABLED"""
-        # Status bar disabled - menu provides sufficient navigation context
-        pass
-        # status_frame = ttk.Frame(self.root, padding="5")
-        # status_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        # self.status_label = ttk.Label(status_frame, text="Ready", relief=tk.SUNKEN)
-        # self.status_label.pack(fill=tk.X)
+        """Create status bar"""
+        status_frame = ttk.Frame(self.root, padding="5")
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+        self.status_label = ttk.Label(status_frame, text=self.i18n.t('status_version_up_to_date'), relief=tk.SUNKEN, anchor=tk.W)
+        self.status_label.pack(fill=tk.X)
+
+        # Store update info for click handler
+        self.update_info = None
 
     def _switch_frame(self, frame_class, *args, **kwargs):
         """Switch to a different frame"""
@@ -981,6 +992,16 @@ class DataLakeLoaderGUI:
                 except Exception as e:
                     logger.error(f"Error updating toolbar button {btn_id}: {e}")
 
+        # Update status bar (only if not showing update notification and no update scheduled)
+        if hasattr(self, 'status_label') and self.update_info is None and not self.update_on_quit:
+            try:
+                self.status_label.config(
+                    text=self.i18n.t('status_version_up_to_date'),
+                    font=("TkDefaultFont", 9, "normal")
+                )
+            except Exception as e:
+                logger.error(f"Error updating status bar: {e}")
+
         # Notify current frame to update language if supported
         if self.current_frame and hasattr(self.current_frame, 'apply_language'):
             try:
@@ -1008,6 +1029,203 @@ Features:
 
 © 2024-2025"""
         messagebox.showinfo("About", about_text)
+
+    def _check_for_updates_startup(self):
+        """Check for updates at startup (with cooldown)"""
+        update_checker = get_update_checker()
+
+        # Check if we should check (respects 24h cooldown)
+        if not update_checker.should_check():
+            return
+
+        # Check for updates in background thread
+        threading.Thread(target=self._check_updates_thread, daemon=True).start()
+
+    def _check_for_updates_manual(self):
+        """Manual update check from menu (ignores cooldown)"""
+        # Check for updates in background thread
+        threading.Thread(target=self._check_updates_thread, args=(True,), daemon=True).start()
+
+    def _check_updates_thread(self, is_manual=False):
+        """Background thread to check for updates"""
+        update_checker = get_update_checker()
+
+        try:
+            update_info = update_checker.check_for_update()
+
+            if update_info:
+                version, url, notes = update_info
+                # Schedule UI update in main thread
+                self.root.after(0, lambda: self._show_update_notification(version, url, notes))
+            elif is_manual:
+                # Manual check with no update found
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "No Updates",
+                    f"You are using the latest version ({APP_VERSION})"
+                ))
+        except Exception as e:
+            logger.error(f"Error checking for updates: {e}")
+            if is_manual:
+                self.root.after(0, lambda: messagebox.showerror(
+                    "Update Check Failed",
+                    f"Could not check for updates:\n{str(e)}"
+                ))
+
+    def _show_update_notification(self, version, url, notes):
+        """Show update notification in status bar"""
+        # Store update info
+        self.update_info = (version, url, notes)
+
+        # Update status bar with dark green bold text
+        update_text = f"⚠️  Version {version} available (click for details)"
+        self.status_label.config(
+            text=update_text,
+            foreground="#006400",  # Dark green
+            font=("TkDefaultFont", 9, "bold"),
+            cursor="hand2"
+        )
+
+        # Make label clickable
+        self.status_label.bind("<Button-1>", lambda e: self._show_update_details())
+
+        logger.info(f"Update notification displayed: v{version}")
+
+    def _show_update_details(self):
+        """Show update details dialog"""
+        if not self.update_info:
+            return
+
+        version, url, notes = self.update_info
+
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Update Available - v{version}")
+        dialog.geometry("600x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="15")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Title
+        title_label = ttk.Label(
+            main_frame,
+            text=f"🎉 New Version Available!",
+            font=("Arial", 14, "bold")
+        )
+        title_label.pack(pady=(0, 10))
+
+        # Version info
+        info_frame = ttk.Frame(main_frame)
+        info_frame.pack(fill=tk.X, pady=10)
+
+        ttk.Label(info_frame, text="Current Version:", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky=tk.W, padx=5)
+        ttk.Label(info_frame, text=APP_VERSION).grid(row=0, column=1, sticky=tk.W, padx=5)
+
+        ttk.Label(info_frame, text="Latest Version:", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky=tk.W, padx=5)
+        ttk.Label(info_frame, text=version, foreground="green").grid(row=1, column=1, sticky=tk.W, padx=5)
+
+        # Release notes
+        notes_frame = ttk.LabelFrame(main_frame, text="What's New", padding="10")
+        notes_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        notes_text = scrolledtext.ScrolledText(notes_frame, wrap=tk.WORD, height=10)
+        notes_text.pack(fill=tk.BOTH, expand=True)
+        notes_text.insert(1.0, notes if notes else "No release notes available.")
+        notes_text.config(state=tk.DISABLED)
+
+        # Instructions
+        instructions_frame = ttk.LabelFrame(main_frame, text="How to Update", padding="10")
+        instructions_frame.pack(fill=tk.X, pady=10)
+
+        instructions = """To update DataForge Studio:
+
+🚀 Quick Update (Recommended):
+1. Close this application
+2. Open a terminal in the project directory
+3. Run: uv run run.py --update
+4. Restart DataForge Studio
+
+📝 Manual Update:
+1. Close this application
+2. Open a terminal in the project directory
+3. Run: git pull
+4. Run: uv sync
+5. Restart DataForge Studio"""
+
+        instructions_label = ttk.Label(instructions_frame, text=instructions, justify=tk.LEFT)
+        instructions_label.pack()
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=10)
+
+        def open_github():
+            import webbrowser
+            webbrowser.open(url)
+
+        def update_on_quit():
+            self.update_on_quit = True
+            # Reset status bar with update pending message
+            self.status_label.config(
+                text=f"⏳ {self.i18n.t('status_update_on_quit')}",
+                foreground="#006400",
+                font=("TkDefaultFont", 9, "bold"),
+                cursor=""
+            )
+            self.status_label.unbind("<Button-1>")
+            dialog.destroy()
+            logger.info("Update scheduled for application quit")
+
+        def remind_later():
+            update_checker = get_update_checker()
+            update_checker.dismiss_update()
+            # Reset status bar
+            self.status_label.config(text=self.i18n.t('status_version_up_to_date'), foreground="black", font=("TkDefaultFont", 9, "normal"), cursor="")
+            self.status_label.unbind("<Button-1>")
+            self.update_info = None
+            dialog.destroy()
+            logger.info("Update reminder dismissed for 24 hours")
+
+        ttk.Button(button_frame, text="🌐 View on GitHub", command=open_github).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="🚀 Update on Quit", command=update_on_quit).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="⏰ Remind Tomorrow", command=remind_later).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+
+    def _on_closing(self):
+        """Handle window close event"""
+        if self.update_on_quit:
+            logger.info("Launching update process before quit...")
+
+            # Launch update script in a new terminal window
+            import subprocess
+            import sys
+            import os
+
+            try:
+                # Get the project directory
+                project_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+                # Platform-specific terminal launch
+                if sys.platform == 'win32':
+                    # Windows: Open new CMD window with update command
+                    cmd = f'cd /d "{project_dir}" && uv run run.py --update && pause'
+                    subprocess.Popen(f'start cmd /k {cmd}', shell=True)
+                else:
+                    # Unix-like: Try to open a new terminal
+                    subprocess.Popen(['x-terminal-emulator', '-e', f'cd "{project_dir}" && uv run run.py --update'])
+
+                logger.info("Update process launched successfully")
+            except Exception as e:
+                logger.error(f"Failed to launch update process: {e}")
+                messagebox.showerror(
+                    "Update Error",
+                    f"Could not launch update process:\n{str(e)}\n\nPlease run manually:\nuv run run.py --update"
+                )
+
+        # Close the application
+        self.root.quit()
 
 
 def main():

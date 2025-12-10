@@ -5,7 +5,7 @@ DataForge Studio - Application Constants
 # Application Information
 APP_NAME = "DataForge Studio"
 APP_SHORT_NAME = "DataForge"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 APP_AUTHOR = "Lestat2Lioncourt"
 APP_DESCRIPTION = "Multi-database query manager with data transformation and project organization"
 APP_SLUG = "dataforgestudio"
