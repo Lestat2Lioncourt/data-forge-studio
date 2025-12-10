@@ -28,8 +28,8 @@ class ConnectionsManager:
         app_folder = Path(__file__).parent
         old_json_file = app_folder / "_AppConfig" / "database_connections.json"
 
-        # Also check old location in data folder
-        if not old_json_file.exists():
+        # Also check old location in data folder (if configured)
+        if not old_json_file.exists() and Config.DATA_ROOT_FOLDER is not None:
             old_json_file = Config.DATA_ROOT_FOLDER / "_Config" / "database_connections.json"
 
         if old_json_file.exists():

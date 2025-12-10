@@ -45,22 +45,16 @@ class DataLakeFrame(ttk.Frame):
         self._create_widgets()
 
     def _create_widgets(self):
-        """Create widgets for data lake operations"""
+        """Create widgets for root folder operations"""
         title_frame = ttk.Frame(self, padding="10")
         title_frame.pack(fill=tk.X)
 
         title_label = ttk.Label(
             title_frame,
-            text="Data Lake Operations",
+            text="RootFolder Operations",
             font=("Arial", 16, "bold")
         )
         title_label.pack()
-
-        info_frame = ttk.LabelFrame(self, text="Configuration", padding="10")
-        info_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(info_frame, text=f"Root Folder: {Config.DATA_ROOT_FOLDER}").pack(anchor=tk.W)
-        ttk.Label(info_frame, text=f"Database: {Config.DB_NAME} on {Config.DB_HOST}").pack(anchor=tk.W)
 
         # Log area
         self._create_log_area()
@@ -131,7 +125,8 @@ class DataLakeFrame(ttk.Frame):
         logger.info("=" * 60)
         logger.info("Starting File Dispatch Process")
         logger.info("=" * 60)
-        logger.info(f"Root folder: {Config.DATA_ROOT_FOLDER}")
+        root_folder = Config.DATA_ROOT_FOLDER or "Not configured"
+        logger.info(f"Root folder: {root_folder}")
 
         try:
             dispatcher = FileDispatcher()
@@ -168,8 +163,11 @@ class DataLakeFrame(ttk.Frame):
         logger.info("=" * 60)
         logger.info("Starting Data Load Process")
         logger.info("=" * 60)
-        logger.info(f"Root folder: {Config.DATA_ROOT_FOLDER}")
-        logger.info(f"Database: {Config.DB_NAME} on {Config.DB_HOST}")
+        root_folder = Config.DATA_ROOT_FOLDER or "Not configured"
+        db_name = Config.DB_NAME or "Not configured"
+        db_host = Config.DB_HOST or "Not configured"
+        logger.info(f"Root folder: {root_folder}")
+        logger.info(f"Database: {db_name} on {db_host}")
 
         try:
             loader = DataLoader()
@@ -195,6 +193,96 @@ class DataLakeFrame(ttk.Frame):
 
         finally:
             self.gui_parent._update_menu_state(True)
+
+
+class SettingsFrame(ttk.Frame):
+    """Settings frame"""
+
+    def __init__(self, parent, gui_parent):
+        super().__init__(parent)
+        self.gui_parent = gui_parent
+        self._create_widgets()
+
+    def _create_widgets(self):
+        """Create widgets for settings"""
+        title_frame = ttk.Frame(self, padding="10")
+        title_frame.pack(fill=tk.X)
+
+        title_label = ttk.Label(
+            title_frame,
+            text="Settings",
+            font=("Arial", 16, "bold")
+        )
+        title_label.pack()
+
+        # Preferences button
+        pref_frame = ttk.LabelFrame(self, text="Preferences", padding="20")
+        pref_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(pref_frame, text="Configure application settings, themes, and language.").pack(anchor=tk.W, pady=(0, 10))
+
+        ttk.Button(
+            pref_frame,
+            text="⚙️ Open Preferences",
+            command=self.gui_parent._show_preferences
+        ).pack(anchor=tk.W)
+
+
+class HelpFrame(ttk.Frame):
+    """Help frame"""
+
+    def __init__(self, parent, gui_parent):
+        super().__init__(parent)
+        self.gui_parent = gui_parent
+        self._create_widgets()
+
+    def _create_widgets(self):
+        """Create widgets for help"""
+        title_frame = ttk.Frame(self, padding="10")
+        title_frame.pack(fill=tk.X)
+
+        title_label = ttk.Label(
+            title_frame,
+            text="Help & Information",
+            font=("Arial", 16, "bold")
+        )
+        title_label.pack()
+
+        # Documentation
+        doc_frame = ttk.LabelFrame(self, text="Documentation", padding="20")
+        doc_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(doc_frame, text="Access the user documentation and guides.").pack(anchor=tk.W, pady=(0, 10))
+
+        ttk.Button(
+            doc_frame,
+            text="📚 Open Documentation",
+            command=self.gui_parent._show_documentation
+        ).pack(anchor=tk.W)
+
+        # Updates
+        update_frame = ttk.LabelFrame(self, text="Updates", padding="20")
+        update_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(update_frame, text="Check for new versions of DataForge Studio.").pack(anchor=tk.W, pady=(0, 10))
+
+        ttk.Button(
+            update_frame,
+            text="🔄 Check for Updates",
+            command=self.gui_parent._check_for_updates_manual
+        ).pack(anchor=tk.W)
+
+        # About
+        about_frame = ttk.LabelFrame(self, text="About", padding="20")
+        about_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(about_frame, text="View information about DataForge Studio.").pack(anchor=tk.W, pady=(0, 10))
+
+        ttk.Button(
+            about_frame,
+            text="ℹ️ About DataForge Studio",
+            command=self.gui_parent._show_about
+        ).pack(anchor=tk.W)
 
 
 class DataLakeLoaderGUI:
@@ -249,7 +337,6 @@ class DataLakeLoaderGUI:
         self.toolbar_buttons = {}  # Store toolbar button references
         self.update_on_quit = False  # Flag for automatic update on quit
 
-        self._create_menubar()
         self._create_toolbar()
         self._create_status_bar()
         self._create_main_container()
@@ -268,51 +355,6 @@ class DataLakeLoaderGUI:
         # Handle window close event
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-    def _create_menubar(self):
-        """Create menu bar"""
-        self.menubar = tk.Menu(self.root)
-        self.root.config(menu=self.menubar)
-
-        # ==================== DATA MENU ====================
-        self.data_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="Data", menu=self.data_menu)
-        self.data_menu.add_command(label="📁 Manage Projects...", command=self._manage_projects)
-        self.data_menu.add_command(label="💾 Manage Root Folders...", command=self._manage_root_folders)
-
-        # ==================== SCRIPTS MENU ====================
-        self.scripts_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="Scripts", menu=self.scripts_menu)
-        self.scripts_menu.add_command(label="📥 Dispatch Files", command=self._dispatch_files_from_menu)
-        self.scripts_menu.add_command(label="📤 Load to Database", command=self._load_files_from_menu)
-
-        # ==================== DATABASES MENU ====================
-        self.databases_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="Databases", menu=self.databases_menu)
-        self.databases_menu.add_command(label="➕ New Connection...", command=self._new_database_connection)
-        self.databases_menu.add_command(label="⚙️ Manage Connections...", command=self._manage_connections)
-
-        # ==================== JOBS MENU ====================
-        self.jobs_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="Jobs", menu=self.jobs_menu)
-        self.jobs_menu.add_command(label="📋 Job Manager (Coming Soon)", state='disabled')
-        self.jobs_menu.add_separator()
-        self.jobs_menu.add_command(label="⚙️ Configure Jobs...", state='disabled')
-
-        # ==================== SETTINGS MENU ====================
-        settings_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="Settings", menu=settings_menu)
-        settings_menu.add_command(label="⚙️ Preferences...", command=self._show_preferences)
-
-        # ==================== HELP MENU ====================
-        help_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="📚 Documentation", command=self._show_documentation)
-        help_menu.add_separator()
-        help_menu.add_command(label="🔄 Check for Updates...", command=self._check_for_updates_manual)
-        help_menu.add_command(label="About", command=self._show_about)
-        help_menu.add_separator()
-        help_menu.add_command(label="Exit", command=self.root.quit)
-
     def _create_toolbar(self):
         """Create toolbar with view selection buttons"""
         self.toolbar_frame = ttk.Frame(self.root, relief=tk.RAISED, borderwidth=1)
@@ -321,9 +363,11 @@ class DataLakeLoaderGUI:
         # Define toolbar buttons
         buttons_config = [
             ("data_explorer", "📂 Projets", self._show_data_explorer),
-            ("data_lake", "📊 Data Lake", self._show_datalake_frame),
+            ("root_folder", "📁 RootFolder", self._show_rootfolder_frame),
             ("databases", "🗄️ Databases", self._show_database_frame),
             ("queries", "📋 Queries", self._show_queries_frame),
+            ("settings", "⚙️ Settings", self._show_settings_frame),
+            ("help", "❓ Help", self._show_help_frame),
         ]
 
         for btn_id, label, command in buttons_config:
@@ -395,12 +439,11 @@ class DataLakeLoaderGUI:
         self.current_frame = frame_class(self.container, *args, **kwargs)
         self.current_frame.pack(fill=tk.BOTH, expand=True)
 
-    def _show_datalake_frame(self):
-        """Show Data Lake operations frame"""
+    def _show_rootfolder_frame(self):
+        """Show RootFolder operations frame"""
         self._switch_frame(DataLakeFrame, self)
-        self._update_toolbar_state("data_lake")
-        # self.status_label.config(text="Data Lake Operations")
-        logger.info("Switched to Data Lake view")
+        self._update_toolbar_state("root_folder")
+        logger.info("Switched to RootFolder view")
 
     def _dispatch_files_from_menu(self):
         """Dispatch files from menu"""
@@ -453,8 +496,19 @@ class DataLakeLoaderGUI:
         """Show Queries Manager frame"""
         self._switch_frame(QueriesManager)
         self._update_toolbar_state("queries")
-        # self.status_label.config(text="Saved Queries Manager")
         logger.info("Switched to Queries Manager view")
+
+    def _show_settings_frame(self):
+        """Show Settings frame"""
+        self._switch_frame(SettingsFrame, self)
+        self._update_toolbar_state("settings")
+        logger.info("Switched to Settings view")
+
+    def _show_help_frame(self):
+        """Show Help frame"""
+        self._switch_frame(HelpFrame, self)
+        self._update_toolbar_state("help")
+        logger.info("Switched to Help view")
 
     def _show_data_explorer(self):
         """Show Data Explorer frame"""
