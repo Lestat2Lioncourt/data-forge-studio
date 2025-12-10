@@ -8,12 +8,16 @@ from typing import Literal
 class Config:
     """Application configuration"""
 
-    DATA_ROOT_FOLDER = Path(r"D:\DataRootFolder")
+    # Default data root folder (relative to project)
+    # Users should configure this via File Root Manager
+    DATA_ROOT_FOLDER = Path("./data")
     INVALID_FILES_FOLDER = DATA_ROOT_FOLDER / "_InvalidFiles"
 
+    # Legacy Data Lake database configuration
+    # Note: Modern database connections should be managed via Connection Manager
     DB_TYPE: Literal["sqlserver", "postgres"] = "sqlserver"
     DB_HOST = "localhost"
-    DB_NAME = "ORBIT_DL"
+    DB_NAME = "dataforge_db"
     DB_USER = None
     DB_PASSWORD = None
 
