@@ -15,6 +15,7 @@ from ..database.connections_config import connections_manager, ConnectionsManage
 from ..utils.sql_highlighter import SQLHighlighter, format_sql, SQL_FORMAT_STYLES
 from ..config.user_preferences import get_preferences
 from .connection_dialog import ConnectionDialog
+from .custom_datagridview import CustomDataGridView
 
 
 class QueryTab:
@@ -118,52 +119,14 @@ class QueryTab:
         self.result_info_var = tk.StringVar(value="No query executed")
         ttk.Label(result_frame, textvariable=self.result_info_var, foreground="gray").pack(pady=2)
 
-        # Result treeview with scrollbars
-        tree_container = ttk.Frame(result_frame)
-        tree_container.pack(fill=tk.BOTH, expand=True)
-
-        result_scroll_y = ttk.Scrollbar(tree_container)
-        result_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
-
-        result_scroll_x = ttk.Scrollbar(tree_container, orient=tk.HORIZONTAL)
-        result_scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.result_tree = ttk.Treeview(
-            tree_container,
-            yscrollcommand=result_scroll_y.set,
-            xscrollcommand=result_scroll_x.set
+        # Use CustomDataGridView for results
+        self.result_grid = CustomDataGridView(
+            result_frame,
+            show_export=True,
+            show_copy=True,
+            show_raw_toggle=False
         )
-        self.result_tree.pack(fill=tk.BOTH, expand=True)
-
-        result_scroll_y.config(command=self.result_tree.yview)
-        result_scroll_x.config(command=self.result_tree.xview)
-
-        # Bind click events on headers for sorting (with Ctrl detection)
-        self.result_tree.bind('<Button-1>', self._on_tree_click)
-        self.result_tree.bind('<Control-Button-1>', self._on_tree_ctrl_click)
-
-    def _on_tree_click(self, event):
-        """Handle regular click on treeview (check if it's on header)"""
-        region = self.result_tree.identify_region(event.x, event.y)
-        if region == "heading":
-            column = self.result_tree.identify_column(event.x)
-            # Column is like '#1', '#2', etc.
-            col_index = int(column[1:]) - 1  # Convert to 0-based index
-            if 0 <= col_index < len(self.current_columns):
-                column_name = self.current_columns[col_index]
-                self._on_column_click(column_name, ctrl_pressed=False)
-                return "break"  # Prevent default behavior
-
-    def _on_tree_ctrl_click(self, event):
-        """Handle Ctrl+click on treeview (check if it's on header)"""
-        region = self.result_tree.identify_region(event.x, event.y)
-        if region == "heading":
-            column = self.result_tree.identify_column(event.x)
-            col_index = int(column[1:]) - 1
-            if 0 <= col_index < len(self.current_columns):
-                column_name = self.current_columns[col_index]
-                self._on_column_click(column_name, ctrl_pressed=True)
-                return "break"
+        self.result_grid.pack(fill=tk.BOTH, expand=True)
 
     def _execute_query(self):
         """Execute the query"""
@@ -176,9 +139,6 @@ class QueryTab:
         self.original_query = query
         self.active_sorts = self._parse_order_by(query)
 
-        # Clear previous results
-        self.result_tree.delete(*self.result_tree.get_children())
-
         try:
             cursor = self.connection.cursor()
             cursor.execute(query)
@@ -188,28 +148,22 @@ class QueryTab:
                 columns = [column[0] for column in cursor.description]
                 self.current_columns = columns
 
-                self.result_tree["columns"] = columns
-                self.result_tree["show"] = "headings"
-
-                # Configure columns with visual indicators (initial width will be overridden by autosize)
-                for col in columns:
-                    # Set header with visual indicator
-                    header_text = self._get_column_header_text(col)
-                    self.result_tree.heading(col, text=header_text)
-                    self.result_tree.column(col, minwidth=50)  # No fixed width, autosize will set it
-
                 rows = cursor.fetchall()
-                for row in rows:
-                    self.result_tree.insert("", "end", values=tuple(row))
 
-                # Auto-size columns based on content
-                self._autosize_treeview_columns(self.result_tree, columns, rows)
+                # Convert rows to list of dictionaries for CustomDataGridView
+                data = []
+                for row in rows:
+                    data.append({col: row[i] for i, col in enumerate(columns)})
+
+                # Load data into CustomDataGridView
+                self.result_grid.load_data(data, columns)
 
                 self.result_info_var.set(f"✓ {len(rows)} row(s) returned")
                 logger.info(f"Query executed on {self.db_connection.name}: {len(rows)} rows returned")
             else:
                 # INSERT/UPDATE/DELETE query
                 rows_affected = cursor.rowcount
+                self.result_grid.clear()
                 self.result_info_var.set(f"✓ Query executed. {rows_affected} row(s) affected")
                 logger.important(f"Query executed on {self.db_connection.name}: {rows_affected} rows affected")
 
@@ -219,39 +173,6 @@ class QueryTab:
             self.result_info_var.set(f"✗ Error: {str(e)}")
             messagebox.showerror("Query Error", f"Failed to execute query:\n{e}")
             logger.error(f"Query execution failed on {self.db_connection.name}: {e}")
-
-    def _autosize_treeview_columns(self, tree, columns, rows):
-        """Auto-size treeview columns based on content"""
-        import tkinter.font as tkfont
-
-        # Get default font
-        try:
-            font = tkfont.nametofont("TkDefaultFont")
-        except:
-            font = tkfont.Font(family="TkDefaultFont", size=10)
-
-        for col in columns:
-            # Calculate header width (use actual header text with indicators like "1▼ Nom")
-            header_text = tree.heading(col)['text'] if tree.heading(col) else col
-            header_width = font.measure(header_text) + 20  # Add padding
-
-            # Calculate max content width (check first 100 rows for performance)
-            max_content_width = header_width
-            for row in rows[:100]:
-                col_index = columns.index(col)
-                if col_index < len(row):
-                    value = str(row[col_index]) if row[col_index] is not None else ""
-                    content_width = font.measure(value) + 20  # Add padding
-                    max_content_width = max(max_content_width, content_width)
-
-            # Set column width with limits
-            # Min: 80px, Max: 500px for readability
-            optimal_width = max(80, min(max_content_width, 500))
-            tree.column(col, width=optimal_width, minwidth=50, stretch=False)
-
-        # Force scrollbar update and geometry recalculation
-        tree.update_idletasks()
-        tree.update()
 
     def _parse_order_by(self, sql: str) -> list:
         """
@@ -325,89 +246,6 @@ class QueryTab:
             return f"{base_query}\n{order_clause}"
         else:
             return base_query
-
-    def _on_column_click(self, column_name: str, ctrl_pressed: bool):
-        """Handle click on column header for sorting"""
-        if ctrl_pressed:
-            # Ctrl+click: Add to multi-column sort or toggle existing
-            existing_index = None
-            for i, (col, direction) in enumerate(self.active_sorts):
-                if col == column_name:
-                    existing_index = i
-                    break
-
-            if existing_index is not None:
-                # Toggle direction
-                col, current_direction = self.active_sorts[existing_index]
-                new_direction = 'DESC' if current_direction == 'ASC' else 'ASC'
-                self.active_sorts[existing_index] = (col, new_direction)
-            else:
-                # Add new column to sort
-                self.active_sorts.append((column_name, 'ASC'))
-        else:
-            # Regular click: Sort only by this column
-            # If already sorting by this column only, toggle direction
-            if len(self.active_sorts) == 1 and self.active_sorts[0][0] == column_name:
-                current_direction = self.active_sorts[0][1]
-                new_direction = 'DESC' if current_direction == 'ASC' else 'ASC'
-                self.active_sorts = [(column_name, new_direction)]
-            else:
-                # New sort
-                self.active_sorts = [(column_name, 'ASC')]
-
-        # Re-execute query with new sort
-        self._execute_with_current_sort()
-
-    def _execute_with_current_sort(self):
-        """Re-execute query with current sort settings"""
-        # Get query with current sort
-        query_with_sort = self._get_query_with_sort()
-
-        # Execute it
-        try:
-            # Clear previous results
-            self.result_tree.delete(*self.result_tree.get_children())
-
-            cursor = self.connection.cursor()
-            cursor.execute(query_with_sort)
-
-            if cursor.description:
-                # SELECT query - show results
-                columns = [column[0] for column in cursor.description]
-
-                # Update headers with visual indicators
-                for col in columns:
-                    header_text = self._get_column_header_text(col)
-                    self.result_tree.heading(col, text=header_text)
-
-                rows = cursor.fetchall()
-                for row in rows:
-                    self.result_tree.insert("", "end", values=tuple(row))
-
-                # Auto-size columns based on content
-                self._autosize_treeview_columns(self.result_tree, columns, rows)
-
-                self.result_info_var.set(f"✓ {len(rows)} row(s) returned")
-                logger.info(f"Query executed with sort on {self.db_connection.name}: {len(rows)} rows returned")
-
-            self.connection.commit()
-
-        except Exception as e:
-            self.result_info_var.set(f"✗ Error: {str(e)}")
-            messagebox.showerror("Query Error", f"Failed to execute query:\n{e}")
-            logger.error(f"Query execution with sort failed on {self.db_connection.name}: {e}")
-
-    def _get_column_header_text(self, column_name: str) -> str:
-        """Get header text with sort indicator (e.g., '1▼ Nom')"""
-        # Find if this column is in active sorts
-        for i, (col, direction) in enumerate(self.active_sorts):
-            if col == column_name:
-                arrow = '▼' if direction == 'DESC' else '▲'
-                position = i + 1
-                return f"{position}{arrow} {column_name}"
-
-        # Not sorted
-        return column_name
 
     def _clear_query(self):
         """Clear query text"""
@@ -699,7 +537,7 @@ class DatabaseManager(ttk.Frame):
 
         ttk.Button(toolbar, text="➕ New Query Tab", command=self._new_query_tab).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="📂 Load Saved Query", command=self._load_saved_query).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="🗑 Close Tab", command=self._close_current_tab).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="🔌 New Connection", command=self._new_connection).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="⚙️ Manage Connections", command=self._manage_connections).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="🔄 Refresh Schema", command=self._refresh_current_schema).pack(side=tk.LEFT, padx=2)
 
@@ -732,6 +570,9 @@ class DatabaseManager(ttk.Frame):
 
         self.notebook = ttk.Notebook(right_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Bind right-click on tabs to show context menu
+        self.notebook.bind("<Button-3>", self._on_tab_right_click)
 
         # Welcome tab
         self._create_welcome_tab()
@@ -1272,6 +1113,52 @@ class DatabaseManager(ttk.Frame):
         self.notebook.forget(current_tab_index)
         logger.info("Closed query tab")
 
+    def _on_tab_right_click(self, event):
+        """Handle right-click on notebook tab"""
+        # Identify which tab was clicked
+        try:
+            clicked_tab = self.notebook.tk.call(self.notebook._w, "identify", "tab", event.x, event.y)
+        except:
+            return  # Click was not on a tab
+
+        if clicked_tab == '':
+            return  # Click was not on a tab
+
+        # Get tab index
+        tab_index = int(clicked_tab)
+
+        # Don't show menu for welcome tab
+        if tab_index == 0 and self.notebook.tab(0, "text") == "Welcome":
+            return
+
+        # Show context menu
+        context_menu = tk.Menu(self, tearoff=0)
+        context_menu.add_command(
+            label="❌ Close Tab",
+            command=lambda: self._close_tab_by_index(tab_index)
+        )
+
+        try:
+            context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            context_menu.grab_release()
+
+    def _close_tab_by_index(self, tab_index: int):
+        """Close a tab by its index"""
+        # Don't close welcome tab
+        if tab_index == 0 and self.notebook.tab(0, "text") == "Welcome":
+            return
+
+        # Find and remove the query tab
+        tab_widget = self.notebook.nametowidget(self.notebook.tabs()[tab_index])
+        for i, qt in enumerate(self.query_tabs):
+            if qt.frame == tab_widget:
+                self.query_tabs.pop(i)
+                break
+
+        self.notebook.forget(tab_index)
+        logger.info("Closed query tab")
+
     def _refresh_current_schema(self):
         """Refresh schema tree"""
         self._load_all_connections()
@@ -1477,6 +1364,18 @@ class DatabaseManager(ttk.Frame):
                     self._load_database_schema(self.connections[db_conn_id], item, db_conn)
                     logger.info(f"Refreshed schema for: {db_conn.name}")
                 break
+
+    def _new_connection(self):
+        """Open new connection dialog"""
+        parent = self.winfo_toplevel()
+
+        dialog = ConnectionDialog(parent)
+        result = dialog.show()
+
+        if result:
+            # Refresh connections list
+            self._load_all_connections()
+            logger.important(f"Created new connection: {result.name}")
 
     def _manage_connections(self):
         """Open connections management window"""

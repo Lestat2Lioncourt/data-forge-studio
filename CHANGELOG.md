@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-12-10
+
+### Fixed
+- **Multi-column sorting in CustomDataGridView**: Completely rewrote sorting algorithm using Python's stable sort
+  - Fixed broken logic where ASC and DESC used the same values
+  - Reduced code from 82 lines to 45 lines
+  - Sorting now properly works with multiple columns using Ctrl+Click
+- **Column auto-sizing**: Fixed columns not respecting width settings
+  - Added `stretch=False` to force Treeview columns to respect width parameter
+  - Columns now properly auto-size to content width
+- **Fullscreen mode sorting**: Added click handlers for column headers in fullscreen
+  - New `_on_fullscreen_header_click` method
+  - New `_refresh_fullscreen_display` method
+  - Fullscreen now supports full sorting functionality
+- **Saved Queries execution**: Fixed queries redirecting to Database Manager
+  - Queries now execute locally in Saved Queries Manager
+  - Restored result grid display
+  - Added `_connect_sqlite` method for SQLite connections
+  - Fixed connection handling for both SQLite and other databases
+- **Fullscreen consistency**: Removed custom fullscreen implementation in Data Explorer
+  - Deleted 51 lines of duplicate code
+  - All views now use consistent fullscreen behavior from CustomDataGridView
+
 ## [0.3.0] - 2025-12-10
 
 ### Added
@@ -75,7 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simple GUI interface
 - CLI support
 
-[Unreleased]: https://github.com/Lestat2Lioncourt/data-forge-studio/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Lestat2Lioncourt/data-forge-studio/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Lestat2Lioncourt/data-forge-studio/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Lestat2Lioncourt/data-forge-studio/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Lestat2Lioncourt/data-forge-studio/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Lestat2Lioncourt/data-forge-studio/releases/tag/v0.1.0

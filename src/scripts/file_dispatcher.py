@@ -4,7 +4,6 @@ File Dispatcher Module - Step 1: Move files to their respective dataset folders
 import shutil
 from pathlib import Path
 from typing import List, Tuple
-from ..utils.config import Config
 from ..utils.logger import logger
 
 
@@ -12,8 +11,10 @@ class FileDispatcher:
     """Handles dispatching files from root folder to contract/dataset folders"""
 
     def __init__(self, root_folder: Path = None):
-        self.root_folder = root_folder or Config.DATA_ROOT_FOLDER
-        self.invalid_folder = Config.INVALID_FILES_FOLDER
+        if not root_folder:
+            raise ValueError("root_folder is required")
+        self.root_folder = root_folder
+        self.invalid_folder = root_folder / "_InvalidFiles"
         self.stats = {
             "dispatched": 0,
             "invalid": 0,
@@ -30,7 +31,8 @@ class FileDispatcher:
         if not self.root_folder.exists():
             raise ValueError(f"Root folder does not exist: {self.root_folder}")
 
-        self.invalid_folder.mkdir(parents=True, exist_ok=True)
+        if not self.invalid_folder.exists():
+            raise ValueError(f"Invalid files folder does not exist: {self.invalid_folder}. Please create this folder before running dispatch.")
 
         files = [f for f in self.root_folder.iterdir() if f.is_file()]
 

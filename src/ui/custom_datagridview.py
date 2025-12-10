@@ -27,8 +27,9 @@ class CustomDataGridView(ttk.Frame):
     - State preservation (scroll position, sort, selection)
     """
 
-    def __init__(self, parent, show_export=True, show_copy=True, show_fullscreen=True,
-                 show_raw_toggle=False, on_raw_toggle=None, auto_row_height=True, **grid_kwargs):
+    def __init__(self, parent, show_export=True, show_copy=True,
+                 show_raw_toggle=False, on_raw_toggle=None, auto_row_height=True,
+                 show_grid_toggle=True, **grid_kwargs):
         """
         Initialize CustomDataGridView
 
@@ -36,20 +37,21 @@ class CustomDataGridView(ttk.Frame):
             parent: Parent widget
             show_export: Show export button
             show_copy: Show copy button
-            show_fullscreen: Show fullscreen toggle button
             show_raw_toggle: Show raw/table toggle button (for CSV)
             on_raw_toggle: Callback for raw/table toggle
             auto_row_height: Automatically adjust row height based on content with line breaks
+            show_grid_toggle: Show grid display toggle button (alternating row colors)
             **grid_kwargs: Additional arguments
         """
         super().__init__(parent)
 
         self.show_export = show_export
         self.show_copy = show_copy
-        self.show_fullscreen = show_fullscreen
         self.show_raw_toggle = show_raw_toggle
         self.on_raw_toggle_callback = on_raw_toggle
         self.auto_row_height = auto_row_height
+        self.show_grid_toggle = show_grid_toggle
+        self.grid_display_enabled = False  # Start with grid display off
 
         # Create unique style name for this instance
         global _style_counter
@@ -62,6 +64,8 @@ class CustomDataGridView(ttk.Frame):
         self.active_sorts = []  # List of (column_name, direction) tuples for multi-column sort
         self.is_fullscreen = False
         self.saved_state = {}  # Store state before fullscreen
+        self.fullscreen_window = None  # Reference to fullscreen Toplevel window
+        self.fullscreen_grid = None  # Reference to grid in fullscreen window
 
         # Callbacks
         self.on_fullscreen_callback: Optional[Callable] = None
@@ -85,9 +89,13 @@ class CustomDataGridView(ttk.Frame):
         if self.show_raw_toggle:
             ttk.Button(toolbar_frame, text="🔄 Raw/Table", command=self._toggle_raw_table, width=12).pack(side=tk.LEFT, padx=2)
 
-        if self.show_fullscreen:
-            self.fullscreen_btn = ttk.Button(toolbar_frame, text="⛶ Fullscreen", command=self._toggle_fullscreen, width=12)
-            self.fullscreen_btn.pack(side=tk.RIGHT, padx=2)
+        if self.show_grid_toggle:
+            self.grid_btn = ttk.Button(toolbar_frame, text="⚏ Grid Off", command=self._toggle_grid_display, width=10)
+            self.grid_btn.pack(side=tk.LEFT, padx=2)
+
+        # Fullscreen button (always available)
+        self.fullscreen_btn = ttk.Button(toolbar_frame, text="⛶ Fullscreen", command=self._toggle_fullscreen, width=12)
+        self.fullscreen_btn.pack(side=tk.RIGHT, padx=2)
 
         # Info label
         self.info_label = ttk.Label(toolbar_frame, text="", foreground="gray", font=("Arial", 8))
@@ -109,9 +117,9 @@ class CustomDataGridView(ttk.Frame):
         style = ttk.Style()
         # Copy the layout from the default Treeview style
         style.layout(self.style_name, style.layout("Treeview"))
-        # Now configure the style
-        style.configure(self.style_name, rowheight=25)
-        style.configure(f"{self.style_name}.Heading", font=("Arial", 9, "bold"))
+        # Now configure the style with Consolas monospace font
+        style.configure(self.style_name, rowheight=25, font=("Consolas", 9))
+        style.configure(f"{self.style_name}.Heading", font=("Consolas", 9, "bold"))
 
         # Treeview in table mode with unique style
         self.grid = ttk.Treeview(
@@ -170,12 +178,16 @@ class CustomDataGridView(ttk.Frame):
             values = [row_data.get(col, '') for col in columns]
             self.grid.insert('', 'end', values=values)
 
-        # Auto-size columns based on content
-        self._autosize_columns()
+        # Defer autosize to ensure widget is fully rendered (critical for PanedWindows)
+        self.after(1, self._autosize_columns)
 
         # Auto-size row height if enabled
         if self.auto_row_height:
-            self._autosize_row_height()
+            self.after(1, self._autosize_row_height)
+
+        # Apply grid styling if enabled
+        if self.grid_display_enabled:
+            self.after(1, self._apply_grid_styling)
 
         # Update info
         self.info_label.config(text=f"{len(data)} rows × {len(columns)} columns")
@@ -213,8 +225,8 @@ class CustomDataGridView(ttk.Frame):
         """Auto-size columns based on content"""
         import tkinter.font as tkfont
 
-        # Get font used in treeview
-        font = tkfont.Font(family="Arial", size=9)
+        # Get font used in treeview (Consolas monospace)
+        font = tkfont.Font(family="Consolas", size=9)
 
         for col in self.columns:
             # Calculate width based on column header
@@ -233,7 +245,8 @@ class CustomDataGridView(ttk.Frame):
             # Set a reasonable max width (500px) and min width (80px)
             max_width = min(max(max_width, 80), 500)
 
-            self.grid.column(col, width=max_width)
+            # CRITICAL: Set stretch=False to force column to respect width
+            self.grid.column(col, width=max_width, minwidth=max_width, stretch=False)
 
         logger.info("Auto-sized columns")
 
@@ -244,8 +257,8 @@ class CustomDataGridView(ttk.Frame):
         """
         import tkinter.font as tkfont
 
-        # Get font used in treeview
-        font = tkfont.Font(family="Arial", size=9)
+        # Get font used in treeview (Consolas monospace)
+        font = tkfont.Font(family="Consolas", size=9)
         line_height = font.metrics('linespace')
 
         # Base height with padding
@@ -389,56 +402,20 @@ class CustomDataGridView(ttk.Frame):
             return
 
         try:
-            # Sort self.data (list of dicts) using multi-column sorting
-            def sort_key(row_dict):
-                """Create sort key tuple for multi-column sort"""
-                keys = []
-                for col_name, direction in self.active_sorts:
+            # Use Python's stable sort in reverse order of sort columns
+            # This is the standard way to do multi-column sorting with mixed ASC/DESC
+            # See: https://docs.python.org/3/howto/sorting.html#sort-stability-and-complex-sorts
+            for col_name, direction in reversed(self.active_sorts):
+                def sort_key(row_dict):
                     val = row_dict.get(col_name, '')
-
                     # Try to convert to number for proper sorting
                     try:
-                        numeric_val = float(val) if val else 0
-                        keys.append(numeric_val if direction == 'ASC' else -numeric_val)
+                        return (0, float(val) if val else 0)  # 0 = numeric type
                     except (ValueError, TypeError):
-                        # String sorting
-                        str_val = str(val).lower()
-                        keys.append(str_val if direction == 'ASC' else str_val)
+                        return (1, str(val).lower())  # 1 = string type
 
-                return tuple(keys)
-
-            # Sort data in place
-            self.data.sort(key=sort_key)
-
-            # If all columns have DESC, we need to reverse
-            # (because we can't negate strings, we sort them normally and reverse)
-            all_desc = all(direction == 'DESC' for _, direction in self.active_sorts)
-            has_string_cols = False
-            for col_name, _ in self.active_sorts:
-                sample_val = self.data[0].get(col_name, '') if self.data else ''
-                try:
-                    float(sample_val) if sample_val else 0
-                except (ValueError, TypeError):
-                    has_string_cols = True
-                    break
-
-            if has_string_cols and any(direction == 'DESC' for _, direction in self.active_sorts):
-                # For mixed ASC/DESC with strings, we need a different approach
-                # Sort using a proper comparator
-                def multi_compare(row_dict):
-                    keys = []
-                    for col_name, direction in self.active_sorts:
-                        val = row_dict.get(col_name, '')
-                        try:
-                            numeric_val = float(val) if val else 0
-                            keys.append((0, numeric_val * (-1 if direction == 'DESC' else 1)))
-                        except (ValueError, TypeError):
-                            str_val = str(val).lower()
-                            # Use tuple (type, value) to separate numeric and string sorts
-                            keys.append((1, str_val))
-                    return keys
-
-                self.data.sort(key=multi_compare, reverse=any(d == 'DESC' for _, d in self.active_sorts) and has_string_cols)
+                # Sort with reverse flag based on direction
+                self.data.sort(key=sort_key, reverse=(direction == 'DESC'))
 
             # Clear grid and reload data
             self.grid.delete(*self.grid.get_children())
@@ -449,6 +426,10 @@ class CustomDataGridView(ttk.Frame):
             # Re-apply row height if auto-sizing is enabled
             if self.auto_row_height:
                 self._autosize_row_height()
+
+            # Apply grid styling if enabled
+            if self.grid_display_enabled:
+                self._apply_grid_styling()
 
             # Update headers with visual indicators
             for col in self.columns:
@@ -472,6 +453,48 @@ class CustomDataGridView(ttk.Frame):
                 # Check if Ctrl is pressed
                 ctrl_pressed = (event.state & 0x0004) != 0
                 self._on_column_click(self.columns[col_index], ctrl_pressed)
+
+    def _on_fullscreen_header_click(self, event):
+        """Handle header click in fullscreen mode for sorting"""
+        if not self.fullscreen_grid:
+            return
+
+        region = self.fullscreen_grid.identify_region(event.x, event.y)
+        if region == "heading":
+            column = self.fullscreen_grid.identify_column(event.x)
+            col_index = int(column.replace('#', '')) - 1
+            if 0 <= col_index < len(self.columns):
+                # Check if Ctrl is pressed
+                ctrl_pressed = (event.state & 0x0004) != 0
+                # Apply sorting to self.data
+                self._on_column_click(self.columns[col_index], ctrl_pressed)
+                # Refresh fullscreen display
+                self._refresh_fullscreen_display()
+
+    def _refresh_fullscreen_display(self):
+        """Refresh fullscreen grid after sorting"""
+        if not self.fullscreen_grid or not self.data or not self.columns:
+            return
+
+        try:
+            # Clear and reload data
+            self.fullscreen_grid.delete(*self.fullscreen_grid.get_children())
+            for row_data in self.data:
+                values = [row_data.get(col, '') for col in self.columns]
+                self.fullscreen_grid.insert('', 'end', values=values)
+
+            # Update column headers with sort indicators
+            for col in self.columns:
+                header_text = self._get_column_header_text(col)
+                self.fullscreen_grid.heading(col, text=header_text)
+
+            # Re-apply row height if auto-sizing is enabled
+            if self.auto_row_height:
+                self._autosize_fullscreen_row_height()
+
+            logger.info("Refreshed fullscreen display after sorting")
+        except Exception as e:
+            logger.error(f"Error refreshing fullscreen display: {e}")
 
     # ==================== Export ====================
 
@@ -559,7 +582,14 @@ class CustomDataGridView(ttk.Frame):
         self.is_fullscreen = not self.is_fullscreen
 
         if self.on_fullscreen_callback:
+            # Use custom callback if provided
             self.on_fullscreen_callback(self.is_fullscreen)
+        else:
+            # Use default implementation
+            if self.is_fullscreen:
+                self._default_fullscreen_enter()
+            else:
+                self._default_fullscreen_exit()
 
         # Update button text
         if self.is_fullscreen:
@@ -568,6 +598,148 @@ class CustomDataGridView(ttk.Frame):
             self.fullscreen_btn.config(text="⛶ Fullscreen")
 
         logger.info(f"Fullscreen mode: {self.is_fullscreen}")
+
+    def _default_fullscreen_enter(self):
+        """Default fullscreen implementation - create Toplevel window with data only"""
+        # Create fullscreen window
+        self.fullscreen_window = tk.Toplevel(self.winfo_toplevel())
+        self.fullscreen_window.title("Data View - Fullscreen")
+
+        # Make it fullscreen
+        self.fullscreen_window.attributes('-fullscreen', True)
+
+        # Create container for grid with scrollbars (NO TOOLBAR - data only)
+        grid_container = ttk.Frame(self.fullscreen_window)
+        grid_container.pack(fill=tk.BOTH, expand=True)
+
+        # Vertical scrollbar
+        v_scrollbar = ttk.Scrollbar(grid_container, orient=tk.VERTICAL)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Horizontal scrollbar
+        h_scrollbar = ttk.Scrollbar(grid_container, orient=tk.HORIZONTAL)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Create Treeview directly (no toolbar)
+        self.fullscreen_grid = ttk.Treeview(
+            grid_container,
+            yscrollcommand=v_scrollbar.set,
+            xscrollcommand=h_scrollbar.set,
+            selectmode='extended',
+            style=self.style_name
+        )
+        self.fullscreen_grid.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Configure scrollbars
+        v_scrollbar.config(command=self.fullscreen_grid.yview)
+        h_scrollbar.config(command=self.fullscreen_grid.xview)
+
+        # Copy data from original grid to fullscreen grid
+        if self.data and self.columns:
+            # Configure columns
+            self.fullscreen_grid['columns'] = self.columns
+            self.fullscreen_grid['show'] = 'headings'
+
+            # Set up column headers with sort indicators and click handlers
+            for col in self.columns:
+                header_text = self._get_column_header_text(col)
+                self.fullscreen_grid.heading(col, text=header_text)
+                self.fullscreen_grid.column(col, width=100, anchor='w')
+
+            # Bind click handler for sorting
+            self.fullscreen_grid.bind("<Button-1>", self._on_fullscreen_header_click)
+
+            # Insert data (self.data is already sorted by _apply_sort)
+            for row_data in self.data:
+                values = [row_data.get(col, '') for col in self.columns]
+                self.fullscreen_grid.insert('', 'end', values=values)
+
+            # Auto-size columns
+            self._autosize_fullscreen_columns()
+
+            # Auto-size row height if enabled
+            if self.auto_row_height:
+                self._autosize_fullscreen_row_height()
+
+        # Bind Esc to close fullscreen
+        self.fullscreen_window.bind("<Escape>", lambda e: self._toggle_fullscreen())
+
+        # Bind window close to exit fullscreen
+        self.fullscreen_window.protocol("WM_DELETE_WINDOW", self._default_fullscreen_exit)
+
+        logger.info("Entering fullscreen mode - Data-only view created")
+
+    def _default_fullscreen_exit(self):
+        """Exit default fullscreen mode"""
+        if self.fullscreen_window:
+            self.fullscreen_window.destroy()
+            self.fullscreen_window = None
+            self.fullscreen_grid = None
+
+            # Reset button state
+            self.is_fullscreen = False
+            self.fullscreen_btn.config(text="⛶ Fullscreen")
+
+            logger.info("Exited fullscreen mode")
+
+    def _autosize_fullscreen_columns(self):
+        """Auto-size columns in fullscreen grid"""
+        if not self.fullscreen_grid or not self.columns:
+            return
+
+        import tkinter.font as tkfont
+        font = tkfont.Font(family="Consolas", size=9)
+
+        for col in self.columns:
+            # Calculate width based on column header
+            header_width = font.measure(col) + 20
+
+            # Calculate width based on content (sample first 100 rows)
+            max_width = header_width
+            for child in list(self.fullscreen_grid.get_children())[:100]:
+                values = self.fullscreen_grid.item(child)['values']
+                col_index = self.columns.index(col)
+                if col_index < len(values):
+                    cell_value = str(values[col_index])
+                    cell_width = font.measure(cell_value) + 20
+                    max_width = max(max_width, cell_width)
+
+            # Set reasonable limits
+            max_width = min(max(max_width, 80), 500)
+            self.fullscreen_grid.column(col, width=max_width)
+
+        logger.info("Auto-sized fullscreen columns")
+
+    def _autosize_fullscreen_row_height(self):
+        """Auto-size row height in fullscreen grid"""
+        if not self.fullscreen_grid:
+            return
+
+        import tkinter.font as tkfont
+        font = tkfont.Font(family="Consolas", size=9)
+        line_height = font.metrics('linespace')
+
+        base_height = 25
+        max_lines = 1
+
+        # Find maximum number of lines (sample first 200 rows)
+        for child in list(self.fullscreen_grid.get_children())[:200]:
+            values = self.fullscreen_grid.item(child)['values']
+            for value in values:
+                if value:
+                    value_str = str(value)
+                    line_count = value_str.count('\n') + 1
+                    max_lines = max(max_lines, line_count)
+
+        # Calculate required height
+        required_height = max(base_height, (line_height * max_lines) + 10)
+        required_height = min(required_height, 400)
+
+        # Apply row height using same style name
+        style = ttk.Style()
+        style.configure(self.style_name, rowheight=required_height)
+
+        logger.info(f"Auto-sized fullscreen row height to {required_height}px")
 
     def set_on_fullscreen(self, callback: Callable):
         """Set callback for fullscreen toggle"""
@@ -579,6 +751,57 @@ class CustomDataGridView(ttk.Frame):
         """Toggle between raw and table view (for CSV)"""
         if self.on_raw_toggle_callback:
             self.on_raw_toggle_callback()
+
+    # ==================== Grid Display Toggle ====================
+
+    def _toggle_grid_display(self):
+        """Toggle grid display (alternating row colors)"""
+        self.grid_display_enabled = not self.grid_display_enabled
+
+        # Update button text
+        if self.grid_display_enabled:
+            self.grid_btn.config(text="⚏ Grid On")
+        else:
+            self.grid_btn.config(text="⚏ Grid Off")
+
+        # Apply or remove grid styling
+        self._apply_grid_styling()
+
+        logger.info(f"Grid display: {'enabled' if self.grid_display_enabled else 'disabled'}")
+
+    def _apply_grid_styling(self):
+        """Apply or remove alternating row colors for grid display"""
+        # Configure tags for alternating rows FIRST
+        self.grid.tag_configure('oddrow', background='#f5f5f5')  # Very light gray
+        self.grid.tag_configure('evenrow', background='white')
+
+        # Verify tag configuration
+        oddrow_config = self.grid.tag_configure('oddrow')
+        evenrow_config = self.grid.tag_configure('evenrow')
+        logger.info(f"Tag 'oddrow' config: {oddrow_config}")
+        logger.info(f"Tag 'evenrow' config: {evenrow_config}")
+
+        # Apply tags to all rows
+        if self.grid_display_enabled:
+            children = self.grid.get_children()
+            logger.info(f"Applying grid styling to {len(children)} rows")
+            for idx, child in enumerate(children):
+                tag = 'evenrow' if idx % 2 == 0 else 'oddrow'
+                self.grid.item(child, tags=(tag,))
+                if idx < 5:  # Log first 5 rows for debugging
+                    item_info = self.grid.item(child)
+                    logger.info(f"Row {idx}: applied tag '{tag}', item info: {item_info}")
+
+            # Force widget update to show changes immediately
+            self.grid.update_idletasks()
+        else:
+            # Remove all tags
+            for child in self.grid.get_children():
+                self.grid.item(child, tags=())
+            logger.info("Removed all grid styling tags")
+
+            # Force widget update
+            self.grid.update_idletasks()
 
     # ==================== Events ====================
 

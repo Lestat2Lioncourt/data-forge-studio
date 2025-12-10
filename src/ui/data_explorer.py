@@ -17,13 +17,30 @@ from ..utils.logger import logger
 from ..utils.icon_loader import icon_loader
 from .custom_treeview import CustomTreeView
 from .custom_datagridview import CustomDataGridView
+from .base_view_frame import BaseViewFrame
 
 
-class DataExplorer(ttk.Frame):
+class DataExplorer(BaseViewFrame):
     """Data Explorer - Navigate RootFolders and view files"""
 
     def __init__(self, parent, gui_parent=None):
-        super().__init__(parent)
+        # Define toolbar buttons
+        toolbar_buttons = [
+            ("🔄 Refresh", self._refresh),
+            ("➕ New Project", self._create_new_project),
+        ]
+
+        # Initialize base with standard layout
+        super().__init__(
+            parent,
+            toolbar_buttons=toolbar_buttons,
+            show_left_panel=True,
+            left_weight=1,
+            right_weight=2,
+            top_weight=0,
+            bottom_weight=1
+        )
+
         self.gui_parent = gui_parent
         # Preload icons
         icon_loader.preload_all()
@@ -54,26 +71,10 @@ class DataExplorer(ttk.Frame):
 
     def _create_widgets(self):
         """Create explorer widgets"""
-        # Title removed - now using toolbar for navigation
+        # BaseViewFrame already created main_paned, left_frame, right_paned with top_frame and bottom_frame
 
-        # Main paned window (tree on left, content on right)
-        self.main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Left: CustomTreeView with integrated toolbar
-        self.left_frame = ttk.Frame(self.main_paned, width=350)
-        self.main_paned.add(self.left_frame, weight=1)
-
-        # Define toolbar buttons for the tree
-        toolbar_buttons = [
-            ("🔄", "Refresh", self._refresh),
-            ("⬆️", "Up Level", self._go_up),
-            ("🏠", "Root", self._go_to_root),
-            ("➕", "New Project", self._create_new_project),
-        ]
-
-        # Create CustomTreeView
-        self.custom_tree = CustomTreeView(self.left_frame, toolbar_buttons=toolbar_buttons)
+        # Create CustomTreeView in left panel (without toolbar - now at top level)
+        self.custom_tree = CustomTreeView(self.left_frame)
         self.custom_tree.pack(fill=tk.BOTH, expand=True)
 
         # Set event callbacks
@@ -85,13 +86,9 @@ class DataExplorer(ttk.Frame):
         # Keep reference to the internal tree for compatibility
         self.file_tree = self.custom_tree.tree
 
-        # Right: Vertical paned window (middle = statistics, bottom = data)
-        self.right_paned = ttk.PanedWindow(self.main_paned, orient=tk.VERTICAL)
-        self.main_paned.add(self.right_paned, weight=2)
-
-        # ===== MIDDLE PANEL: Column Statistics =====
-        self.middle_frame = ttk.Frame(self.right_paned, height=200)
-        self.right_paned.add(self.middle_frame, weight=0)
+        # ===== TOP PANEL: Column Statistics =====
+        # Use self.top_frame from BaseViewFrame
+        self.middle_frame = self.top_frame  # Alias for compatibility
 
         ttk.Label(self.middle_frame, text="Column Statistics", font=("Arial", 10, "bold")).pack(pady=5)
 
@@ -100,14 +97,13 @@ class DataExplorer(ttk.Frame):
             self.middle_frame,
             show_export=False,
             show_copy=False,
-            show_fullscreen=False,
             show_raw_toggle=False
         )
         self.stats_grid.pack(fill=tk.BOTH, expand=True)
 
         # ===== BOTTOM PANEL: File viewer =====
-        self.right_frame = ttk.Frame(self.right_paned)
-        self.right_paned.add(self.right_frame, weight=3)
+        # Use self.bottom_frame from BaseViewFrame
+        self.right_frame = self.bottom_frame  # Alias for compatibility
 
         # File info
         self.info_frame = ttk.Frame(self.right_frame, padding="5")
@@ -217,13 +213,11 @@ class DataExplorer(ttk.Frame):
             self.viewer_frame,
             show_export=True,
             show_copy=True,
-            show_fullscreen=True,
             show_raw_toggle=False,  # Toggle is in raw viewer toolbar
             on_raw_toggle=None
         )
 
-        # Set fullscreen callback
-        self.data_grid.set_on_fullscreen(self._on_datagrid_fullscreen)
+        # Use default fullscreen implementation (data-only view without buttons)
 
         # Start with raw viewer visible
         self.raw_viewer_container.pack(fill=tk.BOTH, expand=True)
@@ -375,10 +369,10 @@ class DataExplorer(ttk.Frame):
 
     def _add_project_resources(self, parent_node, project_id):
         """Add RootFolders, Databases and Saved Queries directly under project (no sections)"""
-        # Add project's root folders directly
-        root_folders = config_db.get_project_file_roots(project_id)
-        for root_folder in root_folders:
-            self._add_root_folder_node(parent_node, root_folder, project_id)
+        # Add project's root folders directly (with subfolder paths)
+        root_folders_with_paths = config_db.get_project_file_roots_with_paths(project_id)
+        for root_folder, subfolder_path in root_folders_with_paths:
+            self._add_root_folder_node(parent_node, root_folder, project_id, subfolder_path)
 
         # Add project's databases directly
         databases = config_db.get_project_databases(project_id)
@@ -427,15 +421,29 @@ class DataExplorer(ttk.Frame):
                     )
                     self._item_types[query_item] = ("saved_query", query.id, project_id)
 
-    def _add_root_folder_node(self, parent_node, root_folder: FileRoot, project_id=None):
-        """Add a root folder node"""
+    def _add_root_folder_node(self, parent_node, root_folder: FileRoot, project_id=None, subfolder_path: str = None):
+        """
+        Add a root folder node
+
+        Args:
+            parent_node: Parent tree node
+            root_folder: FileRoot object (application RootFolder)
+            project_id: Optional project ID if this is attached to a project
+            subfolder_path: Optional relative path to a subfolder within the RootFolder
+        """
         root_path = Path(root_folder.path)
 
-        if not root_path.exists():
+        # If subfolder_path is provided, use that as the actual path
+        if subfolder_path:
+            actual_path = root_path / subfolder_path
+        else:
+            actual_path = root_path
+
+        if not actual_path.exists():
             item = self.file_tree.insert(
                 parent_node,
                 "end",
-                text=f"{root_folder.path} [NOT FOUND]",
+                text=f"{actual_path} [NOT FOUND]",
                 tags=("error",)
             )
             self._item_types[item] = "error"
@@ -444,13 +452,18 @@ class DataExplorer(ttk.Frame):
         # Load folder icon
         folder_icon = icon_loader.load_folder_icon()
 
-        # Count files recursively in this root folder
-        file_count = self._count_files_recursive(root_path)
+        # Count files recursively in this folder
+        file_count = self._count_files_recursive(actual_path)
 
-        # Add root folder with icon and file count
-        text = f"{root_path.name} ({file_count})"
-        if root_folder.description:
-            text += f" - {root_folder.description}"
+        # Add folder with icon and file count
+        if subfolder_path:
+            # Show subfolder name with parent info
+            text = f"{actual_path.name} ({file_count}) [subfolder of {root_path.name}]"
+        else:
+            # Show root folder name
+            text = f"{root_path.name} ({file_count})"
+            if root_folder.description:
+                text += f" - {root_folder.description}"
 
         item = self.file_tree.insert(
             parent_node,
@@ -459,8 +472,8 @@ class DataExplorer(ttk.Frame):
             image=folder_icon if folder_icon else "",
             tags=("root",)
         )
-        self._path_items[item] = root_path
-        self._item_types[item] = ("root_folder", root_folder.id, project_id)
+        self._path_items[item] = actual_path
+        self._item_types[item] = ("root_folder", root_folder.id, project_id, subfolder_path)
 
         # Add dummy child to make it expandable
         self.file_tree.insert(item, "end", text="Loading...")
@@ -986,56 +999,6 @@ class DataExplorer(ttk.Frame):
             self.content_text.delete(1.0, tk.END)
             self._view_csv_raw(self._current_path)
 
-    def _on_datagrid_fullscreen(self, is_fullscreen: bool):
-        """Handle datagrid fullscreen toggle using Toplevel window"""
-        if is_fullscreen:
-            # Create fullscreen window
-            self.fullscreen_window = tk.Toplevel(self.winfo_toplevel())
-            self.fullscreen_window.title("Data View - Fullscreen")
-
-            # Make it fullscreen (or maximized)
-            self.fullscreen_window.attributes('-fullscreen', True)
-
-            # Create a new CustomDataGridView in the fullscreen window with same data
-            self.fullscreen_grid = CustomDataGridView(
-                self.fullscreen_window,
-                show_export=True,
-                show_copy=True,
-                show_fullscreen=False,  # Don't show fullscreen button in fullscreen mode
-                show_raw_toggle=False
-            )
-            self.fullscreen_grid.pack(fill=tk.BOTH, expand=True)
-
-            # Copy data from original grid to fullscreen grid
-            self.fullscreen_grid.load_data(self.data_grid.data, self.data_grid.columns)
-
-            # Copy sort state
-            if self.data_grid.active_sorts:
-                self.fullscreen_grid.active_sorts = self.data_grid.active_sorts.copy()
-                # Apply the sort
-                self.fullscreen_grid._apply_sort()
-
-            # Bind Esc to close fullscreen
-            self.fullscreen_window.bind("<Escape>", lambda e: self._exit_fullscreen())
-
-            # Bind window close to exit fullscreen
-            self.fullscreen_window.protocol("WM_DELETE_WINDOW", self._exit_fullscreen)
-
-            logger.info("Entering fullscreen mode - Toplevel window created")
-        else:
-            self._exit_fullscreen()
-
-    def _exit_fullscreen(self):
-        """Exit fullscreen mode"""
-        if hasattr(self, 'fullscreen_window') and self.fullscreen_window:
-            self.fullscreen_window.destroy()
-            self.fullscreen_window = None
-
-            # Toggle back the fullscreen button state in original grid
-            self.data_grid.is_fullscreen = False
-            self.data_grid.fullscreen_btn.config(text="⛶ Fullscreen")
-
-            logger.info("Exited fullscreen mode")
 
     def _view_json_file(self, file_path: Path):
         """View JSON file with formatting"""
@@ -1131,12 +1094,16 @@ class DataExplorer(ttk.Frame):
         # Options based on item type
         elif isinstance(item_type, tuple) and item_type[0] == "root_folder":
             # Root folder context menu
-            _, folder_id, project_id = item_type
+            # Extract components (may have 3 or 4 elements depending on if subfolder_path is present)
+            folder_id = item_type[1]
+            project_id = item_type[2] if len(item_type) > 2 else None
+            subfolder_path = item_type[3] if len(item_type) > 3 else None
+
             if project_id:
                 # In a specific project - allow removal
                 menu.add_command(
                     label="Retirer du projet",
-                    command=lambda: self._remove_folder_from_project(folder_id, project_id)
+                    command=lambda: self._remove_folder_from_project(folder_id, project_id, subfolder_path)
                 )
                 menu.add_separator()
 
@@ -1365,7 +1332,7 @@ class DataExplorer(ttk.Frame):
             else:
                 messagebox.showerror("Error", "Failed to attach database to new project")
 
-    def _remove_folder_from_project(self, folder_id, project_id):
+    def _remove_folder_from_project(self, folder_id, project_id, subfolder_path=None):
         """Remove a folder from a project"""
         response = messagebox.askyesno(
             "Confirm",
@@ -1373,7 +1340,7 @@ class DataExplorer(ttk.Frame):
             icon='question'
         )
         if response:
-            success = config_db.remove_project_file_root(project_id, folder_id)
+            success = config_db.remove_project_file_root(project_id, folder_id, subfolder_path)
             if success:
                 self._refresh()
                 logger.important("Removed folder from project")
@@ -1560,36 +1527,54 @@ class DataExplorer(ttk.Frame):
             if conn:
                 conn.close()
 
-    def _create_project_and_attach_folder(self, folder_path: Path):
-        """Create a new RootFolder from a subfolder, create a new project, and attach them"""
+    def _find_parent_file_root(self, folder_path: Path):
+        """
+        Find the parent FileRoot that contains the given folder path
+
+        Returns:
+            Tuple of (FileRoot, relative_path) where relative_path is None if folder_path
+            is the root itself, or the relative path from the root to the folder
+        """
         from ..database.config_db import FileRoot
+
+        # Get all application RootFolders
+        all_roots = config_db.get_all_file_roots()
+
+        # Check if the folder is exactly a RootFolder
+        for root in all_roots:
+            root_path = Path(root.path)
+            if folder_path == root_path:
+                return (root, None)
+
+        # Check if the folder is a subfolder of a RootFolder
+        for root in all_roots:
+            root_path = Path(root.path)
+            try:
+                # Check if folder_path is relative to root_path
+                rel_path = folder_path.relative_to(root_path)
+                return (root, str(rel_path))
+            except ValueError:
+                # Not a child of this root
+                continue
+
+        # Not found in any RootFolder
+        return (None, None)
+
+    def _create_project_and_attach_folder(self, folder_path: Path):
+        """Create a new project and attach a folder (can be RootFolder or subfolder)"""
         from .project_manager import ProjectDialog
-        from tkinter import simpledialog
 
-        # Ask for description
-        description = simpledialog.askstring(
-            "New RootFolder",
-            f"Description for RootFolder:\n{folder_path}",
-            initialvalue=folder_path.name
-        )
+        # Find parent FileRoot for this folder
+        parent_root, subfolder_rel_path = self._find_parent_file_root(folder_path)
 
-        if description is None:  # User cancelled
+        if parent_root is None:
+            messagebox.showerror(
+                "Error",
+                f"Le dossier sélectionné n'est pas dans un RootFolder de l'application.\n\n"
+                f"Chemin: {folder_path}\n\n"
+                f"Veuillez d'abord créer un RootFolder qui contient ce dossier."
+            )
             return
-
-        # Create FileRoot
-        file_root = FileRoot(
-            id="",  # Will be auto-generated
-            path=str(folder_path),
-            description=description
-        )
-
-        # Add to database
-        success = config_db.add_file_root(file_root)
-        if not success:
-            messagebox.showerror("Error", "Failed to create RootFolder")
-            return
-
-        logger.important(f"Created RootFolder: {file_root.path}")
 
         # Open project dialog to create new project
         dialog = ProjectDialog(self.winfo_toplevel())
@@ -1597,17 +1582,14 @@ class DataExplorer(ttk.Frame):
 
         if result:
             # Attach folder to new project
-            success = config_db.add_project_file_root(result.id, file_root.id)
+            success = config_db.add_project_file_root(result.id, parent_root.id, subfolder_rel_path)
             if success:
                 self._refresh()
-                logger.important(f"Created project '{result.name}' with folder '{file_root.description}'")
-                messagebox.showinfo("Success", f"Projet '{result.name}' créé avec le RootFolder")
+                display_path = str(folder_path) if subfolder_rel_path else parent_root.path
+                logger.important(f"Created project '{result.name}' with folder '{display_path}'")
+                messagebox.showinfo("Success", f"Projet '{result.name}' créé avec le dossier")
             else:
                 messagebox.showerror("Error", "Failed to attach folder to new project")
-        else:
-            # User cancelled project creation, but folder was created
-            self._refresh()
-            messagebox.showinfo("Info", "RootFolder créé mais non rattaché à un projet")
 
     def _create_rootfolder_from_path(self, folder_path: Path):
         """Create a new RootFolder from a subfolder path"""
@@ -1641,40 +1623,24 @@ class DataExplorer(ttk.Frame):
             messagebox.showerror("Error", "Failed to create RootFolder")
 
     def _create_rootfolder_and_attach(self, folder_path: Path):
-        """Create a new RootFolder from a subfolder and attach it to a project"""
-        from ..database.config_db import FileRoot
-        from tkinter import simpledialog
-
+        """Attach a folder (RootFolder or subfolder) to an existing project"""
         # Get all projects
         projects = config_db.get_all_projects(sort_by_usage=False)
         if not projects:
             messagebox.showinfo("No Projects", "No projects available. Create a project first.")
             return
 
-        # Ask for description
-        description = simpledialog.askstring(
-            "New RootFolder",
-            f"Description for RootFolder:\n{folder_path}",
-            initialvalue=folder_path.name
-        )
+        # Find parent FileRoot for this folder
+        parent_root, subfolder_rel_path = self._find_parent_file_root(folder_path)
 
-        if description is None:  # User cancelled
+        if parent_root is None:
+            messagebox.showerror(
+                "Error",
+                f"Le dossier sélectionné n'est pas dans un RootFolder de l'application.\n\n"
+                f"Chemin: {folder_path}\n\n"
+                f"Veuillez d'abord créer un RootFolder qui contient ce dossier."
+            )
             return
-
-        # Create FileRoot
-        file_root = FileRoot(
-            id="",  # Will be auto-generated
-            path=str(folder_path),
-            description=description
-        )
-
-        # Add to database
-        success = config_db.add_file_root(file_root)
-        if not success:
-            messagebox.showerror("Error", "Failed to create RootFolder")
-            return
-
-        logger.important(f"Created RootFolder: {file_root.path}")
 
         # Show project selection dialog
         dialog = tk.Toplevel(self)
@@ -1683,7 +1649,7 @@ class DataExplorer(ttk.Frame):
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
 
-        ttk.Label(dialog, text="Select a project to attach the RootFolder:", padding="10").pack()
+        ttk.Label(dialog, text="Select a project to attach the folder:", padding="10").pack()
 
         listbox = tk.Listbox(dialog)
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -1698,14 +1664,15 @@ class DataExplorer(ttk.Frame):
                 return
 
             project = projects[selection[0]]
-            success = config_db.add_project_file_root(project.id, file_root.id)
+            success = config_db.add_project_file_root(project.id, parent_root.id, subfolder_rel_path)
             if success:
                 self._refresh()
-                logger.important(f"Attached RootFolder '{file_root.description}' to project: {project.name}")
+                display_path = str(folder_path) if subfolder_rel_path else parent_root.path
+                logger.important(f"Attached folder '{display_path}' to project: {project.name}")
                 dialog.destroy()
-                messagebox.showinfo("Success", f"RootFolder rattaché au projet '{project.name}'")
+                messagebox.showinfo("Success", f"Dossier rattaché au projet '{project.name}'")
             else:
-                messagebox.showerror("Error", "Failed to attach RootFolder to project")
+                messagebox.showerror("Error", "Failed to attach folder to project")
 
         ttk.Button(dialog, text="Attach", command=on_select).pack(pady=5)
         ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack()

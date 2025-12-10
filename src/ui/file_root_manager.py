@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 from ..database.config_db import FileRoot, config_db
 from ..utils.logger import logger
+from .custom_datagridview import CustomDataGridView
 
 
 class FileRootDialog(tk.Toplevel):
@@ -176,71 +177,37 @@ class FileRootManager(ttk.Frame):
         ttk.Button(toolbar, text="Delete Root", command=self._delete_root).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Refresh", command=self._load_file_roots).pack(side=tk.LEFT, padx=2)
 
-        # File roots list
-        list_frame = ttk.Frame(self, padding="5")
-        list_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Scrollbars
-        scroll_y = ttk.Scrollbar(list_frame)
-        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
-
-        scroll_x = ttk.Scrollbar(list_frame, orient=tk.HORIZONTAL)
-        scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
-
-        # Treeview
-        columns = ("Path", "Description", "Created")
-        self.tree = ttk.Treeview(
-            list_frame,
-            columns=columns,
-            show="headings",
-            yscrollcommand=scroll_y.set,
-            xscrollcommand=scroll_x.set
+        # Data Grid
+        self.data_grid = CustomDataGridView(
+            self,
+            show_export=True,
+            show_copy=True,
+            show_raw_toggle=False
         )
+        self.data_grid.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Configure columns
-        self.tree.heading("Path", text="Root Path")
-        self.tree.heading("Description", text="Description")
-        self.tree.heading("Created", text="Created")
-
-        self.tree.column("Path", width=300)
-        self.tree.column("Description", width=250)
-        self.tree.column("Created", width=150)
-
-        self.tree.pack(fill=tk.BOTH, expand=True)
-
-        scroll_y.config(command=self.tree.yview)
-        scroll_x.config(command=self.tree.xview)
-
-        # Double-click to edit
-        self.tree.bind("<Double-Button-1>", lambda e: self._edit_root())
-
-        # Storage for file root objects
-        self._file_roots = {}
+        # Bind double-click to edit
+        self.data_grid.tree.bind("<Double-Button-1>", lambda e: self._edit_root())
 
     def _load_file_roots(self):
         """Load file roots from database"""
-        # Clear tree
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
-        self._file_roots = {}
-
         # Load from database
         file_roots = config_db.get_all_file_roots()
 
+        # Convert to list of dictionaries
+        data = []
         for root in file_roots:
-            # Format created date
             created_str = root.created_at[:10] if root.created_at else ""
+            data.append({
+                "Path": root.path,
+                "Description": root.description,
+                "Created": created_str,
+                "_id": root.id  # Store ID for selection
+            })
 
-            # Insert into tree
-            item_id = self.tree.insert(
-                "",
-                "end",
-                values=(root.path, root.description, created_str)
-            )
-
-            # Store reference
-            self._file_roots[item_id] = root
+        # Load into grid
+        columns = ["Path", "Description", "Created"]
+        self.data_grid.load_data(data, columns)
 
         logger.info(f"Loaded {len(file_roots)} file roots")
 
@@ -255,13 +222,24 @@ class FileRootManager(ttk.Frame):
 
     def _edit_root(self):
         """Edit selected file root"""
-        selection = self.tree.selection()
+        selection = self.data_grid.tree.selection()
         if not selection:
             messagebox.showwarning("No Selection", "Please select a file root to edit.")
             return
 
-        item_id = selection[0]
-        file_root = self._file_roots.get(item_id)
+        # Get the row data
+        item_values = self.data_grid.tree.item(selection[0], "values")
+        if not item_values:
+            return
+
+        # Find file root by path (first column)
+        root_path = item_values[0]
+        file_roots = config_db.get_all_file_roots()
+        file_root = None
+        for root in file_roots:
+            if root.path == root_path:
+                file_root = root
+                break
 
         if not file_root:
             return
@@ -275,13 +253,24 @@ class FileRootManager(ttk.Frame):
 
     def _delete_root(self):
         """Delete selected file root"""
-        selection = self.tree.selection()
+        selection = self.data_grid.tree.selection()
         if not selection:
             messagebox.showwarning("No Selection", "Please select a file root to delete.")
             return
 
-        item_id = selection[0]
-        file_root = self._file_roots.get(item_id)
+        # Get the row data
+        item_values = self.data_grid.tree.item(selection[0], "values")
+        if not item_values:
+            return
+
+        # Find file root by path (first column)
+        root_path = item_values[0]
+        file_roots = config_db.get_all_file_roots()
+        file_root = None
+        for root in file_roots:
+            if root.path == root_path:
+                file_root = root
+                break
 
         if not file_root:
             return

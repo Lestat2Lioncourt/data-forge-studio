@@ -47,7 +47,7 @@ class CustomTreeView(ttk.Frame):
             toolbar_frame.pack(fill=tk.X)
 
             for icon, tooltip, callback in self.toolbar_buttons:
-                btn = ttk.Button(toolbar_frame, text=icon, command=callback, width=3)
+                btn = ttk.Button(toolbar_frame, text=icon, command=callback)
                 btn.pack(side=tk.LEFT, padx=2)
                 # TODO: Add tooltip support if needed
 

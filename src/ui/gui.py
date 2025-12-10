@@ -7,9 +7,9 @@ from tkinter import ttk, scrolledtext, messagebox
 import threading
 import pyodbc
 
-# Import from core modules
-from ..core.file_dispatcher import FileDispatcher
-from ..core.data_loader import DataLoader
+# Import from scripts modules
+from ..scripts.file_dispatcher import FileDispatcher
+from ..scripts.data_loader import DataLoader
 
 # Import from utils
 from ..utils.config import Config
@@ -28,6 +28,8 @@ from .help_viewer import show_help
 from .data_explorer import DataExplorer
 from .file_root_manager import show_file_root_manager
 from .preferences_dialog import PreferencesDialog
+from .scripts_manager import ScriptsManager
+from .jobs_manager import JobsManager
 
 # Import config managers
 from ..config.theme_manager import get_theme_manager
@@ -55,6 +57,14 @@ class DataLakeFrame(ttk.Frame):
             font=("Arial", 16, "bold")
         )
         title_label.pack()
+
+        # Toolbar
+        toolbar = ttk.Frame(self, padding="5")
+        toolbar.pack(fill=tk.X)
+
+        ttk.Button(toolbar, text="📁 New RootFolder", command=self.gui_parent._manage_root_folders).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="📥 Dispatch Files", command=self.dispatch_files_threaded).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="📤 Load to Database", command=self.load_files_threaded).pack(side=tk.LEFT, padx=2)
 
         # Log area
         self._create_log_area()
@@ -196,11 +206,21 @@ class DataLakeFrame(ttk.Frame):
 
 
 class SettingsFrame(ttk.Frame):
-    """Settings frame"""
+    """Settings frame with integrated preferences"""
 
     def __init__(self, parent, gui_parent):
         super().__init__(parent)
         self.gui_parent = gui_parent
+
+        # Get managers
+        self.theme_manager = get_theme_manager()
+        self.preferences = get_preferences()
+        self.i18n = get_i18n()
+
+        # Current settings
+        self.theme_var = tk.StringVar(value=self.preferences.get_theme())
+        self.language_var = tk.StringVar(value=self.preferences.get_language())
+
         self._create_widgets()
 
     def _create_widgets(self):
@@ -215,17 +235,208 @@ class SettingsFrame(ttk.Frame):
         )
         title_label.pack()
 
-        # Preferences button
-        pref_frame = ttk.LabelFrame(self, text="Preferences", padding="20")
-        pref_frame.pack(fill=tk.X, padx=10, pady=10)
+        # Main container with padding
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(pref_frame, text="Configure application settings, themes, and language.").pack(anchor=tk.W, pady=(0, 10))
+        # Create notebook for tabbed interface
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+
+        # ===== Appearance Tab =====
+        appearance_frame = ttk.Frame(notebook, padding="15")
+        notebook.add(appearance_frame, text="Appearance")
+
+        # Theme selection
+        ttk.Label(appearance_frame, text="Theme:").grid(row=0, column=0, sticky=tk.W, pady=5)
+
+        theme_combo = ttk.Combobox(
+            appearance_frame,
+            textvariable=self.theme_var,
+            state='readonly',
+            width=25
+        )
+
+        # Get theme names
+        theme_names = self.theme_manager.get_available_themes()
+        theme_combo['values'] = list(theme_names.keys())
+
+        # Create display mapping
+        self.theme_display = {}
+        for theme_id, theme_name in theme_names.items():
+            localized_key = f'theme_{theme_id}'
+            display_name = self.i18n.t(localized_key)
+            if display_name == localized_key:
+                display_name = theme_name
+            self.theme_display[theme_id] = display_name
+
+        theme_combo['values'] = [self.theme_display[t] for t in theme_names.keys()]
+        theme_combo.set(self.theme_display[self.theme_var.get()])
+        theme_combo.grid(row=0, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        theme_combo.bind('<<ComboboxSelected>>', self._on_theme_change)
+
+        ttk.Label(
+            appearance_frame,
+            text="Changes apply immediately",
+            font=("Arial", 8),
+            foreground="gray"
+        ).grid(row=1, column=1, sticky=tk.W, pady=(0, 10), padx=(10, 0))
+
+        self.theme_combo = theme_combo
+
+        # Theme management buttons
+        theme_buttons_frame = ttk.Frame(appearance_frame)
+        theme_buttons_frame.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(5, 10))
 
         ttk.Button(
-            pref_frame,
-            text="⚙️ Open Preferences",
-            command=self.gui_parent._show_preferences
-        ).pack(anchor=tk.W)
+            theme_buttons_frame,
+            text="Create New Theme",
+            command=self._create_new_theme
+        ).pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Button(
+            theme_buttons_frame,
+            text="Edit Theme",
+            command=self._edit_theme
+        ).pack(side=tk.LEFT)
+
+        # ===== General Tab =====
+        general_frame = ttk.Frame(notebook, padding="15")
+        notebook.add(general_frame, text="General")
+
+        # Language selection
+        ttk.Label(general_frame, text="Language:").grid(row=0, column=0, sticky=tk.W, pady=5)
+
+        lang_combo = ttk.Combobox(
+            general_frame,
+            state='readonly',
+            width=25
+        )
+
+        # Get available languages
+        languages = self.i18n.get_available_languages()
+
+        # Create mapping
+        self.language_display = {}
+        self.language_reverse = {}
+        for lang_code, lang_name in languages.items():
+            display = f"{lang_name} ({lang_code})"
+            self.language_display[lang_code] = display
+            self.language_reverse[display] = lang_code
+
+        lang_combo['values'] = [self.language_display[code] for code in sorted(languages.keys())]
+        current_lang = self.language_var.get()
+        if current_lang in self.language_display:
+            lang_combo.set(self.language_display[current_lang])
+
+        lang_combo.grid(row=0, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        lang_combo.bind('<<ComboboxSelected>>', self._on_language_change)
+
+        ttk.Label(
+            general_frame,
+            text="Changes apply immediately",
+            font=("Arial", 8),
+            foreground="gray"
+        ).grid(row=1, column=1, sticky=tk.W, pady=(0, 10), padx=(10, 0))
+
+        self.lang_combo = lang_combo
+
+        # ===== Reset Button =====
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X)
+
+        ttk.Button(
+            button_frame,
+            text="Reset to Defaults",
+            command=self._reset_to_defaults
+        ).pack(side=tk.LEFT)
+
+    def _on_theme_change(self, event=None):
+        """Apply theme change immediately"""
+        selected_display = self.theme_combo.get()
+
+        # Find theme ID from display name
+        selected_theme = None
+        for theme_id, display_name in self.theme_display.items():
+            if display_name == selected_display:
+                selected_theme = theme_id
+                break
+
+        if selected_theme:
+            self.theme_var.set(selected_theme)
+            self.theme_manager.set_theme(selected_theme)
+            self.preferences.set_theme(selected_theme)
+            logger.info(f"Theme changed to: {selected_theme}")
+
+    def _on_language_change(self, event=None):
+        """Apply language change immediately"""
+        selected_display = self.lang_combo.get()
+        lang_code = self.language_reverse.get(selected_display)
+
+        if lang_code:
+            self.language_var.set(lang_code)
+            self.i18n.set_language(lang_code)
+            self.preferences.set_language(lang_code)
+            logger.info(f"Language changed to: {lang_code}")
+
+    def _reset_to_defaults(self):
+        """Reset preferences to default values"""
+        if messagebox.askyesno("Reset Preferences", "Reset all preferences to default values?"):
+            self.preferences.reset_to_defaults()
+
+            # Apply defaults
+            default_theme = self.preferences.get_theme()
+            default_language = self.preferences.get_language()
+
+            self.theme_manager.set_theme(default_theme)
+            self.i18n.set_language(default_language)
+
+            # Update UI
+            self.theme_var.set(default_theme)
+            self.language_var.set(default_language)
+
+            self.theme_combo.set(self.theme_display[default_theme])
+            self.lang_combo.set(self.language_display.get(default_language, f'{default_language} ({default_language})'))
+
+            logger.info("Preferences reset to defaults")
+            messagebox.showinfo("Success", "Preferences reset to default values")
+
+    def _create_new_theme(self):
+        """Open theme editor to create a new theme"""
+        from .theme_editor_dialog import ThemeEditorDialog
+        parent = self.winfo_toplevel()
+        dialog = ThemeEditorDialog(parent, theme_name=None)
+        self.wait_window(dialog)
+        self._refresh_theme_list()
+
+    def _edit_theme(self):
+        """Open theme editor to edit current theme"""
+        from .theme_editor_dialog import ThemeEditorDialog
+        current_theme = self.theme_var.get()
+        parent = self.winfo_toplevel()
+        dialog = ThemeEditorDialog(parent, theme_name=current_theme)
+        self.wait_window(dialog)
+        self._refresh_theme_list()
+
+    def _refresh_theme_list(self):
+        """Refresh the theme list after theme editor closes"""
+        self.theme_manager._load_all_themes()
+        theme_names = self.theme_manager.get_available_themes()
+
+        # Update display mapping
+        self.theme_display = {}
+        for theme_id, theme_name in theme_names.items():
+            localized_key = f'theme_{theme_id}'
+            display_name = self.i18n.t(localized_key)
+            if display_name == localized_key:
+                display_name = theme_name
+            self.theme_display[theme_id] = display_name
+
+        # Update combo
+        self.theme_combo['values'] = [self.theme_display[t] for t in theme_names.keys()]
+        current = self.theme_var.get()
+        if current in self.theme_display:
+            self.theme_combo.set(self.theme_display[current])
 
 
 class HelpFrame(ttk.Frame):
@@ -364,6 +575,8 @@ class DataLakeLoaderGUI:
         buttons_config = [
             ("data_explorer", "📂 Projets", self._show_data_explorer),
             ("root_folder", "📁 RootFolder", self._show_rootfolder_frame),
+            ("scripts", "📜 Scripts", self._show_scripts_frame),
+            ("jobs", "⚙️ Jobs", self._show_jobs_frame),
             ("databases", "🗄️ Databases", self._show_database_frame),
             ("queries", "📋 Queries", self._show_queries_frame),
             ("settings", "⚙️ Settings", self._show_settings_frame),
@@ -441,9 +654,22 @@ class DataLakeLoaderGUI:
 
     def _show_rootfolder_frame(self):
         """Show RootFolder operations frame"""
-        self._switch_frame(DataLakeFrame, self)
+        from .rootfolder_manager import RootFolderManager
+        self._switch_frame(RootFolderManager)
         self._update_toolbar_state("root_folder")
         logger.info("Switched to RootFolder view")
+
+    def _show_scripts_frame(self):
+        """Show Scripts Manager frame"""
+        self._switch_frame(ScriptsManager)
+        self._update_toolbar_state("scripts")
+        logger.info("Switched to Scripts view")
+
+    def _show_jobs_frame(self):
+        """Show Jobs Manager frame"""
+        self._switch_frame(JobsManager)
+        self._update_toolbar_state("jobs")
+        logger.info("Switched to Jobs view")
 
     def _dispatch_files_from_menu(self):
         """Dispatch files from menu"""

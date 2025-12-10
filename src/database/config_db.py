@@ -111,6 +111,69 @@ class FileRoot:
             self.updated_at = datetime.now().isoformat()
 
 
+@dataclass
+class Script:
+    """Script definition (generic, reusable)"""
+    id: str
+    name: str
+    description: str
+    script_type: str  # dispatch_files, load_to_database, custom
+    parameters_schema: str  # JSON schema of required parameters
+    created_at: str = None
+    updated_at: str = None
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = str(uuid.uuid4())
+        if not self.created_at:
+            self.created_at = datetime.now().isoformat()
+        if not self.updated_at:
+            self.updated_at = datetime.now().isoformat()
+
+
+@dataclass
+class Job:
+    """
+    Job = Can be either:
+    1. Atomic job: Script instance with configured parameters
+    2. Workflow job: Container of other jobs
+
+    Hierarchy:
+    - parent_job_id = NULL → root level job (can be entry point)
+    - parent_job_id set → encapsulated in a workflow job
+
+    Execution Order:
+    - previous_job_id = NULL → can execute immediately (no dependency)
+    - previous_job_id set → must execute after the referenced job completes
+
+    Example: Workflow AA contains A1 and A2, where A2 depends on A1:
+    - Job AA: parent_job_id=None, previous_job_id=None (root workflow)
+      - Job A1: parent_job_id=AA, previous_job_id=None (first in workflow)
+      - Job A2: parent_job_id=AA, previous_job_id=A1 (executes after A1)
+    """
+    id: str
+    name: str
+    description: str
+    job_type: str  # "script" or "workflow"
+    script_id: str = None  # Required if job_type="script", NULL if "workflow"
+    project_id: str = None  # Optional - job can be independent or in workflow
+    parent_job_id: str = None  # NULL = root level, otherwise parent workflow
+    previous_job_id: str = None  # NULL = no dependency, otherwise job to execute before this one
+    parameters: str = None  # JSON string of parameter values (for script jobs)
+    enabled: bool = True
+    created_at: str = None
+    updated_at: str = None
+    last_run_at: str = None
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = str(uuid.uuid4())
+        if not self.created_at:
+            self.created_at = datetime.now().isoformat()
+        if not self.updated_at:
+            self.updated_at = datetime.now().isoformat()
+
+
 class ConfigDatabase:
     """SQLite database for configuration management"""
 
@@ -232,21 +295,56 @@ class ConfigDatabase:
             CREATE TABLE IF NOT EXISTS project_file_roots (
                 project_id TEXT NOT NULL,
                 file_root_id TEXT NOT NULL,
+                subfolder_path TEXT,
                 created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, file_root_id),
+                PRIMARY KEY (project_id, file_root_id, subfolder_path),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
                 FOREIGN KEY (file_root_id) REFERENCES file_roots(id) ON DELETE CASCADE
             )
         """)
 
-        # Project-Jobs junction table (many-to-many) - for future use
+        # Migration: Add subfolder_path column if it doesn't exist
+        cursor.execute("PRAGMA table_info(project_file_roots)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'subfolder_path' not in columns:
+            logger.info("Migrating project_file_roots table to add subfolder_path column")
+            cursor.execute("""
+                ALTER TABLE project_file_roots ADD COLUMN subfolder_path TEXT
+            """)
+
+        # Scripts table (generic, reusable scripts)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_jobs (
-                project_id TEXT NOT NULL,
-                job_id TEXT NOT NULL,
+            CREATE TABLE IF NOT EXISTS scripts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                script_type TEXT NOT NULL,
+                parameters_schema TEXT,
                 created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, job_id),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Jobs table (can be atomic script instances or workflows)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                job_type TEXT NOT NULL CHECK(job_type IN ('script', 'workflow')),
+                script_id TEXT,
+                project_id TEXT,
+                parent_job_id TEXT,
+                previous_job_id TEXT,
+                parameters TEXT,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_run_at TEXT,
+                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+                FOREIGN KEY (previous_job_id) REFERENCES jobs(id) ON DELETE SET NULL
             )
         """)
 
@@ -258,7 +356,15 @@ class ConfigDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_name ON projects(name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_last_used ON projects(last_used_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_root_path ON file_roots(path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_script_name ON scripts(name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_script_type ON scripts(script_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_project ON jobs(project_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_script ON jobs(script_id)")
 
+        conn.commit()
+
+        # Initialize default scripts if they don't exist
+        self._initialize_default_scripts(cursor)
         conn.commit()
 
         # Migration: Add is_default column to projects table if it doesn't exist
@@ -278,6 +384,9 @@ class ConfigDatabase:
 
         # Add self-reference connection if not exists
         self._ensure_config_db_connection(cursor, conn)
+
+        # Migration: Update jobs table to make project_id nullable and add previous_job_id
+        self._migrate_jobs_schema(cursor, conn)
 
         conn.close()
 
@@ -424,6 +533,78 @@ class ConfigDatabase:
         except Exception as e:
             logger.error(f"Error fixing queries referencing project column: {e}")
 
+    def _migrate_jobs_schema(self, cursor, conn):
+        """
+        Migrate jobs table to:
+        1. Make project_id nullable (was NOT NULL)
+        2. Add previous_job_id column for execution order dependencies
+        """
+        # Check if migration is needed by checking table schema
+        cursor.execute("PRAGMA table_info(jobs)")
+        columns = {col[1]: col for col in cursor.fetchall()}
+
+        # Check if previous_job_id exists
+        if 'previous_job_id' in columns:
+            # Migration already done
+            return
+
+        logger.info("Migrating jobs table: making project_id nullable and adding previous_job_id")
+
+        # SQLite doesn't support DROP COLUMN or ALTER COLUMN type changes
+        # We need to recreate the table
+
+        # Step 1: Create new table with updated schema
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS jobs_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                job_type TEXT NOT NULL CHECK(job_type IN ('script', 'workflow')),
+                script_id TEXT,
+                project_id TEXT,
+                parent_job_id TEXT,
+                previous_job_id TEXT,
+                parameters TEXT,
+                enabled INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_run_at TEXT,
+                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+                FOREIGN KEY (previous_job_id) REFERENCES jobs(id) ON DELETE SET NULL
+            )
+        """)
+
+        # Step 2: Copy data from old table to new table
+        cursor.execute("""
+            INSERT INTO jobs_new (
+                id, name, description, job_type, script_id, project_id,
+                parent_job_id, previous_job_id, parameters, enabled,
+                created_at, updated_at, last_run_at
+            )
+            SELECT
+                id, name, description, job_type, script_id, project_id,
+                parent_job_id, NULL as previous_job_id, parameters, enabled,
+                created_at, updated_at, last_run_at
+            FROM jobs
+        """)
+
+        # Step 3: Drop old table
+        cursor.execute("DROP TABLE jobs")
+
+        # Step 4: Rename new table
+        cursor.execute("ALTER TABLE jobs_new RENAME TO jobs")
+
+        # Step 5: Recreate indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_project ON jobs(project_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_script ON jobs(script_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_parent ON jobs(parent_job_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_previous ON jobs(previous_job_id)")
+
+        conn.commit()
+        logger.important("Successfully migrated jobs table: project_id is now nullable, added previous_job_id")
+
     def _ensure_config_db_connection(self, cursor, conn):
         """Ensure a connection to the configuration database itself exists"""
         # Check if configuration DB connection already exists
@@ -465,6 +646,70 @@ class ConfigDatabase:
 
             conn.commit()
             print(f"[OK] Updated Configuration Database connection path to: {self.db_path}")
+
+    def _initialize_default_scripts(self, cursor):
+        """Initialize default scripts (Dispatch Files, Load to Database)"""
+        import json
+
+        # Check if scripts already exist
+        cursor.execute("SELECT COUNT(*) FROM scripts")
+        count = cursor.fetchone()[0]
+
+        if count > 0:
+            return  # Scripts already initialized
+
+        logger.info("Initializing default scripts...")
+
+        # Dispatch Files script
+        dispatch_schema = json.dumps({
+            "root_folder": {
+                "type": "file_root",
+                "required": True,
+                "description": "RootFolder containing files to dispatch"
+            }
+        })
+
+        cursor.execute("""
+            INSERT INTO scripts (id, name, description, script_type, parameters_schema, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(uuid.uuid4()),
+            "Dispatch Files",
+            "Dispatch files from root folder to Project/Dataset subfolders based on filename",
+            "dispatch_files",
+            dispatch_schema,
+            datetime.now().isoformat(),
+            datetime.now().isoformat()
+        ))
+
+        # Load to Database script
+        load_schema = json.dumps({
+            "root_folder": {
+                "type": "file_root",
+                "required": True,
+                "description": "RootFolder containing files to load"
+            },
+            "database": {
+                "type": "database",
+                "required": True,
+                "description": "Target database for loading files"
+            }
+        })
+
+        cursor.execute("""
+            INSERT INTO scripts (id, name, description, script_type, parameters_schema, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            str(uuid.uuid4()),
+            "Load to Database",
+            "Load files from Project/Dataset folders into database tables",
+            "load_to_database",
+            load_schema,
+            datetime.now().isoformat(),
+            datetime.now().isoformat()
+        ))
+
+        logger.info("Default scripts initialized")
 
     # ==================== Database Connections ====================
 
@@ -1096,17 +1341,24 @@ class ConfigDatabase:
 
         return [Project(**dict(row)) for row in rows]
 
-    def add_project_file_root(self, project_id: str, file_root_id: str) -> bool:
-        """Associate a file root with a project"""
+    def add_project_file_root(self, project_id: str, file_root_id: str, subfolder_path: str = None) -> bool:
+        """
+        Associate a file root with a project
+
+        Args:
+            project_id: Project ID
+            file_root_id: FileRoot ID (application RootFolder)
+            subfolder_path: Optional subfolder path relative to the FileRoot
+        """
         try:
             db_conn = self._get_connection()
             cursor = db_conn.cursor()
 
             cursor.execute("""
                 INSERT OR IGNORE INTO project_file_roots
-                (project_id, file_root_id, created_at)
-                VALUES (?, ?, ?)
-            """, (project_id, file_root_id, datetime.now().isoformat()))
+                (project_id, file_root_id, subfolder_path, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (project_id, file_root_id, subfolder_path, datetime.now().isoformat()))
 
             db_conn.commit()
             db_conn.close()
@@ -1115,16 +1367,29 @@ class ConfigDatabase:
             print(f"Error adding project-file_root association: {e}")
             return False
 
-    def remove_project_file_root(self, project_id: str, file_root_id: str) -> bool:
-        """Remove file root association from a project"""
+    def remove_project_file_root(self, project_id: str, file_root_id: str, subfolder_path: str = None) -> bool:
+        """
+        Remove file root association from a project
+
+        Args:
+            project_id: Project ID
+            file_root_id: FileRoot ID
+            subfolder_path: Optional subfolder path (must match if provided)
+        """
         try:
             db_conn = self._get_connection()
             cursor = db_conn.cursor()
 
-            cursor.execute("""
-                DELETE FROM project_file_roots
-                WHERE project_id = ? AND file_root_id = ?
-            """, (project_id, file_root_id))
+            if subfolder_path is not None:
+                cursor.execute("""
+                    DELETE FROM project_file_roots
+                    WHERE project_id = ? AND file_root_id = ? AND subfolder_path = ?
+                """, (project_id, file_root_id, subfolder_path))
+            else:
+                cursor.execute("""
+                    DELETE FROM project_file_roots
+                    WHERE project_id = ? AND file_root_id = ? AND subfolder_path IS NULL
+                """, (project_id, file_root_id))
 
             db_conn.commit()
             db_conn.close()
@@ -1134,7 +1399,7 @@ class ConfigDatabase:
             return False
 
     def get_project_file_roots(self, project_id: str) -> List[FileRoot]:
-        """Get all file roots associated with a project"""
+        """Get all file roots associated with a project (backward compatibility)"""
         db_conn = self._get_connection()
         cursor = db_conn.cursor()
 
@@ -1149,6 +1414,39 @@ class ConfigDatabase:
         db_conn.close()
 
         return [FileRoot(**dict(row)) for row in rows]
+
+    def get_project_file_roots_with_paths(self, project_id: str) -> List[Tuple[FileRoot, str]]:
+        """
+        Get all file roots associated with a project with their subfolder paths
+
+        Returns:
+            List of tuples (FileRoot, subfolder_path)
+            subfolder_path will be None if the entire FileRoot is used
+        """
+        from typing import Tuple
+
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT fr.*, pfr.subfolder_path
+            FROM file_roots fr
+            INNER JOIN project_file_roots pfr ON fr.id = pfr.file_root_id
+            WHERE pfr.project_id = ?
+            ORDER BY fr.path, pfr.subfolder_path
+        """, (project_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            subfolder_path = row_dict.pop('subfolder_path', None)
+            file_root = FileRoot(**row_dict)
+            result.append((file_root, subfolder_path))
+
+        return result
 
     def get_file_root_projects(self, file_root_id: str) -> List[Project]:
         """Get all projects associated with a file root"""
@@ -1195,6 +1493,221 @@ class ConfigDatabase:
 
         except Exception as e:
             print(f"Error migrating from JSON: {e}")
+            return False
+
+    # ========== Script Methods ==========
+
+    def get_all_scripts(self) -> List[Script]:
+        """Get all scripts"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM scripts ORDER BY name")
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Script(**dict(row)) for row in rows]
+
+    def get_script(self, script_id: str) -> Script:
+        """Get script by ID"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM scripts WHERE id = ?", (script_id,))
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        if row:
+            return Script(**dict(row))
+        return None
+
+    def get_script_by_name(self, name: str) -> Script:
+        """Get script by name"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM scripts WHERE name = ?", (name,))
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        if row:
+            return Script(**dict(row))
+        return None
+
+    def update_script(self, script: Script) -> bool:
+        """Update an existing script"""
+        try:
+            script.updated_at = datetime.now().isoformat()
+
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                UPDATE scripts
+                SET name = ?, description = ?, script_type = ?, parameters_schema = ?, updated_at = ?
+                WHERE id = ?
+            """, (
+                script.name, script.description, script.script_type,
+                script.parameters_schema, script.updated_at, script.id
+            ))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error updating script: {e}")
+            return False
+
+    # ========== Job Methods ==========
+
+    def get_all_jobs(self) -> List[Job]:
+        """Get all jobs"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM jobs ORDER BY name")
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Job(**dict(row)) for row in rows]
+
+    def get_project_jobs(self, project_id: str) -> List[Job]:
+        """Get all jobs for a project"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM jobs WHERE project_id = ? ORDER BY name", (project_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Job(**dict(row)) for row in rows]
+
+    def get_job(self, job_id: str) -> Job:
+        """Get job by ID"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        if row:
+            return Job(**dict(row))
+        return None
+
+    def add_job(self, job: Job) -> bool:
+        """Add a new job"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO jobs
+                (id, name, description, job_type, script_id, project_id, parent_job_id, previous_job_id, parameters, enabled, created_at, updated_at, last_run_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                job.id, job.name, job.description, job.job_type, job.script_id, job.project_id,
+                job.parent_job_id, job.previous_job_id, job.parameters, job.enabled, job.created_at, job.updated_at, job.last_run_at
+            ))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error adding job: {e}")
+            return False
+
+    def update_job(self, job: Job) -> bool:
+        """Update an existing job"""
+        try:
+            job.updated_at = datetime.now().isoformat()
+
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                UPDATE jobs
+                SET name = ?, description = ?, job_type = ?, script_id = ?, project_id = ?,
+                    parent_job_id = ?, previous_job_id = ?, parameters = ?, enabled = ?, updated_at = ?, last_run_at = ?
+                WHERE id = ?
+            """, (
+                job.name, job.description, job.job_type, job.script_id, job.project_id,
+                job.parent_job_id, job.previous_job_id, job.parameters, job.enabled, job.updated_at, job.last_run_at, job.id
+            ))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error updating job: {e}")
+            return False
+
+    def get_job_children(self, parent_job_id: str) -> List[Job]:
+        """Get all child jobs of a workflow job"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM jobs WHERE parent_job_id = ? ORDER BY name", (parent_job_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Job(**dict(row)) for row in rows]
+
+    def get_root_jobs(self, project_id: str) -> List[Job]:
+        """Get all root-level jobs for a project (jobs without parent)"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM jobs
+            WHERE project_id = ? AND parent_job_id IS NULL
+            ORDER BY name
+        """, (project_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Job(**dict(row)) for row in rows]
+
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a job"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error deleting job: {e}")
+            return False
+
+    def update_job_last_run(self, job_id: str) -> bool:
+        """Update the last_run_at timestamp for a job"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                UPDATE jobs
+                SET last_run_at = ?
+                WHERE id = ?
+            """, (datetime.now().isoformat(), job_id))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error updating job last run: {e}")
             return False
 
 

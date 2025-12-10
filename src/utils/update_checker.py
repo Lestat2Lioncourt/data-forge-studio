@@ -126,8 +126,8 @@ class UpdateChecker:
         Compare version strings
 
         Args:
-            latest: Latest version string (e.g., "0.3.0")
-            current: Current version string (e.g., "0.2.0")
+            latest: Latest version string (e.g., "0.4.0")
+            current: Current version string (e.g., "0.3.0")
 
         Returns:
             True if latest > current

@@ -7,40 +7,51 @@ from typing import List, Dict, Optional
 from ..utils.logger import logger
 from ..database.config_db import SavedQuery, config_db
 from ..database.connections_config import connections_manager
+from .base_view_frame import BaseViewFrame
+from .custom_datagridview import CustomDataGridView
 
 
-class QueriesManager(ttk.Frame):
+class QueriesManager(BaseViewFrame):
     """Queries Manager GUI - Manage saved queries"""
 
     def __init__(self, parent):
-        super().__init__(parent)
-        self._create_widgets()
+        # Define toolbar buttons
+        toolbar_buttons = [
+            ("🔄 Refresh", self._load_queries),
+            ("▶️ Execute Query", self._execute_query),
+            ("✏️ Edit Query", self._edit_query),
+            ("🗑️ Delete Query", self._delete_query),
+        ]
+
+        # Initialize base with standard layout
+        super().__init__(
+            parent,
+            toolbar_buttons=toolbar_buttons,
+            show_left_panel=True,
+            left_weight=1,
+            right_weight=2,
+            top_weight=1,
+            bottom_weight=1
+        )
+
+        self.queries_tree = None
+        self.status_var = None
+        self.result_grid = None
+        self.result_info_var = None
+
+        # Create content for each panel
+        self._create_left_content()
+        self._create_top_content()
+        self._create_bottom_content()
+
+        # Load queries
         self._load_queries()
 
-    def _create_widgets(self):
-        """Create main widgets"""
-        # Title removed - now using toolbar for navigation
+    def _create_left_content(self):
+        """Create TreeView in left panel"""
+        ttk.Label(self.left_frame, text="Queries Tree", font=("Arial", 10, "bold")).pack(pady=5)
 
-        # Toolbar
-        toolbar = ttk.Frame(self, padding="5")
-        toolbar.pack(fill=tk.X)
-
-        ttk.Button(toolbar, text="Refresh", command=self._load_queries).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Execute Query", command=self._execute_query).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Edit Query", command=self._edit_query).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Delete Query", command=self._delete_query).pack(side=tk.LEFT, padx=2)
-
-        # Main container with paned window
-        main_paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Left: TreeView (Categories > Queries) - Projects shown as query info
-        left_frame = ttk.Frame(main_paned, width=400)
-        main_paned.add(left_frame, weight=1)
-
-        ttk.Label(left_frame, text="Queries Tree", font=("Arial", 10, "bold")).pack(pady=5)
-
-        tree_frame = ttk.Frame(left_frame)
+        tree_frame = ttk.Frame(self.left_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         tree_scroll_y = ttk.Scrollbar(tree_frame)
@@ -61,15 +72,13 @@ class QueriesManager(ttk.Frame):
         self.queries_tree.bind("<<TreeviewSelect>>", self._on_query_select)
         self.queries_tree.bind("<Double-Button-1>", self._on_query_double_click)
 
-        # Right: Query details
-        right_frame = ttk.Frame(main_paned)
-        main_paned.add(right_frame, weight=2)
-
+    def _create_top_content(self):
+        """Create query details in top panel"""
         # Title at top
-        ttk.Label(right_frame, text="Query Details", font=("Arial", 11, "bold")).pack(pady=(5, 2), anchor=tk.W, padx=10)
+        ttk.Label(self.top_frame, text="Query Details", font=("Arial", 11, "bold")).pack(pady=(5, 2), anchor=tk.W, padx=10)
 
         # Details fields - smaller fonts
-        details_frame = ttk.Frame(right_frame, padding="5")
+        details_frame = ttk.Frame(self.top_frame, padding="5")
         details_frame.pack(fill=tk.BOTH, expand=True)
 
         # Projects
@@ -94,13 +103,13 @@ class QueriesManager(ttk.Frame):
 
         # Description
         ttk.Label(details_frame, text="Description:", font=("Arial", 8)).grid(row=4, column=0, sticky=tk.NW, pady=2)
-        self.description_text = scrolledtext.ScrolledText(details_frame, width=50, height=4, wrap=tk.WORD, font=("Arial", 8))
+        self.description_text = scrolledtext.ScrolledText(details_frame, width=50, height=3, wrap=tk.WORD, font=("Arial", 8))
         self.description_text.grid(row=4, column=1, sticky=tk.EW, pady=2, padx=5)
         self.description_text.config(state=tk.DISABLED, bg="#f0f0f0")
 
         # Query text
         ttk.Label(details_frame, text="Query:", font=("Arial", 8)).grid(row=5, column=0, sticky=tk.NW, pady=2)
-        self.query_text = scrolledtext.ScrolledText(details_frame, width=50, height=15, wrap=tk.WORD, font=("Consolas", 9))
+        self.query_text = scrolledtext.ScrolledText(details_frame, width=50, height=8, wrap=tk.WORD, font=("Consolas", 9))
         self.query_text.grid(row=5, column=1, sticky=tk.NSEW, pady=2, padx=5)
         self.query_text.config(state=tk.DISABLED, bg="#f0f0f0")
 
@@ -109,8 +118,28 @@ class QueriesManager(ttk.Frame):
 
         # Status
         self.status_var = tk.StringVar(value="Ready")
-        status_label = ttk.Label(self, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        status_label.pack(side=tk.BOTTOM, fill=tk.X)
+        status_label = ttk.Label(self.top_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+
+    def _create_bottom_content(self):
+        """Create results grid in bottom panel"""
+        # Result info label
+        self.result_info_var = tk.StringVar(value="No query executed yet")
+        ttk.Label(
+            self.bottom_frame,
+            textvariable=self.result_info_var,
+            foreground="gray",
+            font=("Arial", 9)
+        ).pack(pady=5)
+
+        # Use CustomDataGridView for results
+        self.result_grid = CustomDataGridView(
+            self.bottom_frame,
+            show_export=True,
+            show_copy=True,
+            show_refresh=False
+        )
+        self.result_grid.pack(fill=tk.BOTH, expand=True)
 
     def _load_queries(self):
         """Load all saved queries into tree"""
@@ -234,6 +263,12 @@ class QueriesManager(ttk.Frame):
         self.query_text.delete(1.0, tk.END)
         self.query_text.config(state=tk.DISABLED)
 
+        # Clear results grid
+        if self.result_grid:
+            self.result_grid.clear()
+        if self.result_info_var:
+            self.result_info_var.set("No query executed yet")
+
     def _on_query_double_click(self, event):
         """Handle double-click on query - execute it"""
         self._execute_query()
@@ -312,8 +347,24 @@ class QueriesManager(ttk.Frame):
         else:
             messagebox.showerror("Error", "Could not access Query Manager. Please open it manually from Database menu.")
 
+    def _connect_sqlite(self, connection_string: str):
+        """Connect to SQLite database"""
+        import sqlite3
+        from pathlib import Path
+
+        # Parse connection string (format: "Database=path/to/db.sqlite")
+        db_path = connection_string.split("=", 1)[1].strip()
+        db_file = Path(db_path)
+
+        if not db_file.exists():
+            raise FileNotFoundError(f"SQLite database not found: {db_path}")
+
+        conn = sqlite3.connect(db_file)
+        conn.row_factory = sqlite3.Row
+        return conn
+
     def _execute_query(self):
-        """Execute selected query - load it in Query Manager and run it"""
+        """Execute selected query locally and display results"""
         selection = self.queries_tree.selection()
         if not selection:
             messagebox.showwarning("No Selection", "Please select a query to execute.")
@@ -338,46 +389,57 @@ class QueriesManager(ttk.Frame):
             messagebox.showerror("Error", "Query not found.")
             return
 
-        # Switch to Query Manager, load the query, and execute it
-        # Access GUI via stored reference: self.master.gui = DataLakeLoaderGUI
-        gui = getattr(self.master, 'gui', None)
-        if gui and hasattr(gui, '_show_database_frame_with_query'):
-            gui._show_database_frame_with_query(query, execute=True)
-            logger.info(f"Executed query: {query.category}/{query.name}")
-        else:
-            messagebox.showerror("Error", "Could not access Query Manager. Please open it manually from Database menu.")
-
-    def _load_in_query_manager(self):
-        """Load selected query in Query Manager"""
-        selection = self.queries_tree.selection()
-        if not selection:
-            messagebox.showwarning("No Selection", "Please select a query to load.")
+        # Get database connection
+        db_conn = connections_manager.get_connection(query.target_database_id)
+        if not db_conn:
+            messagebox.showerror("Error", f"Database connection not found: {query.target_database_id}")
             return
 
-        item_values = self.queries_tree.item(selection[0], "values")
-        if not item_values or len(item_values) < 2 or item_values[0] != "query":
-            messagebox.showwarning("Invalid Selection", "Please select a query (not a category).")
+        # Create connection
+        try:
+            if db_conn.db_type == 'sqlite':
+                connection = self._connect_sqlite(db_conn.connection_string)
+            else:
+                import pyodbc
+                connection = pyodbc.connect(db_conn.connection_string)
+        except Exception as e:
+            messagebox.showerror("Connection Error", f"Failed to connect to database:\n{e}")
+            logger.error(f"Connection error: {e}")
             return
 
-        query_id = item_values[1]
+        # Execute query
+        try:
+            cursor = connection.cursor()
+            cursor.execute(query.query_text)
 
-        # Find query
-        all_queries = config_db.get_all_saved_queries()
-        query = None
-        for q in all_queries:
-            if q.id == query_id:
-                query = q
-                break
+            if cursor.description:
+                # SELECT query - show results
+                columns = [column[0] for column in cursor.description]
+                rows = cursor.fetchall()
 
-        if not query:
-            messagebox.showerror("Error", "Query not found.")
-            return
+                # Convert rows to list of dictionaries for CustomDataGridView
+                data = []
+                for row in rows:
+                    data.append({col: row[i] for i, col in enumerate(columns)})
 
-        # Switch to Query Manager and load the query
-        # Access GUI via stored reference: self.master.gui = DataLakeLoaderGUI
-        gui = getattr(self.master, 'gui', None)
-        if gui and hasattr(gui, '_show_database_frame_with_query'):
-            gui._show_database_frame_with_query(query)
-            logger.info(f"Loaded query in Query Manager: {query.category}/{query.name}")
-        else:
-            messagebox.showerror("Error", "Could not access Query Manager. Please open it manually from Database menu.")
+                # Load data into grid
+                self.result_grid.load_data(data, columns)
+                self.result_info_var.set(f"✓ {len(rows)} row(s) returned from {db_conn.name}")
+                logger.info(f"Executed saved query '{query.name}': {len(rows)} rows returned")
+            else:
+                # INSERT/UPDATE/DELETE query
+                rows_affected = cursor.rowcount
+                self.result_grid.clear()
+                self.result_info_var.set(f"✓ Query executed on {db_conn.name}. {rows_affected} row(s) affected")
+                logger.important(f"Executed saved query '{query.name}': {rows_affected} rows affected")
+
+            connection.commit()
+
+        except Exception as e:
+            self.result_info_var.set(f"✗ Error: {str(e)}")
+            messagebox.showerror("Query Error", f"Failed to execute query:\n{e}")
+            logger.error(f"Query execution error: {e}")
+        finally:
+            # Close connection
+            if connection:
+                connection.close()

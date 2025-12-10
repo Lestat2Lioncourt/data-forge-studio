@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox
 from typing import Optional
 from ..database.config_db import Project, config_db
 from ..utils.logger import logger
+from .custom_datagridview import CustomDataGridView
 
 
 class ProjectDialog(tk.Toplevel):
@@ -139,79 +140,65 @@ class ProjectManager(ttk.Frame):
         ttk.Button(button_frame, text="⭐ Set Default", command=self._set_default).pack(side=tk.LEFT, padx=2)
         ttk.Button(button_frame, text="🔄 Refresh", command=self._load_projects).pack(side=tk.LEFT, padx=2)
 
-        # TreeView
-        tree_frame = ttk.Frame(self)
-        tree_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Scrollbars
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical")
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal")
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
-
-        # TreeView
-        columns = ("name", "description", "default", "created")
-        self.tree = ttk.Treeview(
-            tree_frame,
-            columns=columns,
-            show="headings",
-            yscrollcommand=vsb.set,
-            xscrollcommand=hsb.set
+        # Data Grid
+        self.data_grid = CustomDataGridView(
+            self,
+            show_export=True,
+            show_copy=True,
+            show_raw_toggle=False
         )
-        self.tree.pack(fill=tk.BOTH, expand=True)
+        self.data_grid.pack(fill=tk.BOTH, expand=True)
 
-        vsb.config(command=self.tree.yview)
-        hsb.config(command=self.tree.xview)
-
-        # Configure columns
-        self.tree.heading("name", text="Name")
-        self.tree.heading("description", text="Description")
-        self.tree.heading("default", text="Default")
-        self.tree.heading("created", text="Created")
-
-        self.tree.column("name", width=150)
-        self.tree.column("description", width=300)
-        self.tree.column("default", width=80, anchor=tk.CENTER)
-        self.tree.column("created", width=150)
-
-        # Double-click to edit
-        self.tree.bind("<Double-Button-1>", lambda e: self._edit_project())
+        # Bind double-click to edit
+        self.data_grid.tree.bind("<Double-Button-1>", lambda e: self._edit_project())
 
         # Status
         self.status_label = ttk.Label(self, text="", foreground="gray")
         self.status_label.pack(fill=tk.X, pady=(5, 0))
 
     def _load_projects(self):
-        """Load projects into tree"""
-        # Clear tree
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
+        """Load projects into grid"""
         # Load projects
         projects = config_db.get_all_projects(sort_by_usage=False)
 
+        # Convert to list of dictionaries
+        data = []
         for project in projects:
-            values = (
-                project.name,
-                project.description or "",
-                "✓" if project.is_default else "",
-                project.created_at[:10] if project.created_at else ""
-            )
-            self.tree.insert("", tk.END, values=values, tags=(project.id,))
+            data.append({
+                "Name": project.name,
+                "Description": project.description or "",
+                "Default": "✓" if project.is_default else "",
+                "Created": project.created_at[:10] if project.created_at else "",
+                "_id": project.id  # Store ID for selection
+            })
+
+        # Load into grid
+        columns = ["Name", "Description", "Default", "Created"]
+        self.data_grid.load_data(data, columns)
 
         self.status_label.config(text=f"Total projects: {len(projects)}")
         logger.info(f"Loaded {len(projects)} projects")
 
     def _get_selected_project(self) -> Optional[Project]:
         """Get selected project"""
-        selection = self.tree.selection()
+        selection = self.data_grid.tree.selection()
         if not selection:
             messagebox.showwarning("No Selection", "Please select a project")
             return None
 
-        project_id = self.tree.item(selection[0], "tags")[0]
-        return config_db.get_project(project_id)
+        # Get the row data
+        item_values = self.data_grid.tree.item(selection[0], "values")
+        if not item_values:
+            return None
+
+        # The ID is stored in the _id column (which is hidden)
+        # We need to find the project by name since we don't store tags anymore
+        project_name = item_values[0]  # First column is Name
+        projects = config_db.get_all_projects(sort_by_usage=False)
+        for project in projects:
+            if project.name == project_name:
+                return project
+        return None
 
     def _new_project(self):
         """Create new project"""
