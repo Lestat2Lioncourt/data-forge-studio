@@ -213,6 +213,9 @@ class ThemeEditorDialog(tk.Toplevel):
                 entry.insert(0, self.theme_colors[key])
                 entry.grid(row=row, column=2, padx=5, pady=2)
 
+                # Bind entry change to update color box
+                entry.bind('<KeyRelease>', lambda e, k=key, ent=entry, cb=color_box: self._on_color_entry_change(k, ent, cb))
+
                 # Pick color button
                 btn = ttk.Button(scrollable_frame, text="Pick", width=6,
                                command=lambda k=key, e=entry, cb=color_box: self._pick_color(k, e, cb))
@@ -286,6 +289,18 @@ class ThemeEditorDialog(tk.Toplevel):
 
         self.geometry(f"+{x}+{y}")
 
+    def _on_color_entry_change(self, key, entry, color_box):
+        """Update color box when entry value changes"""
+        color = entry.get().strip()
+        # Only update if valid hex color format
+        if color.startswith('#') and len(color) == 7:
+            try:
+                # Test if valid hex color
+                color_box.configure(bg=color)
+                self.theme_colors[key] = color
+            except tk.TclError:
+                pass  # Invalid color, ignore
+
     def _pick_color(self, key, entry, color_box):
         """Open color picker dialog"""
         current_color = entry.get()
@@ -320,9 +335,14 @@ class ThemeEditorDialog(tk.Toplevel):
             messagebox.showerror("Error", "Theme name cannot be empty")
             return
 
-        # Validate theme name
+        # Validate theme name (alphanumeric + underscores only)
         if not theme_name.replace('_', '').isalnum():
-            messagebox.showerror("Error", "Theme name can only contain letters, numbers, and underscores")
+            messagebox.showerror(
+                "Invalid Theme Name",
+                f"Theme name '{theme_name}' is invalid.\n\n"
+                "Only letters (a-z, A-Z), numbers (0-9), and underscores (_) are allowed.\n\n"
+                "Examples: my_theme, DarkTheme2, custom_blue"
+            )
             return
 
         # Check if overwriting built-in theme
