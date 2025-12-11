@@ -62,8 +62,10 @@ class ConnectionsManager:
 
     @staticmethod
     def get_db_type_icon(db_type: str) -> str:
-        """Get icon for database type"""
-        return ConnectionsManager.DB_TYPES.get(db_type, ConnectionsManager.DB_TYPES['other'])
+        """Get icon (emoji only) for database type"""
+        full_label = ConnectionsManager.DB_TYPES.get(db_type, ConnectionsManager.DB_TYPES['other'])
+        # Extract only the emoji (first 2 characters to handle multi-byte emojis)
+        return full_label.split()[0] if full_label else '💾'
 
 
 # Global connections manager instance
