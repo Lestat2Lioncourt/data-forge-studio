@@ -48,10 +48,10 @@ class ThemeEditorDialog(tk.Toplevel):
             if theme:
                 self.theme_colors = dict(theme.colors)
             else:
-                # Try to load custom theme
-                loaded_theme = self.theme_manager.load_custom_theme(theme_name)
-                if loaded_theme:
-                    self.theme_colors = dict(loaded_theme)
+                # Try to load custom theme from file
+                loaded_colors = self.theme_manager.load_theme_from_file(theme_name)
+                if loaded_colors:
+                    self.theme_colors = dict(loaded_colors)
                 else:
                     # Fallback: use current theme if loading failed
                     logger.warning(f"Failed to load theme '{theme_name}', using current theme as fallback")
