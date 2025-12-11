@@ -49,7 +49,14 @@ class ThemeEditorDialog(tk.Toplevel):
                 self.theme_colors = dict(theme.colors)
             else:
                 # Try to load custom theme
-                self.theme_colors = self.theme_manager.load_custom_theme(theme_name)
+                loaded_theme = self.theme_manager.load_custom_theme(theme_name)
+                if loaded_theme:
+                    self.theme_colors = dict(loaded_theme)
+                else:
+                    # Fallback: use current theme if loading failed
+                    logger.warning(f"Failed to load theme '{theme_name}', using current theme as fallback")
+                    current_theme = self.theme_manager.get_current_theme()
+                    self.theme_colors = dict(current_theme.colors)
 
         self.theme_name_var = tk.StringVar(value=self.theme_name)
         self.color_entries = {}
