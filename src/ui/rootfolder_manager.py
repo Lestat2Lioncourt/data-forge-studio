@@ -10,7 +10,7 @@ from ..utils.logger import logger
 from ..database.config_db import FileRoot, config_db
 from .base_view_frame import BaseViewFrame
 from .custom_datagridview import CustomDataGridView
-from .file_root_manager import show_file_root_manager
+from .file_root_manager import FileRootDialog
 from .custom_treeview_panel import CustomTreeViewPanel
 
 
@@ -317,8 +317,12 @@ class RootFolderManager(BaseViewFrame):
     def _new_rootfolder(self):
         """Create new rootfolder"""
         parent = self.winfo_toplevel()
-        show_file_root_manager(parent)
-        self._refresh()
+        dialog = FileRootDialog(parent)
+        self.wait_window(dialog)
+
+        if dialog.result:
+            self._refresh()
+            logger.info("New RootFolder added successfully")
 
     def _edit_rootfolder(self):
         """Edit selected rootfolder"""
@@ -327,8 +331,12 @@ class RootFolderManager(BaseViewFrame):
             return
 
         parent = self.winfo_toplevel()
-        show_file_root_manager(parent)
-        self._refresh()
+        dialog = FileRootDialog(parent, self.selected_rootfolder)
+        self.wait_window(dialog)
+
+        if dialog.result:
+            self._refresh()
+            logger.info(f"RootFolder '{self.selected_rootfolder.path}' updated successfully")
 
     def _delete_rootfolder(self):
         """Delete selected rootfolder"""
