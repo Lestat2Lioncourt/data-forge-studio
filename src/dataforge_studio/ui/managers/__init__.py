@@ -6,6 +6,9 @@ from .scripts_manager import ScriptsManager
 from .jobs_manager import JobsManager
 from .database_manager import DatabaseManager
 from .data_explorer import DataExplorer
+from .rootfolder_manager import RootFolderManager
+from .workspace_manager import WorkspaceManager
+from .resources_manager import ResourcesManager
 
 __all__ = [
     "BaseManagerView",
@@ -13,5 +16,8 @@ __all__ = [
     "ScriptsManager",
     "JobsManager",
     "DatabaseManager",
-    "DataExplorer"
+    "DataExplorer",
+    "RootFolderManager",
+    "WorkspaceManager",
+    "ResourcesManager"
 ]
