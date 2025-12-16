@@ -13,7 +13,7 @@ Architecture:
 
 from typing import List, Optional, Any
 from pathlib import Path
-from PySide6.QtWidgets import QWidget, QTreeWidgetItem, QStackedWidget, QVBoxLayout, QLabel
+from PySide6.QtWidgets import QWidget, QTreeWidgetItem, QStackedWidget, QVBoxLayout, QLabel, QApplication
 from PySide6.QtCore import Qt, Signal
 
 from .base_manager_view import BaseManagerView
@@ -171,10 +171,18 @@ class ResourcesManager(BaseManagerView):
             .add_field(tr("field_name"), "name") \
             .add_field(tr("col_type"), "resource_type") \
             .add_field(tr("col_description"), "description") \
-            .add_field(tr("field_path"), "path")
+            .add_field(tr("field_path"), "path") \
+            .add_field("Encoding", "encoding") \
+            .add_field("Separator", "separator") \
+            .add_field("Delimiter", "delimiter")
 
         details_widget = self.details_form_builder.build()
         self.details_layout.addWidget(details_widget)
+
+        # Store detected file properties for display
+        self._detected_encoding = None
+        self._detected_separator = None
+        self._detected_delimiter = None
 
     def _setup_content(self):
         """Setup content panel (bottom right) with QStackedWidget for manager content."""
@@ -286,10 +294,55 @@ class ResourcesManager(BaseManagerView):
         self._category_items[key] = item
 
     def _update_category_counts(self):
+        """Update counts for category items (Databases, Rootfolders, etc.)."""
         for key, item in self._category_items.items():
             count = item.childCount()
             text = item.text(0).split(" (")[0]
             item.setText(0, f"{text} ({count})")
+
+    def _update_item_count(self, item: QTreeWidgetItem):
+        """Update count displayed next to an item after its children are loaded."""
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+
+        item_type = data.get("type", "")
+        text_base = item.text(0).split(" (")[0]  # Remove existing count
+
+        if item_type in ("database", "server"):
+            # Count tables and views (grandchildren under Tables/Views folders)
+            total = 0
+            for i in range(item.childCount()):
+                child = item.child(i)
+                child_data = child.data(0, Qt.ItemDataRole.UserRole)
+                if child_data and child_data.get("type") in ("tables_folder", "views_folder"):
+                    total += child.childCount()
+            if total > 0:
+                item.setText(0, f"{text_base} ({total})")
+
+        elif item_type in ("rootfolder", "folder"):
+            # Count immediate children (files + folders at this level)
+            count = item.childCount()
+            # Don't count dummy children
+            if count == 1:
+                first_child = item.child(0)
+                child_data = first_child.data(0, Qt.ItemDataRole.UserRole) if first_child else None
+                if child_data and child_data.get("type") == "dummy":
+                    return
+            if count > 0:
+                item.setText(0, f"{text_base} ({count})")
+
+        elif item_type == "tables_folder":
+            # Count tables
+            count = item.childCount()
+            if count > 0:
+                item.setText(0, f"{text_base} ({count})")
+
+        elif item_type == "views_folder":
+            # Count views
+            count = item.childCount()
+            if count > 0:
+                item.setText(0, f"{text_base} ({count})")
 
     def _set_item_icon(self, item, icon_name: str):
         icon = get_icon(icon_name)
@@ -335,6 +388,9 @@ class ResourcesManager(BaseManagerView):
             self.details_form_builder.set_value("resource_type", "Category")
             self.details_form_builder.set_value("description", "")
             self.details_form_builder.set_value("path", "")
+            self.details_form_builder.set_value("encoding", "-")
+            self.details_form_builder.set_value("separator", "-")
+            self.details_form_builder.set_value("delimiter", "-")
             return
 
         if not obj:
@@ -356,6 +412,9 @@ class ResourcesManager(BaseManagerView):
         self.details_form_builder.set_value("resource_type", type_labels.get(item_type, item_type))
         self.details_form_builder.set_value("description", description)
         self.details_form_builder.set_value("path", path)
+        self.details_form_builder.set_value("encoding", "-")
+        self.details_form_builder.set_value("separator", "-")
+        self.details_form_builder.set_value("delimiter", "-")
 
     def _display_file_item(self, item_data: dict):
         """Display file/folder item details in the details panel."""
@@ -370,6 +429,9 @@ class ResourcesManager(BaseManagerView):
             self.details_form_builder.set_value("resource_type", "Root Folder")
             self.details_form_builder.set_value("description", getattr(obj, "description", "") or "")
             self.details_form_builder.set_value("path", getattr(obj, "path", path_str))
+            self.details_form_builder.set_value("encoding", "-")
+            self.details_form_builder.set_value("separator", "-")
+            self.details_form_builder.set_value("delimiter", "-")
 
         elif path_str:
             # File or folder from filesystem
@@ -388,9 +450,12 @@ class ResourcesManager(BaseManagerView):
                         else:
                             size_str = f"{size_bytes / (1024 * 1024):.2f} MB"
                         file_type = file_path.suffix.upper()[1:] if file_path.suffix else "File"
+                        # Encoding will be set when file content is loaded
+                        encoding_display = "-"
                     else:
                         size_str = "-"
                         file_type = "Folder"
+                        encoding_display = "-"
 
                     # Format modified date
                     from datetime import datetime
@@ -400,24 +465,24 @@ class ResourcesManager(BaseManagerView):
                     self.details_form_builder.set_value("resource_type", f"{file_type} ({size_str})")
                     self.details_form_builder.set_value("description", f"Modified: {modified}")
                     self.details_form_builder.set_value("path", str(file_path))
+                    self.details_form_builder.set_value("encoding", encoding_display)
+                    self.details_form_builder.set_value("separator", "-")
+                    self.details_form_builder.set_value("delimiter", "-")
                 except Exception as e:
                     logger.error(f"Error getting file info: {e}")
 
     def _on_tree_double_click(self, item, column):
-        """Double-click: expand, execute query, or open file."""
+        """Double-click: expand/collapse items, or open files."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
             return
 
         item_type = data.get("type", "")
 
-        if item_type in ("category", "database", "server", "rootfolder", "folder", "tables_folder", "views_folder"):
-            # Toggle expand for expandable items
+        if item_type in ("category", "database", "server", "rootfolder", "folder",
+                         "tables_folder", "views_folder", "table", "view"):
+            # Toggle expand for expandable items (including tables to show columns)
             item.setExpanded(not item.isExpanded())
-
-        elif item_type in ("table", "view"):
-            # Generate and execute SELECT TOP 100 query in our query tab
-            self._execute_query_for_table(data, limit=100)
 
         elif item_type == "file":
             # Load and display file content in our viewer
@@ -439,20 +504,35 @@ class ResourcesManager(BaseManagerView):
         if not data:
             return
 
-        # Check for dummy child
+        item_type = data.get("type", "")
+
+        # Check for dummy child (lazy loading trigger)
         if item.childCount() == 1:
             first_child = item.child(0)
             child_data = first_child.data(0, Qt.ItemDataRole.UserRole)
             if child_data and child_data.get("type") == "dummy":
                 item.removeChild(first_child)
 
-                item_type = data.get("type", "")
                 if item_type == "database" and self._database_manager:
                     self._load_database_children(item, data)
+                    # Update count after loading (shows tables+views count)
+                    self._update_item_count(item)
+                    # Also update Tables and Views folders
+                    for i in range(item.childCount()):
+                        child = item.child(i)
+                        self._update_item_count(child)
                 elif item_type == "rootfolder" and self._rootfolder_manager:
                     self._load_rootfolder_children(item, data)
+                    # Update count after loading (shows files+folders count)
+                    self._update_item_count(item)
                 elif item_type == "folder" and self._rootfolder_manager:
                     self._load_folder_children(item, data)
+                    # Update count after loading
+                    self._update_item_count(item)
+        else:
+            # Item already has children - just update count if needed
+            if item_type in ("tables_folder", "views_folder"):
+                self._update_item_count(item)
 
     def _load_database_children(self, parent_item: QTreeWidgetItem, data: dict):
         """Load database schema using DatabaseManager's methods."""
@@ -607,6 +687,13 @@ class ResourcesManager(BaseManagerView):
                 open_location_action.triggered.connect(lambda: self._open_location(Path(path)))
                 menu.addAction(open_location_action)
 
+        elif item_type == "column":
+            # Column context menu - copy column name
+            col_name = data.get("column", item.text(0).split(" (")[0])
+            copy_action = QAction(f"Copy '{col_name}'", self)
+            copy_action.triggered.connect(lambda: QApplication.clipboard().setText(col_name))
+            menu.addAction(copy_action)
+
         elif item_type == "file":
             # File context menu
             path = data.get("path")
@@ -618,6 +705,10 @@ class ResourcesManager(BaseManagerView):
                 open_location_action = QAction("Open File Location", self)
                 open_location_action.triggered.connect(lambda: self._rootfolder_manager._open_file_location(Path(path)))
                 menu.addAction(open_location_action)
+
+        # Debug: if no actions were added, log the item type
+        if not menu.actions():
+            logger.warning(f"No context menu for item type: '{item_type}', data: {data}")
 
         if menu.actions():
             menu.exec(self.tree_view.tree.viewport().mapToGlobal(position))
@@ -809,20 +900,84 @@ class ResourcesManager(BaseManagerView):
             self.file_text_viewer.setPlainText(f"Erreur lors du chargement: {str(e)}")
             self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
 
+    def _detect_encoding(self, file_path: Path) -> str:
+        """
+        Detect file encoding by trying multiple encodings.
+
+        Returns the encoding name that successfully reads the file.
+        """
+        # Try common encodings in order of likelihood
+        encodings_to_try = [
+            'utf-8-sig',  # UTF-8 with BOM (common in Windows)
+            'utf-8',      # Standard UTF-8
+            'cp1252',     # Windows Western European
+            'iso-8859-1', # Latin-1
+            'cp850',      # DOS Western European
+            'utf-16',     # UTF-16 with BOM
+        ]
+
+        # Read raw bytes to check for BOM
+        with open(file_path, 'rb') as f:
+            raw = f.read(4096)
+
+        # Check for BOM markers
+        if raw.startswith(b'\xef\xbb\xbf'):
+            return 'utf-8-sig'
+        elif raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+            return 'utf-16'
+
+        # Try each encoding
+        for encoding in encodings_to_try:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    f.read()  # Try to read entire file
+                return encoding
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+
+        # Fallback to latin-1 (never fails)
+        return 'iso-8859-1'
+
     def _load_csv_file(self, file_path: Path):
-        """Load CSV file into grid viewer."""
+        """Load CSV file into grid viewer with proper encoding detection."""
         import csv
 
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+        # Detect encoding
+        encoding = self._detect_encoding(file_path)
+        self._detected_encoding = encoding
+        self._detected_separator = None
+        self._detected_delimiter = None
+
+        with open(file_path, 'r', encoding=encoding, newline='') as f:
             # Try to detect delimiter
-            sample = f.read(4096)
+            sample = f.read(8192)
             f.seek(0)
 
+            dialect = None
             try:
                 dialect = csv.Sniffer().sniff(sample)
                 reader = csv.reader(f, dialect)
+                # Store detected values
+                self._detected_separator = dialect.delimiter
+                self._detected_delimiter = dialect.quotechar
             except csv.Error:
-                reader = csv.reader(f)
+                # Fallback: try common delimiters
+                f.seek(0)
+                first_line = f.readline()
+                f.seek(0)
+
+                if ';' in first_line:
+                    reader = csv.reader(f, delimiter=';')
+                    self._detected_separator = ';'
+                    self._detected_delimiter = '"'
+                elif '\t' in first_line:
+                    reader = csv.reader(f, delimiter='\t')
+                    self._detected_separator = '\t'
+                    self._detected_delimiter = '"'
+                else:
+                    reader = csv.reader(f)
+                    self._detected_separator = ','
+                    self._detected_delimiter = '"'
 
             rows = list(reader)
 
@@ -833,6 +988,9 @@ class ResourcesManager(BaseManagerView):
             self.file_grid_viewer.set_columns(headers)
             self.file_grid_viewer.set_data(data)
             self.file_viewer_stack.setCurrentIndex(0)  # Grid viewer
+
+            # Update details with encoding info
+            self._update_file_encoding_details(file_path)
         else:
             self.file_text_viewer.setPlainText("(Fichier CSV vide)")
             self.file_viewer_stack.setCurrentIndex(1)
@@ -870,7 +1028,13 @@ class ResourcesManager(BaseManagerView):
         """Load JSON file into text viewer with formatting."""
         import json
 
-        with open(file_path, 'r', encoding='utf-8') as f:
+        # Detect encoding
+        encoding = self._detect_encoding(file_path)
+        self._detected_encoding = encoding
+        self._detected_separator = None  # Not applicable for JSON
+        self._detected_delimiter = None
+
+        with open(file_path, 'r', encoding=encoding) as f:
             content = f.read()
 
         try:
@@ -881,15 +1045,77 @@ class ResourcesManager(BaseManagerView):
             self.file_text_viewer.setPlainText(content)
 
         self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
+        self._update_file_encoding_details(file_path)
 
     def _load_text_file(self, file_path: Path):
-        """Load text file into text viewer."""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except UnicodeDecodeError:
-            with open(file_path, 'r', encoding='latin-1') as f:
-                content = f.read()
+        """Load text file into text viewer with proper encoding detection."""
+        # Detect encoding
+        encoding = self._detect_encoding(file_path)
+        self._detected_encoding = encoding
+        self._detected_separator = None  # Not applicable for text files
+        self._detected_delimiter = None
+
+        with open(file_path, 'r', encoding=encoding) as f:
+            content = f.read()
 
         self.file_text_viewer.setPlainText(content)
         self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
+        self._update_file_encoding_details(file_path)
+
+    def _update_file_encoding_details(self, file_path: Path):
+        """Update the details panel with file info including encoding, separator, delimiter."""
+        try:
+            stat = file_path.stat()
+
+            # Format size
+            size_bytes = stat.st_size
+            if size_bytes < 1024:
+                size_str = f"{size_bytes} B"
+            elif size_bytes < 1024 * 1024:
+                size_str = f"{size_bytes / 1024:.2f} KB"
+            else:
+                size_str = f"{size_bytes / (1024 * 1024):.2f} MB"
+
+            file_type = file_path.suffix.upper()[1:] if file_path.suffix else "File"
+
+            # Format modified date
+            from datetime import datetime
+            modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+
+            # Update details form
+            self.details_form_builder.set_value("name", file_path.name)
+            self.details_form_builder.set_value("resource_type", f"{file_type} ({size_str})")
+            self.details_form_builder.set_value("description", f"Modified: {modified}")
+            self.details_form_builder.set_value("path", str(file_path))
+
+            # Show encoding
+            encoding_display = self._detected_encoding.upper() if self._detected_encoding else "-"
+            self.details_form_builder.set_value("encoding", encoding_display)
+
+            # Show separator (with friendly names)
+            separator_names = {
+                ',': 'Comma (,)',
+                ';': 'Semicolon (;)',
+                '\t': 'Tab (\\t)',
+                '|': 'Pipe (|)',
+                ' ': 'Space',
+            }
+            if self._detected_separator:
+                sep_display = separator_names.get(self._detected_separator, f"'{self._detected_separator}'")
+            else:
+                sep_display = "-"
+            self.details_form_builder.set_value("separator", sep_display)
+
+            # Show delimiter (quote character)
+            delimiter_names = {
+                '"': 'Double quote (")',
+                "'": "Single quote (')",
+            }
+            if self._detected_delimiter:
+                delim_display = delimiter_names.get(self._detected_delimiter, f"'{self._detected_delimiter}'")
+            else:
+                delim_display = "-"
+            self.details_form_builder.set_value("delimiter", delim_display)
+
+        except Exception as e:
+            logger.error(f"Error updating file details: {e}")

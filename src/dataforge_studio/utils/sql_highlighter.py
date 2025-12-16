@@ -5,7 +5,6 @@ Provides syntax highlighting for SQL queries in QTextEdit
 
 from PySide6.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor, QFont
 from PySide6.QtCore import QRegularExpression
-import re
 
 
 class SQLHighlighter(QSyntaxHighlighter):
@@ -13,46 +12,49 @@ class SQLHighlighter(QSyntaxHighlighter):
     SQL syntax highlighter for QTextEdit/QPlainTextEdit.
 
     Highlights SQL keywords, strings, comments, numbers, and functions.
+    Colors are loaded from the active theme.
     """
 
-    def __init__(self, document):
+    def __init__(self, document, theme_colors=None):
         """
         Initialize SQL highlighter.
 
         Args:
             document: QTextDocument to apply highlighting to
+            theme_colors: Optional dict of theme colors. If None, will load from ThemeBridge.
         """
         super().__init__(document)
+        self.theme_colors = theme_colors
         self._setup_formats()
         self._setup_rules()
 
     def _setup_formats(self):
-        """Setup text formats for different SQL elements."""
-        # Keyword format (blue, bold)
+        """Setup text formats for SQL elements - SSMS-style fixed colors."""
+        # Keyword format (blue, bold) - like SSMS
         self.keyword_format = QTextCharFormat()
-        self.keyword_format.setForeground(QColor("#569cd6"))
+        self.keyword_format.setForeground(QColor("#0000FF"))
         self.keyword_format.setFontWeight(QFont.Weight.Bold)
 
-        # String format (orange/brown)
+        # String format (red) - like SSMS
         self.string_format = QTextCharFormat()
-        self.string_format.setForeground(QColor("#ce9178"))
+        self.string_format.setForeground(QColor("#FF0000"))
 
-        # Comment format (green, italic)
+        # Comment format (green, italic) - like SSMS
         self.comment_format = QTextCharFormat()
-        self.comment_format.setForeground(QColor("#6a9955"))
+        self.comment_format.setForeground(QColor("#008000"))
         self.comment_format.setFontItalic(True)
 
-        # Number format (light green)
+        # Number format (black)
         self.number_format = QTextCharFormat()
-        self.number_format.setForeground(QColor("#b5cea8"))
+        self.number_format.setForeground(QColor("#000000"))
 
-        # Function format (yellow)
+        # Function format (magenta) - like SSMS
         self.function_format = QTextCharFormat()
-        self.function_format.setForeground(QColor("#dcdcaa"))
+        self.function_format.setForeground(QColor("#FF00FF"))
 
-        # Operator format (white)
+        # Operator format (gray)
         self.operator_format = QTextCharFormat()
-        self.operator_format.setForeground(QColor("#d4d4d4"))
+        self.operator_format.setForeground(QColor("#808080"))
 
     def _setup_rules(self):
         """Setup highlighting rules with regular expressions."""

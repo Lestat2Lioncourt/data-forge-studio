@@ -3,7 +3,7 @@ Log Panel - Reusable log panel with filtering
 Provides colored log output with optional level filtering
 """
 
-from typing import Optional
+from typing import Optional, Dict
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QCheckBox
 from PySide6.QtGui import QTextCursor, QColor
 from PySide6.QtCore import Qt
@@ -17,19 +17,11 @@ class LogPanel(QWidget):
     filtering by log level (INFO, WARNING, ERROR, SUCCESS).
 
     Features:
-    - Colored messages based on level
+    - Colored messages based on level (from theme)
     - Optional checkboxes to filter log levels
     - Auto-scroll to bottom on new messages
+    - Theme-aware (updates colors when theme changes)
     """
-
-    # Color mapping for different log levels
-    COLORS = {
-        "INFO": QColor("#ffffff"),      # White
-        "WARNING": QColor("#ffa500"),   # Orange
-        "ERROR": QColor("#ff4444"),     # Red
-        "SUCCESS": QColor("#00ff00"),   # Green
-        "DEBUG": QColor("#888888")      # Gray
-    }
 
     def __init__(self, parent: Optional[QWidget] = None, with_filters: bool = True):
         """
@@ -41,7 +33,71 @@ class LogPanel(QWidget):
         """
         super().__init__(parent)
         self.with_filters = with_filters
+
+        # Color mapping - will be loaded from theme
+        self.colors: Dict[str, QColor] = {}
+
         self._setup_ui()
+        self._load_theme_colors()
+        self._register_theme_observer()
+
+    def _load_theme_colors(self):
+        """Load colors from current theme."""
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            theme = ThemeBridge.get_instance()
+            theme_colors = theme.get_theme_colors()
+
+            # Map log levels to theme colors
+            self.colors = {
+                "INFO": QColor(theme_colors.get("log_info_fg", "#ffffff")),
+                "WARNING": QColor(theme_colors.get("log_warning_fg", "#ffa500")),
+                "ERROR": QColor(theme_colors.get("log_error_fg", "#ff4444")),
+                "SUCCESS": QColor(theme_colors.get("log_success_fg", "#4ade80")),
+                "DEBUG": QColor(theme_colors.get("log_debug_fg", "#888888"))
+            }
+
+            # Apply background from log_bg theme color
+            log_bg = theme_colors.get("log_bg", "#2d2d2d")
+            log_fg = theme_colors.get("normal_fg", "#ffffff")
+            self.log_text.setStyleSheet(f"""
+                QTextEdit {{
+                    background-color: {log_bg};
+                    color: {log_fg};
+                    border: none;
+                    font-family: Consolas;
+                    font-size: 9pt;
+                }}
+            """)
+
+        except Exception as e:
+            # Fallback to default colors if theme not available
+            self.colors = {
+                "INFO": QColor("#ffffff"),
+                "WARNING": QColor("#ffa500"),
+                "ERROR": QColor("#ff4444"),
+                "SUCCESS": QColor("#4ade80"),
+                "DEBUG": QColor("#888888")
+            }
+
+    def _register_theme_observer(self):
+        """Register as observer for theme changes."""
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            theme = ThemeBridge.get_instance()
+            theme.register_observer(self._on_theme_changed)
+        except Exception:
+            pass
+
+    def _on_theme_changed(self, theme_colors: Dict[str, str]):
+        """
+        Called when theme changes.
+
+        Args:
+            theme_colors: New theme colors dict
+        """
+        # Reload colors
+        self._load_theme_colors()
 
     def _setup_ui(self):
         """Setup UI components."""
@@ -98,7 +154,7 @@ class LogPanel(QWidget):
                 return
 
         # Get color for this level
-        color = self.COLORS.get(level.upper(), QColor("white"))
+        color = self.colors.get(level.upper(), QColor("white"))
 
         # Add message with color
         self.log_text.setTextColor(color)

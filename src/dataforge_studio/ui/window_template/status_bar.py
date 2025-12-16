@@ -10,17 +10,9 @@ class StatusBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(30)
-        self.setStyleSheet("""
-            StatusBar {
-                background-color: #2b2b2b;
-                border-top: 1px solid #3d3d3d;
-            }
-            QLabel {
-                color: #cccccc;
-                padding: 5px 10px;
-                font-size: 9pt;
-            }
-        """)
+        # Enable styled background for QSS to work
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # No hardcoded styles - will be set by theme manager via apply_theme()
 
         self._setup_ui()
 

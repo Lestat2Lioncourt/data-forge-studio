@@ -24,15 +24,19 @@ class I18nBridge:
             'menu_import': 'Import',
             'menu_quit': 'Quit',
 
-            'menu_view': 'View',
+            'menu_view': 'Resources',
+            'menu_workspaces': 'Workspaces',
+            'menu_workspaces_all': 'All',
+            'menu_workspaces_manage': 'Manage workspaces...',
             'menu_data_lake': 'Data Lake',
-            'menu_database': 'Database',
+            'menu_database': 'Databases',
             'menu_queries': 'Queries',
             'menu_scripts': 'Scripts',
             'menu_jobs': 'Jobs',
             'menu_data_explorer': 'Data Explorer',
 
             'menu_settings': 'Settings',
+            'option': 'Options',
             'menu_preferences': 'Preferences',
             'menu_themes': 'Themes',
 
@@ -61,6 +65,10 @@ class I18nBridge:
             'settings_language': 'Language',
             'settings_select_language': 'Select Language:',
             'settings_applied': 'Settings applied successfully',
+            'current_settings': 'Current Settings',
+            'opt_current_language': 'Current Language:',
+            'opt_current_theme': 'Current Theme:',
+            'language_already_selected': 'This language is already selected',
 
             # Status messages
             'status_ready': 'Ready',
@@ -69,9 +77,11 @@ class I18nBridge:
             'status_viewing_queries': 'Queries Manager',
             'status_viewing_scripts': 'Scripts Manager',
             'status_viewing_jobs': 'Jobs Manager',
-            'status_viewing_data_explorer': 'Data Explorer',
+            'status_viewing_resources': 'Resources Manager',
             'status_viewing_settings': 'Viewing Settings',
+            'status_viewing_theme_editor': 'Theme Editor',
             'status_viewing_help': 'Viewing Help',
+            'status_viewing_rootfolders': 'RootFolders Manager',
             'status_version_up_to_date': 'Your version is up to date',
 
             # Log messages
@@ -202,15 +212,19 @@ class I18nBridge:
             'menu_import': 'Importer',
             'menu_quit': 'Quitter',
 
-            'menu_view': 'Affichage',
+            'menu_view': 'Ressources',
+            'menu_workspaces': 'Espaces de travail',
+            'menu_workspaces_all': 'Tous',
+            'menu_workspaces_manage': 'Gérer les espaces de travail...',
             'menu_data_lake': 'Data Lake',
-            'menu_database': 'Base de Données',
+            'menu_database': 'Bases de Données',
             'menu_queries': 'Requêtes',
             'menu_scripts': 'Scripts',
             'menu_jobs': 'Jobs',
             'menu_data_explorer': 'Explorateur de Données',
 
             'menu_settings': 'Paramètres',
+            'option': 'Options',
             'menu_preferences': 'Préférences',
             'menu_themes': 'Thèmes',
 
@@ -239,6 +253,10 @@ class I18nBridge:
             'settings_language': 'Langue',
             'settings_select_language': 'Sélectionner la Langue :',
             'settings_applied': 'Paramètres appliqués avec succès',
+            'current_settings': 'Paramètres actuels',
+            'opt_current_language': 'Langue actuelle :',
+            'opt_current_theme': 'Thème actuel :',
+            'language_already_selected': 'Cette langue est déjà sélectionnée',
 
             # Status messages
             'status_ready': 'Prêt',
@@ -247,9 +265,11 @@ class I18nBridge:
             'status_viewing_queries': 'Gestionnaire de Requêtes',
             'status_viewing_scripts': 'Gestionnaire de Scripts',
             'status_viewing_jobs': 'Gestionnaire de Jobs',
-            'status_viewing_data_explorer': 'Explorateur de Données',
+            'status_viewing_resources': 'Gestionnaire de Ressources',
             'status_viewing_settings': 'Affichage Paramètres',
+            'status_viewing_theme_editor': 'Éditeur de Thèmes',
             'status_viewing_help': 'Affichage Aide',
+            'status_viewing_rootfolders': 'Gestionnaire RootFolders',
             'status_version_up_to_date': 'Votre version est à jour',
 
             # Log messages

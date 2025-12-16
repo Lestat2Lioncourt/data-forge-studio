@@ -22,26 +22,12 @@ class TitleBar(QWidget):
         self._show_special_button = show_special_button
         self._drag_position = QPoint()
         self._is_dragging = False
+        self._click_x_ratio = 0.5
 
         self.setFixedHeight(40)
-        self.setStyleSheet("""
-            TitleBar {
-                background-color: #2b2b2b;
-                border-bottom: 1px solid #3d3d3d;
-            }
-            QLabel {
-                color: #ffffff;
-                padding-left: 10px;
-            }
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                color: #ffffff;
-                font-size: 16px;
-                padding: 0px;
-                margin: 0px;
-            }
-        """)
+        # Enable styled background for QSS to work
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # No hardcoded styles - will be set by theme manager via apply_theme()
 
         self._setup_ui()
 
@@ -51,8 +37,26 @@ class TitleBar(QWidget):
         BUTTON_SPACING = 0  # Spacing between buttons and right margin
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, BUTTON_SPACING, 0)  # Right margin
-        layout.setSpacing(BUTTON_SPACING)  # Spacing between buttons
+        layout.setContentsMargins(0, 0, BUTTON_SPACING, 0)  # No left margin for full-height logo
+        layout.setSpacing(5)  # Small spacing between icon and title
+
+        # App icon (if available) - 40x40 to match title bar height
+        from pathlib import Path
+        from PySide6.QtGui import QPixmap
+        icon_path = Path(__file__).parent.parent / "assets" / "images" / "DataForge-Studio-logo.png"
+        if icon_path.exists():
+            self.icon_label = QLabel()
+            self.icon_label.setObjectName("AppLogoLabel")
+            self.icon_label.setStyleSheet("#AppLogoLabel { padding: 0; margin: 0; border: none; background: transparent; }")
+            icon_pixmap = QPixmap(str(icon_path))
+            if not icon_pixmap.isNull():
+                # Scale to fit 32x32
+                scaled_icon = icon_pixmap.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self.icon_label.setPixmap(scaled_icon)
+                self.icon_label.setFixedSize(32, 32)
+                self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.icon_label.setScaledContents(False)
+                layout.addWidget(self.icon_label)
 
         # App title label
         self.title_label = QLabel(self.title)
@@ -134,13 +138,47 @@ class TitleBar(QWidget):
         """Handle mouse press for window dragging."""
         if event.button() == Qt.LeftButton:
             self._is_dragging = True
+            # Store click position relative to title bar (as percentage for restore calculation)
+            self._click_x_ratio = event.position().x() / self.width() if self.width() > 0 else 0.5
             self._drag_position = event.globalPosition().toPoint() - self.window().frameGeometry().topLeft()
             event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle mouse move for window dragging."""
         if self._is_dragging and event.buttons() == Qt.LeftButton:
-            self.window().move(event.globalPosition().toPoint() - self._drag_position)
+            window = self.window()
+
+            # Check if window is maximized (using custom _is_maximized flag)
+            is_maximized = getattr(window, '_is_maximized', False) or window.isMaximized()
+
+            if is_maximized:
+                # Get the normal geometry before restoring
+                # ResizeWrapper uses _resize_start_geometry, TemplateWindow uses _normal_geometry
+                normal_geometry = getattr(window, '_resize_start_geometry', None) or \
+                                  getattr(window, '_normal_geometry', None)
+                if normal_geometry and normal_geometry.isValid():
+                    normal_width = normal_geometry.width()
+                else:
+                    normal_width = 1200  # Default width
+
+                # Restore window using toggle_maximize if available
+                if hasattr(window, 'toggle_maximize'):
+                    window.toggle_maximize()
+                else:
+                    window.showNormal()
+
+                # Calculate new position: cursor should stay at same relative X position
+                cursor_pos = event.globalPosition().toPoint()
+                new_x = cursor_pos.x() - int(normal_width * self._click_x_ratio)
+                new_y = cursor_pos.y() - 20  # Offset for title bar height
+
+                window.move(new_x, new_y)
+
+                # Update drag position for continued dragging
+                self._drag_position = cursor_pos - window.frameGeometry().topLeft()
+            else:
+                window.move(event.globalPosition().toPoint() - self._drag_position)
+
             event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent):

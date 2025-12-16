@@ -57,6 +57,8 @@ class CustomTreeView(QWidget):
         # Tree widget
         self.tree = QTreeWidget()
 
+        # Let global theme handle colors - no hardcoded styles
+
         if columns:
             self.tree.setColumnCount(len(columns))
             self.tree.setHeaderLabels(columns)
@@ -69,6 +71,7 @@ class CustomTreeView(QWidget):
         # Enable features
         self.tree.setAlternatingRowColors(True)
         self.tree.setSelectionBehavior(QTreeWidget.SelectionBehavior.SelectRows)
+        self.tree.setRootIsDecorated(False)  # No branch decoration for root items
 
         layout.addWidget(self.tree)
 

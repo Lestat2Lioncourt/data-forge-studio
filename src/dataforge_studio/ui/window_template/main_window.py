@@ -54,12 +54,8 @@ class TemplateWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # Set background color
-        central_widget.setStyleSheet("""
-            QWidget {
-                background-color: #1e1e1e;
-            }
-        """)
+        # No hardcoded styles - let global QSS handle colors
+        # central_widget styled by theme via app.setStyleSheet()
 
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -73,19 +69,12 @@ class TemplateWindow(QMainWindow):
 
         # Create horizontal splitter for left and right panels
         self.main_splitter = QSplitter(Qt.Horizontal)
-        self.main_splitter.setHandleWidth(3)
-        self.main_splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #4d4d4d;
-            }
-            QSplitter::handle:hover {
-                background-color: #0078d4;
-            }
-        """)
+        self.main_splitter.setHandleWidth(4)
+        # No hardcoded style - uses theme via global QSS
 
         # Left panel - single container
         self.left_panel = QWidget()
-        self.left_panel.setStyleSheet("background-color: #2d2d2d;")
+        # No hardcoded style - uses theme via global QSS
         self.main_splitter.addWidget(self.left_panel)
 
         # Right panel container with optional vertical splitter
@@ -96,24 +85,17 @@ class TemplateWindow(QMainWindow):
 
         # Right panel splitter (vertical split)
         self.right_splitter = QSplitter(Qt.Vertical)
-        self.right_splitter.setHandleWidth(3)
-        self.right_splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #4d4d4d;
-            }
-            QSplitter::handle:hover {
-                background-color: #0078d4;
-            }
-        """)
+        self.right_splitter.setHandleWidth(4)
+        # No hardcoded style - uses theme via global QSS
 
         # Right top panel
         self.right_top_panel = QWidget()
-        self.right_top_panel.setStyleSheet("background-color: #2d2d2d;")
+        # No hardcoded style - uses theme via global QSS
         self.right_splitter.addWidget(self.right_top_panel)
 
         # Right bottom panel (initially hidden)
         self.right_bottom_panel = QWidget()
-        self.right_bottom_panel.setStyleSheet("background-color: #2d2d2d;")
+        # No hardcoded style - uses theme via global QSS
         self.right_splitter.addWidget(self.right_bottom_panel)
 
         # Initially hide bottom panel

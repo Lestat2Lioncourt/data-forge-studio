@@ -7,14 +7,15 @@ from typing import List, Optional, Any
 from pathlib import Path
 from PySide6.QtWidgets import QWidget, QStackedWidget, QTextEdit
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 
 from .base_manager_view import BaseManagerView
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.form_builder import FormBuilder
 from ..widgets.custom_datagridview import CustomDataGridView
 from ..widgets.dialog_helper import DialogHelper
+from ..utils.ui_helper import UIHelper
 from ..core.i18n_bridge import tr
+from ...database.config_db import get_config_db
 
 
 class DataExplorer(BaseManagerView):
@@ -52,12 +53,7 @@ class DataExplorer(BaseManagerView):
         toolbar_builder.add_separator()
         toolbar_builder.add_button(tr("btn_delete"), self._delete_item, icon="delete.png")
         toolbar_builder.add_button(tr("btn_open_location"), self._open_location, icon="open.png")
-
-        # Replace default toolbar
-        old_toolbar = self.toolbar
-        self.toolbar = toolbar_builder.build()
-        self.layout().replaceWidget(old_toolbar, self.toolbar)
-        old_toolbar.setParent(None)
+        self._replace_toolbar(toolbar_builder)
 
     def _setup_details(self):
         """Setup details panel with item information."""
@@ -85,12 +81,7 @@ class DataExplorer(BaseManagerView):
         self.text_viewer = QTextEdit()
         self.text_viewer.setReadOnly(True)
         self.text_viewer.setPlaceholderText(tr("text_viewer_placeholder"))
-
-        # Set monospace font for text viewer
-        text_font = QFont("Consolas", 10)
-        text_font.setStyleHint(QFont.StyleHint.Monospace)
-        self.text_viewer.setFont(text_font)
-
+        UIHelper.apply_monospace_font(self.text_viewer)
         self.viewer_stack.addWidget(self.text_viewer)
 
         # Empty/default viewer
@@ -104,152 +95,256 @@ class DataExplorer(BaseManagerView):
 
     def _load_items(self):
         """Load projects and files into hierarchical tree view."""
-        # TODO: Integrate with database layer when available
-        # For now, create placeholder hierarchical data
+        try:
+            config_db = get_config_db()
+            projects = config_db.get_all_projects()
 
-        # Placeholder projects
-        placeholder_projects = [
-            {
-                "name": "Project Alpha",
-                "type": "Project",
-                "description": "Main data project",
-                "created": "2025-01-01",
-                "file_roots": [
-                    {
-                        "name": "Data Files",
-                        "type": "File Root",
-                        "path": "C:/Data/Alpha",
-                        "files": [
-                            {"name": "users.csv", "type": "CSV", "path": "C:/Data/Alpha/users.csv", "size": "2.5 MB"},
-                            {"name": "orders.csv", "type": "CSV", "path": "C:/Data/Alpha/orders.csv", "size": "5.1 MB"},
-                            {"name": "config.json", "type": "JSON", "path": "C:/Data/Alpha/config.json", "size": "1.2 KB"}
-                        ]
-                    }
-                ]
-            },
-            {
-                "name": "Project Beta",
-                "type": "Project",
-                "description": "Secondary project",
-                "created": "2025-02-01",
-                "file_roots": [
-                    {
-                        "name": "Export Files",
-                        "type": "File Root",
-                        "path": "C:/Data/Beta",
-                        "files": [
-                            {"name": "report.txt", "type": "TXT", "path": "C:/Data/Beta/report.txt", "size": "850 KB"}
-                        ]
-                    }
-                ]
-            }
-        ]
-
-        # Build hierarchical tree
-        for project in placeholder_projects:
-            # Add project item
-            project_item = self.tree_view.add_item(
-                parent=None,
-                text=[project["name"], project["type"], ""],
-                data=project
-            )
-
-            # Add file roots under project
-            for file_root in project.get("file_roots", []):
-                file_root_item = self.tree_view.add_item(
-                    parent=project_item,
-                    text=[file_root["name"], file_root["type"], file_root["path"]],
-                    data=file_root
+            for project in projects:
+                # Add project item
+                project_item = self.tree_view.add_item(
+                    parent=None,
+                    text=[project.name, "Project", ""],
+                    data={"obj": project, "type": "Project"}
                 )
 
-                # Add files under file root
-                for file in file_root.get("files", []):
-                    self.tree_view.add_item(
-                        parent=file_root_item,
-                        text=[file["name"], file["type"], file["path"]],
-                        data=file
+                # Load file roots for this project
+                file_roots = config_db.get_project_file_roots(project.id)
+                for file_root in file_roots:
+                    file_root_item = self.tree_view.add_item(
+                        parent=project_item,
+                        text=[file_root.name or file_root.path, "File Root", file_root.path],
+                        data={"obj": file_root, "type": "File Root"}
                     )
 
-        # Expand all by default
-        self.tree_view.expand_all()
+                    # Scan directory recursively with folder counts
+                    try:
+                        root_path = Path(file_root.path)
+                        if root_path.exists() and root_path.is_dir():
+                            self._scan_directory_recursive(root_path, file_root_item)
+                    except Exception as e:
+                        # Log error but continue with other file roots
+                        print(f"Error scanning directory {file_root.root_path}: {e}")
 
-        # Real implementation:
-        # try:
-        #     from ...database.config_db import get_config_db
-        #     config_db = get_config_db()
-        #     projects = config_db.get_all_projects()
-        #
-        #     for project in projects:
-        #         project_item = self.tree_view.add_item(
-        #             parent=None,
-        #             text=[project.name, "Project", ""],
-        #             data=project
-        #         )
-        #
-        #         file_roots = config_db.get_file_roots_for_project(project.id)
-        #         for file_root in file_roots:
-        #             file_root_item = self.tree_view.add_item(
-        #                 parent=project_item,
-        #                 text=[file_root.name, "File Root", file_root.path],
-        #                 data=file_root
-        #             )
-        #
-        #             # Load files from file system
-        #             files = self._scan_directory(file_root.path)
-        #             for file in files:
-        #                 self.tree_view.add_item(
-        #                     parent=file_root_item,
-        #                     text=[file.name, file.extension, file.path],
-        #                     data=file
-        #                 )
-        # except Exception as e:
-        #     DialogHelper.error(
-        #         tr("error_loading_projects"),
-        #         tr("error_title"),
-        #         self,
-        #         details=str(e)
-        #     )
+            # Expand all by default
+            self.tree_view.expand_all()
+
+        except Exception as e:
+            DialogHelper.error(
+                tr("error_loading_projects"),
+                tr("error_title"),
+                self,
+                details=str(e)
+            )
+
+    def _scan_directory(self, directory_path: Path) -> List[dict]:
+        """
+        Scan directory for files (basic implementation).
+
+        Args:
+            directory_path: Path to directory
+
+        Returns:
+            List of file info dicts
+        """
+        files = []
+        try:
+            for item in directory_path.iterdir():
+                if item.is_file():
+                    # Get file extension
+                    extension = item.suffix.upper().lstrip(".")
+                    if not extension:
+                        extension = "FILE"
+
+                    # Get file size
+                    size_bytes = item.stat().st_size
+                    if size_bytes < 1024:
+                        size_str = f"{size_bytes} B"
+                    elif size_bytes < 1024 * 1024:
+                        size_str = f"{size_bytes / 1024:.1f} KB"
+                    else:
+                        size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+
+                    files.append({
+                        "name": item.name,
+                        "type": extension,
+                        "path": str(item),
+                        "size": size_str
+                    })
+        except Exception as e:
+            print(f"Error scanning directory {directory_path}: {e}")
+
+        return files
+
+    def _count_files_in_directory(self, directory_path: Path) -> int:
+        """
+        Count total number of files in a directory (non-recursive).
+
+        Args:
+            directory_path: Path to directory
+
+        Returns:
+            Number of files in directory
+        """
+        try:
+            return sum(1 for item in directory_path.iterdir() if item.is_file())
+        except Exception:
+            return 0
+
+    def _scan_directory_recursive(self, directory_path: Path, parent_item):
+        """
+        Recursively scan directory and populate tree with subdirectories and files.
+        Shows subdirectories with file counts like "Documents (5 files)".
+
+        Args:
+            directory_path: Path to directory to scan
+            parent_item: Parent tree item to add children to
+        """
+        try:
+            # Separate subdirectories and files
+            subdirs = []
+            files = []
+
+            for item in directory_path.iterdir():
+                if item.is_dir():
+                    subdirs.append(item)
+                elif item.is_file():
+                    files.append(item)
+
+            # Add subdirectories first (with file counts)
+            for subdir in sorted(subdirs):
+                file_count = self._count_files_in_directory(subdir)
+
+                # Format directory name with file count
+                if file_count == 0:
+                    display_name = subdir.name
+                elif file_count == 1:
+                    display_name = f"{subdir.name} (1 file)"
+                else:
+                    display_name = f"{subdir.name} ({file_count} files)"
+
+                # Add directory item
+                dir_item = self.tree_view.add_item(
+                    parent=parent_item,
+                    text=[display_name, "Folder", str(subdir)],
+                    data={"name": subdir.name, "type": "Folder", "path": str(subdir)}
+                )
+
+                # Recursively scan subdirectory
+                self._scan_directory_recursive(subdir, dir_item)
+
+            # Add files
+            for file_path in sorted(files):
+                # Get file extension
+                extension = file_path.suffix.upper().lstrip(".")
+                if not extension:
+                    extension = "FILE"
+
+                # Get file size
+                size_bytes = file_path.stat().st_size
+                if size_bytes < 1024:
+                    size_str = f"{size_bytes} B"
+                elif size_bytes < 1024 * 1024:
+                    size_str = f"{size_bytes / 1024:.1f} KB"
+                else:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+
+                # Add file item
+                self.tree_view.add_item(
+                    parent=parent_item,
+                    text=[file_path.name, extension, str(file_path)],
+                    data={
+                        "name": file_path.name,
+                        "type": extension,
+                        "path": str(file_path),
+                        "size": size_str
+                    }
+                )
+
+        except Exception as e:
+            print(f"Error scanning directory {directory_path}: {e}")
 
     def _display_item(self, item_data: Any):
         """
         Display selected item details and content.
 
         Args:
-            item_data: Item data object (dict or database model)
+            item_data: Item data object (dict with "obj" and "type", or file info dict)
         """
-        # Handle both dict (placeholder) and database model
-        if isinstance(item_data, dict):
+        # Check if this is a Project or File Root (dict with "obj" key)
+        if isinstance(item_data, dict) and "obj" in item_data:
+            obj = item_data["obj"]
+            item_type = item_data["type"]
+
+            if item_type == "Project":
+                name = obj.name
+                path = ""
+                size = ""
+                created = str(obj.created_at) if hasattr(obj, "created_at") else ""
+                modified = str(obj.modified_at) if hasattr(obj, "modified_at") else ""
+            elif item_type == "File Root":
+                name = obj.root_path
+                path = obj.root_path
+                size = ""
+                created = str(obj.created_at) if hasattr(obj, "created_at") else ""
+                modified = ""
+            else:
+                name = ""
+                path = ""
+                size = ""
+                created = ""
+                modified = ""
+
+            # Update details form
+            self.details_form.set_value("name", name)
+            self.details_form.set_value("item_type", item_type)
+            self.details_form.set_value("path", path)
+            self.details_form.set_value("size", size)
+            self.details_form.set_value("created", created)
+            self.details_form.set_value("modified", modified)
+
+            # Show empty viewer for Projects and File Roots
+            self.viewer_stack.setCurrentWidget(self.empty_viewer)
+
+        # Handle file info dict (from _scan_directory_recursive)
+        elif isinstance(item_data, dict):
             name = item_data.get("name", "")
             item_type = item_data.get("type", "")
             path = item_data.get("path", "")
             size = item_data.get("size", "")
-            created = item_data.get("created", "")
-            modified = item_data.get("modified", "")
-        else:
-            # Assume it's a database model with attributes
-            name = getattr(item_data, "name", "")
-            item_type = getattr(item_data, "type", "")
-            path = getattr(item_data, "path", "")
-            size = getattr(item_data, "size", "")
-            created = str(getattr(item_data, "created_at", ""))
-            modified = str(getattr(item_data, "modified_at", ""))
+            created = ""
+            modified = ""
 
-        # Update details form
-        self.details_form.set_value("name", name)
-        self.details_form.set_value("item_type", item_type)
-        self.details_form.set_value("path", path)
-        self.details_form.set_value("size", size)
-        self.details_form.set_value("created", created)
-        self.details_form.set_value("modified", modified)
+            # Get file stats if path exists
+            if path:
+                try:
+                    path_obj = Path(path)
+                    if path_obj.exists():
+                        stat = path_obj.stat()
+                        from datetime import datetime
+                        created = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M:%S")
+                        modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass
 
-        # Display content based on type
-        if item_type == "CSV":
-            self._display_csv(path)
-        elif item_type in ["JSON", "TXT"]:
-            self._display_text(path)
-        else:
-            # Project or File Root - show empty viewer
-            self.viewer_stack.setCurrentWidget(self.empty_viewer)
+            # Update details form
+            self.details_form.set_value("name", name)
+            self.details_form.set_value("item_type", item_type)
+            self.details_form.set_value("path", path)
+            self.details_form.set_value("size", size)
+            self.details_form.set_value("created", created)
+            self.details_form.set_value("modified", modified)
+
+            # Display content based on type
+            if item_type == "Folder":
+                # Show empty viewer for folders
+                self.viewer_stack.setCurrentWidget(self.empty_viewer)
+            elif item_type == "CSV":
+                self._display_csv(path)
+            elif item_type in ["JSON", "TXT"]:
+                self._display_text(path)
+            else:
+                # Other file types - show empty viewer for now
+                self.viewer_stack.setCurrentWidget(self.empty_viewer)
 
     def _display_csv(self, file_path: str):
         """
@@ -342,38 +437,19 @@ class DataExplorer(BaseManagerView):
 
     def _add_file_root(self):
         """Add a new file root to selected project."""
-        if not self._current_item:
-            DialogHelper.warning(
-                tr("select_project_first"),
-                tr("add_file_root_title"),
-                self
-            )
+        if not self._check_item_selected(tr("select_project_first"), tr("add_file_root_title")):
             return
 
         # TODO: Open dialog to add file root
-        DialogHelper.info(
-            tr("feature_coming_soon"),
-            tr("add_file_root_title"),
-            self
-        )
+        DialogHelper.info(tr("feature_coming_soon"), tr("add_file_root_title"), self)
 
     def _delete_item(self):
         """Delete selected item."""
-        if not self._current_item:
-            DialogHelper.warning(
-                tr("select_item_first"),
-                tr("delete_item_title"),
-                self
-            )
+        if not self._check_item_selected(tr("select_item_first"), tr("delete_item_title")):
             return
 
-        # Get item name
-        if isinstance(self._current_item, dict):
-            item_name = self._current_item.get("name", "")
-        else:
-            item_name = getattr(self._current_item, "name", "")
+        item_name = self._get_item_name()
 
-        # Confirm deletion
         if DialogHelper.confirm(
             tr("confirm_delete_item").format(name=item_name),
             tr("delete_item_title"),
@@ -382,50 +458,18 @@ class DataExplorer(BaseManagerView):
             # TODO: Delete from database
             # config_db.delete_item(self._current_item.id)
             # self.refresh()
-            DialogHelper.info(
-                tr("item_deleted"),
-                tr("delete_item_title"),
-                self
-            )
+            DialogHelper.info(tr("item_deleted"), tr("delete_item_title"), self)
 
     def _open_location(self):
         """Open file location in file explorer."""
-        if not self._current_item:
-            DialogHelper.warning(
-                tr("select_item_first"),
-                tr("open_location_title"),
-                self
-            )
+        if not self._check_item_selected(tr("select_item_first"), tr("open_location_title")):
             return
 
-        # Get path
-        if isinstance(self._current_item, dict):
-            path = self._current_item.get("path", "")
-        else:
-            path = getattr(self._current_item, "path", "")
+        path = self._wrap_item().get_str("path")
 
         if not path:
-            DialogHelper.warning(
-                tr("no_path_for_item"),
-                tr("open_location_title"),
-                self
-            )
+            DialogHelper.warning(tr("no_path_for_item"), tr("open_location_title"), self)
             return
 
         # TODO: Open in file explorer
-        # import subprocess
-        # import os
-        # import platform
-        #
-        # if platform.system() == "Windows":
-        #     subprocess.run(["explorer", "/select,", os.path.normpath(path)])
-        # elif platform.system() == "Darwin":  # macOS
-        #     subprocess.run(["open", "-R", path])
-        # else:  # Linux
-        #     subprocess.run(["xdg-open", os.path.dirname(path)])
-
-        DialogHelper.info(
-            tr("feature_coming_soon"),
-            tr("open_location_title"),
-            self
-        )
+        DialogHelper.info(tr("feature_coming_soon"), tr("open_location_title"), self)

@@ -4,7 +4,7 @@ Eliminates repetitive toolbar creation code
 """
 
 from typing import Callable, Optional
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QFrame, QLabel
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QFrame, QLabel, QSizePolicy
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from pathlib import Path
@@ -37,14 +37,24 @@ class ToolbarBuilder:
             parent: Parent widget (optional)
         """
         self.toolbar = QWidget(parent)
+        self.toolbar.setObjectName("ToolbarWidget")  # For QSS targeting
         self.layout = QHBoxLayout(self.toolbar)
-        self.layout.setContentsMargins(5, 5, 5, 5)
-        self.layout.setSpacing(2)
+        # Minimal margins for compact ribbon-like appearance
+        self.layout.setContentsMargins(5, 2, 5, 2)
+        self.layout.setSpacing(3)
+
+        # Fix toolbar height
+        self.toolbar.setMaximumHeight(40)
+        self.toolbar.setMinimumHeight(32)
+
+        # Track if stretch was manually added
+        self._has_stretch = False
 
     def add_button(self, text: str, callback: Callable,
                   icon: Optional[str] = None,
                   tooltip: Optional[str] = None,
-                  side: str = "left") -> 'ToolbarBuilder':
+                  side: str = "left",
+                  return_button: bool = False):
         """
         Add a button to the toolbar.
 
@@ -54,12 +64,18 @@ class ToolbarBuilder:
             icon: Optional icon filename (in icons/ directory)
             tooltip: Optional tooltip text
             side: "left" or "right" (default: "left")
+            return_button: If True, returns the QPushButton instead of self
 
         Returns:
-            self for chaining
+            self for chaining, or QPushButton if return_button=True
         """
         btn = QPushButton(text)
         btn.clicked.connect(callback)
+
+        # Set compact size policy and fixed height for ribbon-like appearance
+        btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        btn.setMaximumHeight(28)
+        btn.setMinimumHeight(24)
 
         if icon:
             icon_path = self._get_icon_path(icon)
@@ -74,7 +90,8 @@ class ToolbarBuilder:
         else:
             self.layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignRight)
 
-        return self
+        self._last_button = btn
+        return btn if return_button else self
 
     def add_separator(self) -> 'ToolbarBuilder':
         """
@@ -97,6 +114,7 @@ class ToolbarBuilder:
             self for chaining
         """
         self.layout.addStretch()
+        self._has_stretch = True
         return self
 
     def add_widget(self, widget: QWidget, alignment: Optional[Qt.AlignmentFlag] = None) -> 'ToolbarBuilder':
@@ -151,10 +169,16 @@ class ToolbarBuilder:
     def build(self) -> QWidget:
         """
         Return the built toolbar widget.
+        Automatically adds a stretch at the end if not manually added.
 
         Returns:
             QWidget containing the toolbar
         """
+        # Add stretch at the end if not manually added
+        # This prevents buttons from stretching to fill width
+        if not self._has_stretch:
+            self.layout.addStretch()
+
         return self.toolbar
 
     def _get_icon_path(self, icon_name: str) -> Optional[Path]:
