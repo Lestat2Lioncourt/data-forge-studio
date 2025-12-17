@@ -21,6 +21,17 @@ from ...database.config_db import get_config_db, FileRoot
 from ...utils.image_loader import get_icon
 from ...utils.file_reader import read_file_content
 
+# DataFrame-Pivot pattern: centralized loading functions
+from ...core.data_loader import (
+    csv_to_dataframe,
+    json_to_dataframe,
+    excel_to_dataframe,
+    DataLoadResult,
+    LoadWarningLevel,
+    LARGE_DATASET_THRESHOLD
+)
+# Using CustomDataGridView.set_dataframe() directly for optimal performance
+
 import logging
 import uuid
 logger = logging.getLogger(__name__)
@@ -413,39 +424,37 @@ class RootFolderManager(QWidget):
             DialogHelper.error("Error opening file", details=str(e))
 
     def _display_csv(self, content: str):
-        """Display CSV content in grid"""
-        import csv
-        from io import StringIO
+        """Display CSV content in grid using DataFrame-Pivot pattern"""
+        # Use centralized data_loader
+        result = csv_to_dataframe(
+            self.current_file_path,
+            on_large_dataset=self._handle_large_dataset_warning
+        )
 
-        try:
-            # Try different delimiters
-            for delimiter in [',', ';', '\t', '|']:
-                sniffer = csv.Sniffer()
-                sample = content[:1024]
-                try:
-                    sniffer.sniff(sample, delimiters=delimiter)
-                    break
-                except:
-                    continue
+        if not result.success:
+            if result.error:
+                DialogHelper.error("Error loading CSV", details=str(result.error))
+            return
 
-            # Read CSV
-            reader = csv.reader(StringIO(content), delimiter=delimiter)
-            rows = list(reader)
+        # Display warning if there was one (but user chose to proceed)
+        if result.warning_level == LoadWarningLevel.WARNING and result.warning_message:
+            logger.warning(result.warning_message)
 
-            if not rows:
-                self.content_viewer.clear()
-                return
+        # Use centralized data_viewer to populate the grid
+        df = result.dataframe
+        if df is not None and not df.empty:
+            # Update source info in details
+            encoding = result.source_info.get('encoding', 'unknown')
+            separator = result.source_info.get('separator', ',')
+            sep_display = {',' : 'comma', ';': 'semicolon', '\t': 'tab', '|': 'pipe'}.get(separator, separator)
 
-            # First row as headers
-            headers = rows[0]
-            data = rows[1:]
+            # Log info
+            logger.info(f"CSV loaded: {result.row_count} rows, encoding={encoding}, separator={sep_display}")
 
-            self.content_viewer.set_columns(headers)
-            self.content_viewer.set_data(data)
-
-        except Exception as e:
-            logger.error(f"Error displaying CSV: {e}")
-            DialogHelper.error("Error displaying CSV", details=str(e))
+            # Populate grid using optimized set_dataframe method
+            self.content_viewer.set_dataframe(df)
+        else:
+            self.content_viewer.clear()
 
     def _on_view_mode_changed(self, index: int):
         """Handle view mode change for JSON files"""
@@ -473,83 +482,66 @@ class RootFolderManager(QWidget):
             self._display_json_table(content)
 
     def _display_json_table(self, content: str):
-        """Display JSON content as table in grid"""
+        """Display JSON content as table in grid using DataFrame-Pivot pattern"""
+        # Use centralized data_loader
+        result = json_to_dataframe(
+            self.current_file_path,
+            on_large_dataset=self._handle_large_dataset_warning
+        )
+
+        if not result.success:
+            if result.error:
+                # Fallback to legacy display for complex JSON structures
+                self._display_json_table_legacy(content)
+            return
+
+        # Display warning if there was one (but user chose to proceed)
+        if result.warning_level == LoadWarningLevel.WARNING and result.warning_message:
+            logger.warning(result.warning_message)
+
+        # Use optimized set_dataframe to populate the grid
+        df = result.dataframe
+        if df is not None and not df.empty:
+            logger.info(f"JSON loaded: {result.row_count} rows, {result.column_count} cols")
+            self.content_viewer.set_dataframe(df)
+        else:
+            # Fallback to legacy for non-tabular JSON
+            self._display_json_table_legacy(content)
+
+    def _display_json_table_legacy(self, content: str):
+        """Fallback for complex JSON structures that don't fit DataFrame model"""
         import json
 
         try:
             data = json.loads(content)
 
-            # Try to find a table array in the JSON structure
-            table_data = None
+            # For non-tabular JSON, display as key-value pairs
+            headers = ["Key", "Value"]
+            rows = []
 
-            # Case 1: Direct array of objects
-            if isinstance(data, list) and data and all(isinstance(item, dict) for item in data):
-                table_data = data
+            def flatten_json(obj, prefix=''):
+                if isinstance(obj, dict):
+                    for key, value in obj.items():
+                        full_key = f"{prefix}.{key}" if prefix else key
+                        if isinstance(value, (dict, list)):
+                            flatten_json(value, full_key)
+                        else:
+                            rows.append([full_key, str(value)])
+                elif isinstance(obj, list):
+                    for i, value in enumerate(obj):
+                        full_key = f"{prefix}[{i}]"
+                        if isinstance(value, (dict, list)):
+                            flatten_json(value, full_key)
+                        else:
+                            rows.append([full_key, str(value)])
 
-            # Case 2: Object with a single key containing an array (e.g., {"records": [...]})
-            elif isinstance(data, dict):
-                # Common keys for table data
-                common_keys = ['records', 'data', 'items', 'results', 'rows', 'values']
+            flatten_json(data)
 
-                # First try common keys
-                for key in common_keys:
-                    if key in data and isinstance(data[key], list) and data[key] and all(isinstance(item, dict) for item in data[key]):
-                        table_data = data[key]
-                        break
-
-                # If not found, check if there's only one key with an array
-                if table_data is None and len(data) == 1:
-                    single_key = list(data.keys())[0]
-                    if isinstance(data[single_key], list) and data[single_key] and all(isinstance(item, dict) for item in data[single_key]):
-                        table_data = data[single_key]
-
-            # Display as table if we found table data
-            if table_data is not None:
-                if not table_data:
-                    self.content_viewer.clear()
-                    return
-
-                # Extract ALL unique keys from ALL objects (not just first one)
-                # This handles cases where different records have different columns
-                all_keys = set()
-                for item in table_data:
-                    all_keys.update(item.keys())
-                headers = list(all_keys)
-
-                # Extract rows (use get() to handle missing keys with empty string)
-                rows = [[str(item.get(key, '')) for key in headers] for item in table_data]
-
-                self.content_viewer.set_columns(headers)
-                self.content_viewer.set_data(rows)
-
-            else:
-                # For other JSON structures, display as key-value pairs
-                headers = ["Key", "Value"]
-                rows = []
-
-                def flatten_json(obj, prefix=''):
-                    if isinstance(obj, dict):
-                        for key, value in obj.items():
-                            full_key = f"{prefix}.{key}" if prefix else key
-                            if isinstance(value, (dict, list)):
-                                flatten_json(value, full_key)
-                            else:
-                                rows.append([full_key, str(value)])
-                    elif isinstance(obj, list):
-                        for i, value in enumerate(obj):
-                            full_key = f"{prefix}[{i}]"
-                            if isinstance(value, (dict, list)):
-                                flatten_json(value, full_key)
-                            else:
-                                rows.append([full_key, str(value)])
-
-                flatten_json(data)
-
-                self.content_viewer.set_columns(headers)
-                self.content_viewer.set_data(rows)
+            self.content_viewer.set_columns(headers)
+            self.content_viewer.set_data(rows)
 
         except Exception as e:
-            logger.error(f"Error displaying JSON: {e}")
+            logger.error(f"Error displaying JSON (legacy): {e}")
             DialogHelper.error("Error displaying JSON", details=str(e))
 
     def _display_json_raw(self, content: str):
@@ -569,23 +561,68 @@ class RootFolderManager(QWidget):
             DialogHelper.error("Error displaying raw JSON", details=str(e))
 
     def _display_excel(self, file_path: Path):
-        """Display Excel content in grid"""
-        try:
-            import pandas as pd
+        """Display Excel content in grid using DataFrame-Pivot pattern"""
+        # Use centralized data_loader
+        result = excel_to_dataframe(
+            file_path,
+            on_large_dataset=self._handle_large_dataset_warning
+        )
 
-            # Read first sheet
-            df = pd.read_excel(file_path)
+        if not result.success:
+            if result.error:
+                DialogHelper.error("Error loading Excel", details=str(result.error))
+            return
 
-            # Convert to list format
-            headers = df.columns.tolist()
-            data = df.values.tolist()
+        # Display warning if there was one (but user chose to proceed)
+        if result.warning_level == LoadWarningLevel.WARNING and result.warning_message:
+            logger.warning(result.warning_message)
 
-            self.content_viewer.set_columns(headers)
-            self.content_viewer.set_data(data)
+        # Use optimized set_dataframe to populate the grid
+        df = result.dataframe
+        if df is not None and not df.empty:
+            # Log sheet info
+            sheets = result.source_info.get('available_sheets', [])
+            current_sheet = result.source_info.get('sheet', 0)
+            logger.info(f"Excel loaded: {result.row_count} rows, sheet={current_sheet}, available={sheets}")
 
-        except Exception as e:
-            logger.error(f"Error displaying Excel: {e}")
-            DialogHelper.error("Error displaying Excel", details=str(e))
+            self.content_viewer.set_dataframe(df)
+        else:
+            self.content_viewer.clear()
+
+    def _handle_large_dataset_warning(self, row_count: int) -> bool:
+        """
+        Handle warning for large datasets (> 100k rows).
+
+        Args:
+            row_count: Number of rows detected
+
+        Returns:
+            True to proceed with loading, False to cancel
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        # Format numbers with thousands separator
+        row_count_fmt = f"{row_count:,}"
+        threshold_fmt = f"{LARGE_DATASET_THRESHOLD:,}"
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Large Dataset Warning")
+        msg.setText(f"This file contains {row_count_fmt} rows.")
+        msg.setInformativeText(
+            f"Loading more than {threshold_fmt} rows may:\n"
+            f"• Be slow to load\n"
+            f"• Consume significant memory\n"
+            f"• Slow down the interface\n\n"
+            f"Do you want to continue?"
+        )
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+
+        result = msg.exec()
+        return result == QMessageBox.StandardButton.Yes
 
     def _on_tree_context_menu(self, position):
         """Show context menu for tree item"""

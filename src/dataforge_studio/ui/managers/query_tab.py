@@ -5,7 +5,7 @@ Query Tab - Single SQL query editor tab for DatabaseManager
 from typing import Optional, Union, Tuple
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                                QPushButton, QLabel, QSplitter, QComboBox,
-                               QTableWidgetItem, QApplication)
+                               QTableWidgetItem, QApplication, QDialog)
 from PySide6.QtCore import Qt, Signal, QObject, QEvent, QThread, QTimer
 from PySide6.QtGui import QFont, QKeyEvent
 import pyodbc
@@ -19,6 +19,9 @@ from ..core.i18n_bridge import tr
 from ...database.config_db import DatabaseConnection
 from ...utils.sql_highlighter import SQLHighlighter
 from ...utils.schema_cache import SchemaCache
+
+# DataFrame-Pivot pattern: use shared threshold
+from ...core.data_loader import LARGE_DATASET_THRESHOLD
 
 import logging
 import time
@@ -71,6 +74,8 @@ class QueryTab(QWidget):
 
     # Signal emitted when tab requests to be closed
     close_requested = Signal()
+    # Signal emitted when a query is saved to saved queries
+    query_saved = Signal()
 
     def cleanup(self):
         """Stop background tasks and cleanup resources"""
@@ -88,10 +93,9 @@ class QueryTab(QWidget):
 
                 if loader.isRunning():
                     loader.stop()
-                    # Don't wait too long - if thread is blocked on DB, terminate it
-                    if not loader.wait(100):  # Wait max 100ms
-                        loader.terminate()  # Force terminate if still running
-                        loader.wait(50)  # Brief wait after terminate
+                    # Quick wait, then force terminate - don't block shutdown
+                    if not loader.wait(20):  # Wait max 20ms
+                        loader.terminate()  # Force terminate immediately
                 self._background_loader = None
         except (RuntimeError, AttributeError):
             # Object may be partially destroyed during shutdown
@@ -105,7 +109,8 @@ class QueryTab(QWidget):
     def __init__(self, parent: Optional[QWidget] = None,
                  connection: Union[pyodbc.Connection, sqlite3.Connection] = None,
                  db_connection: DatabaseConnection = None,
-                 tab_name: str = "Query"):
+                 tab_name: str = "Query",
+                 database_manager=None):
         """
         Initialize query tab.
 
@@ -114,12 +119,14 @@ class QueryTab(QWidget):
             connection: Database connection
             db_connection: Database connection config
             tab_name: Name of the tab
+            database_manager: Reference to parent DatabaseManager for reconnection
         """
         super().__init__(parent)
 
         self.connection = connection
         self.db_connection = db_connection
         self.tab_name = tab_name
+        self._database_manager = database_manager
         self.is_sqlite = isinstance(connection, sqlite3.Connection)
         # Use db_type from connection config, fallback to detection
         if db_connection and hasattr(db_connection, 'db_type'):
@@ -181,6 +188,11 @@ class QueryTab(QWidget):
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.clicked.connect(self._clear_query)
         toolbar.addWidget(self.clear_btn)
+
+        self.save_query_btn = QPushButton("💾 Save to Queries")
+        self.save_query_btn.clicked.connect(self._save_query)
+        self.save_query_btn.setToolTip("Save to Saved Queries / Enregistrer dans les requêtes sauvegardées")
+        toolbar.addWidget(self.save_query_btn)
 
         toolbar.addStretch()
 
@@ -302,6 +314,13 @@ class QueryTab(QWidget):
             # Try to get total row count first (for SELECT queries)
             self.total_rows_expected = self._get_query_row_count(query)
 
+            # Check for large dataset and warn user
+            if self.total_rows_expected and self.total_rows_expected > LARGE_DATASET_THRESHOLD:
+                if not self._handle_large_dataset_warning(self.total_rows_expected):
+                    self.result_info_label.setText("Query cancelled by user")
+                    self.result_info_label.setStyleSheet("color: gray;")
+                    return
+
             # Show executing state
             self.result_info_label.setText("⏳ Executing query...")
             QApplication.processEvents()
@@ -365,7 +384,12 @@ class QueryTab(QWidget):
             self.result_info_label.setStyleSheet("color: red;")
             self.load_more_btn.setVisible(False)
             self.stop_loading_btn.setVisible(False)
-            DialogHelper.error("Query execution failed", parent=self, details=str(e))
+
+            # Check if this is a connection error (VPN dropped, server unreachable)
+            if self._is_connection_error(e):
+                self._handle_connection_error(e)
+            else:
+                DialogHelper.error("Query execution failed", parent=self, details=str(e))
             logger.error(f"Query execution error: {e}")
 
     def _get_query_row_count(self, query: str) -> Optional[int]:
@@ -415,6 +439,42 @@ class QueryTab(QWidget):
             logger.warning(f"Could not get row count: {e}")
 
         return None
+
+    def _handle_large_dataset_warning(self, row_count: int) -> bool:
+        """
+        Handle warning for large query results (> 100k rows).
+
+        Args:
+            row_count: Number of rows detected
+
+        Returns:
+            True to proceed with loading, False to cancel
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        # Format numbers with thousands separator
+        row_count_fmt = f"{row_count:,}"
+        threshold_fmt = f"{LARGE_DATASET_THRESHOLD:,}"
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Large Query Result Warning")
+        msg.setText(f"This query will return {row_count_fmt} rows.")
+        msg.setInformativeText(
+            f"Loading more than {threshold_fmt} rows may:\n"
+            f"• Be slow to load\n"
+            f"• Consume significant memory\n"
+            f"• Slow down the interface\n\n"
+            f"Consider adding TOP/LIMIT to your query.\n\n"
+            f"Do you want to continue?"
+        )
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+
+        result = msg.exec()
+        return result == QMessageBox.StandardButton.Yes
 
     def _start_background_loading(self, cursor):
         """Start background thread to load remaining rows"""
@@ -1416,3 +1476,232 @@ class QueryTab(QWidget):
         # Insert the completion
         cursor.insertText(text)
         self.sql_editor.setTextCursor(cursor)
+
+    # =========================================================================
+    # Connection error handling
+    # =========================================================================
+
+    def _is_connection_error(self, error: Exception) -> bool:
+        """
+        Check if an exception is a connection-related error.
+
+        Args:
+            error: The exception to check
+
+        Returns:
+            True if this is a connection error (VPN dropped, server unreachable, etc.)
+        """
+        error_str = str(error).lower()
+
+        # Common connection error indicators
+        connection_indicators = [
+            "communication link failure",
+            "tcp provider",
+            "connection failure",
+            "network-related",
+            "connection was forcibly closed",
+            "connection timed out",
+            "server has gone away",
+            "lost connection",
+            "unable to connect",
+            "connection refused",
+            "no connection",
+            "08001",  # SQL Server connection error
+            "08s01",  # Communication link failure
+            "hyt00",  # Timeout expired
+            "hyt01",  # Connection timeout
+        ]
+
+        return any(indicator in error_str for indicator in connection_indicators)
+
+    def _handle_connection_error(self, error: Exception):
+        """
+        Handle a connection error by offering reconnection option.
+
+        Args:
+            error: The connection error
+        """
+        from PySide6.QtWidgets import QMessageBox
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Connection Error / Erreur de connexion")
+        msg.setText("Database connection lost.\nLa connexion à la base de données a été perdue.")
+        msg.setInformativeText(
+            "This may happen if your VPN connection was interrupted.\n"
+            "Cela peut arriver si votre connexion VPN a été interrompue.\n\n"
+            "Would you like to reconnect?\n"
+            "Voulez-vous vous reconnecter ?"
+        )
+        msg.setDetailedText(str(error))
+
+        # Add custom buttons
+        reconnect_btn = msg.addButton("Reconnect / Reconnecter", QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton(QMessageBox.StandardButton.Cancel)
+
+        msg.exec()
+
+        if msg.clickedButton() == reconnect_btn:
+            self._attempt_reconnection()
+
+    def _attempt_reconnection(self):
+        """Attempt to reconnect to the database and re-execute the query."""
+        if not self.db_connection:
+            DialogHelper.error("No database connection configured", parent=self)
+            return
+
+        # Find the DatabaseManager parent
+        database_manager = self._find_database_manager()
+        if not database_manager:
+            DialogHelper.error("Cannot find DatabaseManager for reconnection", parent=self)
+            return
+
+        # Show reconnecting status
+        self.result_info_label.setText("⏳ Reconnecting / Reconnexion en cours...")
+        self.result_info_label.setStyleSheet("color: orange;")
+        QApplication.processEvents()
+
+        try:
+            # Attempt reconnection via DatabaseManager
+            new_connection = database_manager.reconnect_database(self.db_connection.id)
+
+            if new_connection:
+                # Update our connection reference
+                self.connection = new_connection
+
+                self.result_info_label.setText("✓ Reconnected successfully / Reconnexion réussie")
+                self.result_info_label.setStyleSheet("color: green;")
+
+                # Reload databases dropdown
+                self._load_databases()
+
+                # Ask if user wants to re-execute the query
+                from PySide6.QtWidgets import QMessageBox
+                result = QMessageBox.question(
+                    self,
+                    "Re-execute Query / Réexécuter la requête",
+                    "Connection restored. Re-execute the last query?\n"
+                    "Connexion rétablie. Réexécuter la dernière requête ?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes
+                )
+
+                if result == QMessageBox.StandardButton.Yes:
+                    self._execute_query()
+            else:
+                self.result_info_label.setText("✗ Reconnection failed / Échec de la reconnexion")
+                self.result_info_label.setStyleSheet("color: red;")
+                DialogHelper.error(
+                    "Failed to reconnect to database.\n"
+                    "Échec de la reconnexion à la base de données.\n\n"
+                    "Please check your VPN connection.\n"
+                    "Veuillez vérifier votre connexion VPN.",
+                    parent=self
+                )
+
+        except Exception as e:
+            self.result_info_label.setText("✗ Reconnection error")
+            self.result_info_label.setStyleSheet("color: red;")
+            DialogHelper.error("Reconnection failed", parent=self, details=str(e))
+            logger.error(f"Reconnection error: {e}")
+
+    def _find_database_manager(self):
+        """Find the parent DatabaseManager widget."""
+        # Use stored reference if available
+        if self._database_manager is not None:
+            return self._database_manager
+
+        # Fallback: traverse parent hierarchy
+        widget = self.parent()
+        while widget is not None:
+            if widget.__class__.__name__ == "DatabaseManager":
+                return widget
+            widget = widget.parent()
+        return None
+
+    # =========================================================================
+    # Save Query
+    # =========================================================================
+
+    def _save_query(self):
+        """Save the current query to saved queries collection."""
+        from ..widgets.save_query_dialog import SaveQueryDialog
+        from ...database.config_db import get_config_db, SavedQuery
+
+        # Get query text
+        query_text = self.sql_editor.toPlainText().strip()
+        if not query_text:
+            DialogHelper.warning(
+                "No query to save.\nAucune requête à enregistrer.",
+                parent=self
+            )
+            return
+
+        # Get database info
+        database_name = ""
+        database_id = ""
+
+        if self.db_connection:
+            database_name = self.db_connection.name
+            database_id = self.db_connection.id
+            logger.info(f"db_connection found: name={database_name}, id={database_id}")
+        else:
+            logger.warning("No db_connection available in QueryTab")
+
+        # Show save dialog
+        dialog = SaveQueryDialog(
+            parent=self,
+            query_text=query_text,
+            database_name=database_name,
+            database_id=database_id
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Get data and save
+            data = dialog.get_query_data()
+
+            logger.info(f"Saving query with target_database_id: {data['target_database_id']}")
+
+            try:
+                config_db = get_config_db()
+
+                # Create SavedQuery object
+                saved_query = SavedQuery(
+                    id="",  # Will be generated
+                    name=data["name"],
+                    target_database_id=data["target_database_id"],
+                    query_text=data["query_text"],
+                    category=data["category"],
+                    description=data["description"]
+                )
+
+                logger.info(f"SavedQuery created with id: {saved_query.id}")
+
+                # Save to database
+                result = config_db.add_saved_query(saved_query)
+                logger.info(f"add_saved_query result: {result}")
+
+                if result:
+                    DialogHelper.info(
+                        f"Query '{data['name']}' saved successfully.\n"
+                        f"Requête '{data['name']}' enregistrée avec succès.",
+                        parent=self
+                    )
+                    logger.info(f"Saved query: {data['name']} to category: {data['category']}")
+                    # Emit signal to trigger refresh
+                    self.query_saved.emit()
+                else:
+                    DialogHelper.error(
+                        f"Failed to save query (database constraint).\n"
+                        f"Échec de l'enregistrement (contrainte de base de données).\n\n"
+                        f"Database ID: {data['target_database_id']}",
+                        parent=self
+                    )
+
+            except Exception as e:
+                logger.error(f"Error saving query: {e}")
+                DialogHelper.error(
+                    f"Failed to save query: {e}\n"
+                    f"Échec de l'enregistrement: {e}",
+                    parent=self
+                )

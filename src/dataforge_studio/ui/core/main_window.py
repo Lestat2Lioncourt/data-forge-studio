@@ -142,6 +142,10 @@ class DataForgeMainWindow:
         if self.resources_manager:
             self.resources_manager.open_resource_requested.connect(self._on_open_resource)
 
+        # Connect database_manager.query_saved to refresh only queries in resources_manager
+        if self.database_manager and self.resources_manager:
+            self.database_manager.query_saved.connect(self.resources_manager.refresh_queries)
+
         # Clear stacked widget and add all views
         while self.stacked_widget.count() > 0:
             widget = self.stacked_widget.widget(0)
@@ -271,14 +275,14 @@ class DataForgeMainWindow:
         # TODO: Implement update checker
         print("Check updates - to be implemented")
 
-    @Slot(str, int)
-    def _on_open_resource(self, resource_type: str, resource_id: int):
+    @Slot(str, str)
+    def _on_open_resource(self, resource_type: str, resource_id: str):
         """
         Handle request to open a resource in its dedicated manager.
 
         Args:
             resource_type: Type of resource (database, query, rootfolder, job, script)
-            resource_id: ID of the resource
+            resource_id: ID of the resource (UUID string)
         """
         # Map resource types to frame names and managers
         type_to_frame = {
@@ -440,22 +444,30 @@ class DataForgeMainWindow:
         Handle window close event - cleanup all resources before closing.
         This ensures background threads are stopped properly.
         """
-        # Cleanup database manager (has query tabs with background loaders)
-        if self.database_manager:
-            try:
-                self.database_manager.cleanup()
-            except Exception as e:
-                print(f"Error cleaning up database manager: {e}")
+        import threading
 
-        # Cleanup other managers if they have cleanup methods
-        for manager in [self.queries_manager, self.scripts_manager,
-                        self.jobs_manager, self.resources_manager]:
-            if manager and hasattr(manager, 'cleanup'):
+        # Run cleanup in background to not block the close event
+        def async_cleanup():
+            # Cleanup database manager (has query tabs with background loaders)
+            if self.database_manager:
                 try:
-                    manager.cleanup()
-                except Exception as e:
-                    print(f"Error cleaning up manager: {e}")
+                    self.database_manager.cleanup()
+                except Exception:
+                    pass
 
-        # Call original close event
+            # Cleanup other managers if they have cleanup methods
+            for manager in [self.queries_manager, self.scripts_manager,
+                            self.jobs_manager, self.resources_manager]:
+                if manager and hasattr(manager, 'cleanup'):
+                    try:
+                        manager.cleanup()
+                    except Exception:
+                        pass
+
+        # Start cleanup in daemon thread (won't block app exit)
+        cleanup_thread = threading.Thread(target=async_cleanup, daemon=True)
+        cleanup_thread.start()
+
+        # Call original close event immediately - don't wait for cleanup
         if self._original_close_event:
             self._original_close_event(event)

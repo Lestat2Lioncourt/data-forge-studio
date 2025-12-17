@@ -6,6 +6,8 @@ import socket
 import subprocess
 import platform
 import re
+import os
+from pathlib import Path
 from typing import Optional, Tuple
 
 import logging
@@ -188,3 +190,103 @@ def check_server_reachable(connection_string: str, db_type: str = None, timeout:
     else:
         # Return VPN suggestion message
         return False, f"Cannot reach server '{host}'.\n\nIs a VPN required for this connection?\nEst-ce que cette connexion requiert un VPN ?"
+
+
+def check_path_accessible(path: str, timeout: int = 3) -> Tuple[bool, Optional[str]]:
+    """
+    Check if a file or directory path is accessible.
+    Works for local paths and network paths (UNC).
+
+    Args:
+        path: File or directory path
+        timeout: Timeout in seconds (for network paths)
+
+    Returns:
+        Tuple of (accessible: bool, error_message: str or None)
+    """
+    if not path:
+        return False, "Chemin non spécifié"
+
+    try:
+        p = Path(path)
+
+        # For network paths (UNC), try to check if parent exists first
+        if str(path).startswith("\\\\") or str(path).startswith("//"):
+            # Extract server name from UNC path
+            parts = str(path).replace("\\", "/").split("/")
+            server = parts[2] if len(parts) > 2 else None
+            if server:
+                # Check if server is reachable
+                success, msg = ping_host(server, timeout)
+                if not success:
+                    return False, f"Serveur réseau non accessible : {server}"
+
+        # Check if path exists
+        if p.exists():
+            # Check if readable
+            if p.is_file():
+                if os.access(path, os.R_OK):
+                    return True, None
+                else:
+                    return False, f"Fichier non lisible : {path}"
+            elif p.is_dir():
+                if os.access(path, os.R_OK | os.X_OK):
+                    return True, None
+                else:
+                    return False, f"Dossier non accessible : {path}"
+        else:
+            return False, f"Chemin introuvable : {path}"
+
+    except PermissionError:
+        return False, f"Accès refusé : {path}"
+    except OSError as e:
+        return False, f"Erreur d'accès : {e}"
+    except Exception as e:
+        return False, f"Erreur : {e}"
+
+    return False, f"Chemin non accessible : {path}"
+
+
+def is_connection_reachable(db_conn, timeout: int = 3) -> Tuple[bool, Optional[str]]:
+    """
+    Check if a database connection is reachable.
+    Unified function for all database types.
+
+    Args:
+        db_conn: DatabaseConnection object with db_type and connection_string
+        timeout: Timeout in seconds
+
+    Returns:
+        Tuple of (reachable: bool, error_message: str or None)
+    """
+    if not db_conn:
+        return False, "Connexion non spécifiée"
+
+    db_type = getattr(db_conn, 'db_type', '').lower()
+    conn_str = getattr(db_conn, 'connection_string', '')
+
+    # File-based databases (SQLite, Access)
+    if db_type in ('sqlite', 'access', 'msaccess'):
+        # Extract path from connection string
+        db_path = None
+
+        if conn_str.startswith("sqlite:///"):
+            db_path = conn_str.replace("sqlite:///", "")
+        elif "Database=" in conn_str:
+            match = re.search(r'Database=([^;]+)', conn_str)
+            db_path = match.group(1) if match else None
+        elif "DBQ=" in conn_str.upper():
+            match = re.search(r'DBQ=([^;]+)', conn_str, re.IGNORECASE)
+            db_path = match.group(1) if match else None
+        else:
+            # Assume the whole string is a path
+            db_path = conn_str
+
+        if db_path:
+            return check_path_accessible(db_path, timeout)
+        else:
+            return False, "Chemin de base de données non trouvé"
+
+    # Server-based databases (SQL Server, MySQL, PostgreSQL, etc.)
+    else:
+        return check_server_reachable(conn_str, db_type, timeout)

@@ -1,0 +1,395 @@
+================================================================================
+                    PROMPT DE CREATION - DATAFORGE STUDIO
+                    Application de gestion multi-bases de donnees
+================================================================================
+
+VERSION: 0.50.0
+LANGAGE: Python 3.10+
+FRAMEWORK UI: PySide6 (Qt6)
+GESTIONNAIRE DE PAQUETS: uv (pyproject.toml)
+
+================================================================================
+1. DESCRIPTION GENERALE
+================================================================================
+
+DataForge Studio est une application desktop Windows de gestion de bases de
+donnees multiples avec une interface moderne et personnalisable.
+
+Fonctionnalites principales:
+- Connexion a plusieurs types de bases de donnees (SQL Server, MySQL,
+  PostgreSQL, SQLite, Oracle, MongoDB, MS Access)
+- Execution et sauvegarde de requetes SQL avec categorisation
+- Exploration de fichiers de donnees (CSV, Excel, JSON) via RootFolders
+- Gestion de scripts et jobs (workflows)
+- Workspaces pour organiser les ressources par projet
+- Vue unifiee de toutes les ressources (ResourcesManager)
+- Systeme de themes personnalisables avec editeur integre
+- Interface bilingue (Francais/Anglais)
+
+================================================================================
+2. ARCHITECTURE TECHNIQUE
+================================================================================
+
+2.1 STRUCTURE DES DOSSIERS
+--------------------------
+data-forge-studio/
+├── run.py                         # LANCEUR PRINCIPAL (ajoute src au path)
+├── src/dataforge_studio/
+│   ├── main.py                    # Point d'entree (appele par run.py)
+│   ├── config/
+│   │   ├── i18n.py               # Traductions
+│   │   └── user_preferences.py   # Preferences utilisateur (JSON)
+│   ├── database/
+│   │   └── config_db.py          # Base SQLite de configuration
+│   ├── ui/
+│   │   ├── core/
+│   │   │   ├── main_window.py    # Fenetre principale
+│   │   │   ├── theme_bridge.py   # Gestionnaire de themes
+│   │   │   ├── i18n_bridge.py    # Gestionnaire i18n
+│   │   │   └── splash_screen.py  # Ecran de demarrage
+│   │   ├── managers/             # Gestionnaires de ressources
+│   │   │   ├── base_manager_view.py
+│   │   │   ├── database_manager.py
+│   │   │   ├── queries_manager.py
+│   │   │   ├── scripts_manager.py
+│   │   │   ├── jobs_manager.py
+│   │   │   ├── rootfolder_manager.py
+│   │   │   ├── resources_manager.py  # Vue unifiee
+│   │   │   └── workspace_manager.py
+│   │   ├── frames/
+│   │   │   ├── settings_frame.py     # Parametres + editeur theme
+│   │   │   ├── help_frame.py
+│   │   │   └── theme_editor_frame.py
+│   │   ├── widgets/              # Composants reutilisables
+│   │   │   ├── custom_treeview.py
+│   │   │   ├── custom_datagridview.py
+│   │   │   ├── toolbar_builder.py
+│   │   │   ├── log_panel.py
+│   │   │   └── ...
+│   │   ├── dialogs/              # Dialogues de connexion
+│   │   │   └── connection_dialogs/
+│   │   │       ├── base_connection_dialog.py
+│   │   │       ├── sqlserver_dialog.py
+│   │   │       ├── mysql_dialog.py
+│   │   │       └── ...
+│   │   ├── window_template/      # Template fenetre custom (sans bordure)
+│   │   │   ├── main_window.py
+│   │   │   ├── title_bar.py
+│   │   │   ├── menu_bar.py
+│   │   │   ├── status_bar.py
+│   │   │   └── theme_manager.py
+│   │   └── assets/images/        # Icones et images
+│   └── utils/
+│       ├── sql_highlighter.py
+│       ├── sql_completer.py
+│       └── ...
+├── _AppConfig/                   # Donnees utilisateur
+│   ├── configuration.db          # SQLite config
+│   ├── themes/                   # Themes personnalises
+│   └── preferences.json
+├── pyproject.toml
+└── run.py                        # Lanceur alternatif
+
+2.2 BASE DE CONFIGURATION (SQLite)
+----------------------------------
+Tables principales:
+- databases: connexions aux BDD (id, name, db_type, connection_string, ...)
+- saved_queries: requetes sauvegardees (id, name, category, query_text, target_database_id)
+- file_roots: dossiers racines pour exploration fichiers
+- scripts: definitions de scripts generiques
+- jobs: instances de scripts avec parametres / workflows
+- projects: workspaces pour grouper les ressources
+- project_databases, project_queries, project_file_roots: tables de jonction
+
+2.3 SYSTEME DE THEMES
+---------------------
+Deux types de themes:
+1. Themes traditionnels (complets): definissent toutes les couleurs
+2. Themes minimaux: palette reduite qui s'expanse automatiquement
+
+Palette minimale (18 couleurs de base):
+- TopBar_BG/FG, MenuBar_BG/FG, StatusBar_BG/FG
+- Frame_BG/FG/FG_Secondary
+- Data_BG/FG/Border
+- Hover_BG, Selected_BG/FG, Accent
+- Normal_FG, Success_FG, Warning_FG, Error_FG, Info_FG
++ Extensions: Button_*, Grid_*, Tree_*, Tab_*, Toolbar_*, etc.
+
+Le ThemeManager expanse la palette minimale vers une palette complete (~80 couleurs).
+
+================================================================================
+3. COMPOSANTS UI PRINCIPAUX
+================================================================================
+
+3.1 FENETRE PRINCIPALE (window_template)
+----------------------------------------
+Fenetre custom sans bordure Windows native:
+- TitleBar: logo, titre, boutons min/max/close
+- MenuBar: menus deroulants personnalises
+- Content area: QStackedWidget pour les frames
+- StatusBar: messages et notifications
+
+3.2 MANAGERS
+------------
+Chaque manager herite de BaseManagerView et suit le pattern:
+- Panneau gauche: TreeView hierarchique
+- Panneau droit: Details/Actions contextuels
+- Toolbar: actions CRUD
+- Splitter redimensionnable
+
+DatabaseManager:
+- Liste des connexions par type (SQL Server, MySQL, ...)
+- Expansion lazy des tables/vues/colonnes
+- Execution de requetes avec resultats dans DataGrid
+- Onglets pour requetes multiples
+
+QueriesManager:
+- Requetes groupees par categorie
+- Editeur SQL avec coloration syntaxique
+- Association a une base de donnees cible
+
+RootFolderManager:
+- Exploration de fichiers (CSV, Excel, JSON, TXT)
+- Preview des donnees avec detection encodage
+- Affichage separateur/delimiteur CSV
+
+ResourcesManager (vue unifiee):
+- Agregation de tous les managers
+- Arborescence unique: Databases > Tables > Columns, Files > ..., Queries > ...
+- Details contextuels selon le type selectionne
+
+3.3 WIDGETS REUTILISABLES
+-------------------------
+CustomTreeView:
+- Support themes (couleurs alternees, selection, hover)
+- Icones par type de noeud
+- Expansion lazy loading
+
+CustomDataGridView:
+- Affichage tabulaire avec tri/filtrage
+- Export Excel/CSV
+- Colonnes redimensionnables
+
+ToolbarBuilder:
+- Construction fluide de toolbars thematisees
+- Boutons avec icones et tooltips
+
+LogPanel:
+- Messages avec niveaux (INFO, WARNING, ERROR, SUCCESS)
+- Horodatage
+- Bouton clear
+
+================================================================================
+4. PRINCIPES ARCHITECTURAUX
+================================================================================
+
+4.1 SEPARATION DES RESPONSABILITES
+----------------------------------
+- Managers: logique metier + UI specifique
+- Widgets: composants UI reutilisables sans logique metier
+- Bridges (ThemeBridge, I18nBridge): singletons pour acces global
+- config_db: acces donnees via dataclasses typees
+
+4.2 PATTERN OBSERVER
+--------------------
+- Signals Qt pour communication inter-composants
+- theme_changed, language_changed pour mise a jour globale
+
+4.3 LAZY LOADING
+----------------
+- Chargement des sous-elements (tables, colonnes) a l'expansion
+- Cache des schemas pour eviter requetes repetees
+
+4.4 ARCHITECTURE CIBLE : PLUGINS + FONCTIONS PARTAGEES
+-------------------------------------------------------
+L'architecture actuelle presente des duplications de code. L'architecture
+cible s'inspire d'un pattern eprouve en .NET :
+
+A) GESTIONNAIRE DE PLUGINS
+--------------------------
+Chaque manager est un plugin autonome embarquant :
+- Son icone et ses ressources visuelles
+- Son interface utilisateur complete
+- Ses dependances specifiques
+- Sa logique metier
+
+Structure cible:
+```
+src/dataforge_studio/
+├── core/
+│   ├── plugin_manager.py       # Decouverte et chargement des plugins
+│   ├── data_loader.py          # Fonctions de chargement (sources → DataFrame)
+│   └── data_viewer.py          # Fonctions d'affichage (DataFrame → widgets)
+├── plugins/                    # Managers autonomes
+│   ├── base_plugin.py          # Interface commune (nom, icone, widget, menu)
+│   ├── database_plugin/
+│   │   ├── __init__.py
+│   │   ├── manager.py
+│   │   ├── assets/
+│   │   └── ...
+│   ├── queries_plugin/
+│   ├── scripts_plugin/
+│   └── ...
+```
+
+B) DATAFRAME COMME PIVOT UNIVERSEL
+----------------------------------
+Utiliser pandas DataFrame comme format intermediaire entre sources et affichage.
+
+Fonctions de CHARGEMENT (data_loader.py):
+- csv_to_dataframe(path, encoding, separator) -> DataFrame
+- json_to_dataframe(path) -> DataFrame
+- excel_to_dataframe(path, sheet) -> DataFrame
+- query_to_dataframe(connection, sql) -> DataFrame
+- tree_to_dataframe(tree_widget) -> DataFrame  # extraction inverse
+
+Fonctions d'AFFICHAGE (data_viewer.py):
+- dataframe_to_treeview(df, tree_widget, columns_config)
+- dataframe_to_datagridview(df, grid_widget, editable=False)
+- dataframe_to_combobox(df, combo, display_col, value_col)
+- dataframe_to_listview(df, list_widget, display_col)
+
+Schema:
+```
+Sources heterogenes          Pivot              Destinations visuelles
+───────────────────          ─────              ──────────────────────
+csv_to_dataframe()      ─┐                  ┌─► dataframe_to_treeview()
+json_to_dataframe()     ─┼──► DataFrame ────┼─► dataframe_to_datagridview()
+excel_to_dataframe()    ─┤                  ├─► dataframe_to_combobox()
+query_to_dataframe()    ─┘                  └─► dataframe_to_export()
+```
+
+C) AVANTAGES DE CETTE ARCHITECTURE
+----------------------------------
+1. ZERO DUPLICATION : le code de parsing CSV/JSON/Excel n'existe qu'une fois
+2. TESTABILITE : fonctions pures, faciles a tester unitairement
+3. REUTILISABILITE : tout plugin peut utiliser les fonctions partagees
+4. EXTENSIBILITE : ajouter un plugin = ajouter un dossier
+5. MAINTENABILITE : corriger un bug de chargement CSV corrige partout
+6. COHERENCE UI : meme rendu visuel quelle que soit la source
+
+D) INTERFACE PLUGIN (base_plugin.py)
+------------------------------------
+```python
+from abc import ABC, abstractmethod
+from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QIcon
+
+class BasePlugin(ABC):
+    @property
+    @abstractmethod
+    def plugin_id(self) -> str:
+        """Identifiant unique du plugin"""
+        pass
+
+    @property
+    @abstractmethod
+    def plugin_name(self) -> str:
+        """Nom affiche dans l'interface"""
+        pass
+
+    @property
+    @abstractmethod
+    def plugin_icon(self) -> QIcon:
+        """Icone du plugin"""
+        pass
+
+    @abstractmethod
+    def create_widget(self, parent: QWidget = None) -> QWidget:
+        """Cree et retourne le widget principal du plugin"""
+        pass
+
+    def get_menu_items(self) -> list:
+        """Retourne les items de menu specifiques au plugin"""
+        return []
+
+    def on_activate(self):
+        """Appele quand le plugin devient actif"""
+        pass
+
+    def on_deactivate(self):
+        """Appele quand le plugin devient inactif"""
+        pass
+
+    def cleanup(self):
+        """Nettoyage des ressources (connexions, etc.)"""
+        pass
+```
+
+E) PROBLEME ACTUEL
+------------------
+ResourcesManager reimplemente le chargement CSV/JSON/Excel au lieu de
+deleguer a des fonctions partagees. Chaque manager a sa propre logique
+de chargement et d'affichage, causant duplications et inconsistances.
+
+================================================================================
+5. DEPENDANCES (pyproject.toml)
+================================================================================
+
+dependencies = [
+    "pyside6>=6.10.1",      # Framework UI Qt6
+    "pandas>=2.3.3",        # Manipulation donnees
+    "sqlalchemy>=2.0.44",   # ORM/connexions BDD
+    "pyodbc>=5.3.0",        # Connexions ODBC (SQL Server, Access)
+    "sqlparse>=0.5.4",      # Parsing/formatage SQL
+    "pillow>=12.0.0",       # Images
+    "openpyxl>=3.1.0",      # Excel .xlsx
+    "xlrd>=2.0.1",          # Excel .xls
+    "keyring>=25.7.0",      # Stockage securise mots de passe
+    "colorama>=0.4.6",      # Couleurs console
+    "tabulate>=0.9.0",      # Formatage tableaux
+    "pywin32>=308",         # API Windows (credentials)
+]
+
+================================================================================
+6. FONCTIONNALITES A IMPLEMENTER / AMELIORER
+================================================================================
+
+WORKSPACES:
+- Menu Workspaces avec liste dynamique
+- Filtrage des ressources par workspace actif
+- Assignation de ressources aux workspaces
+
+REFACTORING ARCHITECTURE (prioritaire):
+- Creer core/data_loader.py avec fonctions partagees de chargement
+- Creer core/data_viewer.py avec fonctions partagees d'affichage
+- Migrer les managers vers le pattern plugin (core/base_plugin.py)
+- ResourcesManager: deleguer aux fonctions partagees
+- Uniformiser DatabaseManager avec le pattern BasePlugin
+- Tests unitaires pour data_loader et data_viewer
+
+AMELIORATIONS UI:
+- Drag & drop pour reorganiser
+- Recherche globale
+- Historique des requetes executees
+- Auto-completion SQL contextuelle
+
+================================================================================
+7. CONVENTIONS DE CODE
+================================================================================
+
+- Langue: francais pour UI/messages, anglais pour code
+- Docstrings: description + parametres pour methodes publiques
+- Types: annotations de types sur signatures
+- Nommage: snake_case methodes/variables, PascalCase classes
+- Imports: groupes (stdlib, third-party, local) separes par ligne vide
+
+================================================================================
+8. EXECUTION
+================================================================================
+
+# Installation des dependances
+uv sync
+
+# Lancement principal (methode recommandee)
+uv run python run.py
+
+# Lancement alternatif via module
+uv run python -m dataforge_studio
+
+# Lancement via script console (si installe)
+uv run dataforge
+
+================================================================================
+FIN DU PROMPT
+================================================================================

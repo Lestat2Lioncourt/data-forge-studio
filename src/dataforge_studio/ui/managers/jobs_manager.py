@@ -72,10 +72,9 @@ class JobsManager(BaseManagerView):
             .add_field(tr("field_last_run"), "last_run") \
             .add_field(tr("field_next_run"), "next_run") \
             .add_field(tr("field_script"), "script") \
-            .add_field(tr("field_created"), "created") \
-            .build()
+            .add_field(tr("field_created"), "created")
 
-        self.details_layout.addWidget(self.details_form)
+        self.details_layout.addWidget(self.details_form.container)
 
     def _setup_content(self):
         """Setup content panel with job configuration and log panel."""

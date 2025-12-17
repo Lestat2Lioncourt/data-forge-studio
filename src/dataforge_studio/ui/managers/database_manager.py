@@ -10,7 +10,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                                QTabWidget, QPushButton, QTreeWidget, QTreeWidgetItem,
                                QLabel, QMenu, QApplication, QInputDialog)
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, Signal
 from PySide6.QtGui import QIcon, QAction, QCursor
 import uuid
 
@@ -37,6 +37,9 @@ class DatabaseManager(QWidget):
     - LEFT: Database tree (connections > databases > tables/views > columns)
     - RIGHT: QTabWidget with multiple QueryTab instances
     """
+
+    # Signal emitted when a query is saved in any QueryTab
+    query_saved = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -161,8 +164,7 @@ class DatabaseManager(QWidget):
         db_icon = get_database_icon(db_conn.db_type, size=16)
         if db_icon:
             server_item.setIcon(0, db_icon)
-        server_item.setText(0, f"{db_conn.name} (clic pour connecter)")
-        server_item.setForeground(0, Qt.GlobalColor.gray)
+        server_item.setText(0, db_conn.name)
         server_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "server",
             "config": db_conn,
@@ -194,11 +196,7 @@ class DatabaseManager(QWidget):
         if not db_conn:
             return
 
-        # Remove placeholder
-        while item.childCount() > 0:
-            item.removeChild(item.child(0))
-
-        # Actually connect now
+        # Try to connect (placeholder will be removed only on success)
         self._connect_and_load_schema(item, db_conn)
 
     def _get_main_window(self):
@@ -226,9 +224,6 @@ class DatabaseManager(QWidget):
             QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
             self._set_status_message(f"Connexion à {db_conn.name}...")
 
-            # Update visual to show connecting
-            server_item.setText(0, f"{db_conn.name} (connexion...)")
-            server_item.setForeground(0, Qt.GlobalColor.yellow)
             QApplication.processEvents()
 
             # First, check if server is reachable (skip for local databases)
@@ -243,17 +238,12 @@ class DatabaseManager(QWidget):
                 )
 
                 if not reachable:
-                    error_item = QTreeWidgetItem(server_item)
-                    error_item.setText(0, "Serveur non accessible")
-                    error_item.setForeground(0, Qt.GlobalColor.red)
-                    # Add VPN hint as child
-                    vpn_item = QTreeWidgetItem(error_item)
-                    vpn_item.setText(0, "VPN requis ? / VPN required?")
-                    vpn_item.setForeground(0, Qt.GlobalColor.yellow)
-                    server_item.setText(0, f"{db_conn.name} (non accessible)")
-                    server_item.setForeground(0, Qt.GlobalColor.red)
-                    server_item.setExpanded(True)
-                    self._set_status_message(f"Serveur non accessible - VPN requis ?")
+                    self._set_status_message(tr("status_ready"))
+                    server_item.setExpanded(False)  # Collapse to allow retry
+                    DialogHelper.warning(
+                        f"Serveur non accessible : {db_conn.name}\n\nVérifiez que le VPN est actif.",
+                        parent=self
+                    )
                     return
 
             if db_conn.db_type == "sqlite":
@@ -272,21 +262,23 @@ class DatabaseManager(QWidget):
                 if Path(db_path).exists():
                     connection = sqlite3.connect(db_path)
                     self.connections[db_conn.id] = connection
+                    # Remove placeholder on success
+                    while server_item.childCount() > 0:
+                        server_item.removeChild(server_item.child(0))
                     self._load_sqlite_schema(server_item, connection, db_conn)
                     # Mark as connected
-                    server_item.setText(0, db_conn.name)
-                    server_item.setForeground(0, Qt.GlobalColor.white)
                     data = server_item.data(0, Qt.ItemDataRole.UserRole)
                     data["connected"] = True
                     server_item.setData(0, Qt.ItemDataRole.UserRole, data)
                     self._set_status_message(f"Connecté à {db_conn.name}")
                 else:
-                    error_item = QTreeWidgetItem(server_item)
-                    error_item.setText(0, f"Erreur: Fichier introuvable")
-                    error_item.setForeground(0, Qt.GlobalColor.red)
-                    server_item.setText(0, f"{db_conn.name} (erreur)")
-                    server_item.setForeground(0, Qt.GlobalColor.red)
-                    self._set_status_message(f"Erreur: fichier introuvable")
+                    self._set_status_message(tr("status_ready"))
+                    server_item.setExpanded(False)  # Collapse to allow retry
+                    DialogHelper.warning(
+                        f"Fichier introuvable : {db_path}",
+                        parent=self
+                    )
+                    return
 
             elif db_conn.db_type == "sqlserver":
                 # Build connection string with credentials if needed
@@ -311,10 +303,11 @@ class DatabaseManager(QWidget):
 
                 connection = pyodbc.connect(conn_str, timeout=5)
                 self.connections[db_conn.id] = connection
+                # Remove placeholder on success
+                while server_item.childCount() > 0:
+                    server_item.removeChild(server_item.child(0))
                 self._load_sqlserver_schema(server_item, connection, db_conn)
                 # Mark as connected
-                server_item.setText(0, db_conn.name)
-                server_item.setForeground(0, Qt.GlobalColor.white)
                 data = server_item.data(0, Qt.ItemDataRole.UserRole)
                 data["connected"] = True
                 server_item.setData(0, Qt.ItemDataRole.UserRole, data)
@@ -322,19 +315,21 @@ class DatabaseManager(QWidget):
 
             else:
                 # Other DB types - show as not supported yet
-                error_item = QTreeWidgetItem(server_item)
-                error_item.setText(0, f"Type non supporté: {db_conn.db_type}")
-                error_item.setForeground(0, Qt.GlobalColor.yellow)
                 self._set_status_message(f"Type non supporté: {db_conn.db_type}")
+                DialogHelper.warning(
+                    f"Type de base non supporté : {db_conn.db_type}",
+                    parent=self
+                )
 
         except Exception as e:
             logger.warning(f"Could not connect to {db_conn.name}: {e}")
-            error_item = QTreeWidgetItem(server_item)
-            error_item.setText(0, f"Erreur: {str(e)[:50]}")
-            error_item.setForeground(0, Qt.GlobalColor.red)
-            server_item.setText(0, f"{db_conn.name} (erreur)")
-            server_item.setForeground(0, Qt.GlobalColor.red)
-            self._set_status_message(f"Erreur de connexion: {str(e)[:40]}")
+            self._set_status_message(tr("status_ready"))
+            server_item.setExpanded(False)  # Collapse to allow retry
+            DialogHelper.error(
+                f"Erreur de connexion : {db_conn.name}",
+                parent=self,
+                details=str(e)
+            )
 
         finally:
             # Always restore cursor
@@ -351,7 +346,6 @@ class DatabaseManager(QWidget):
         folder_icon = get_icon("RootFolders", size=16)
         if folder_icon:
             tables_folder.setIcon(0, folder_icon)
-        tables_folder.setText(0, "Tables")
         tables_folder.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "tables_folder",
             "db_id": db_conn.id
@@ -366,7 +360,6 @@ class DatabaseManager(QWidget):
             # Use a simple style icon for tables
             table_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogListView)
             table_item.setIcon(0, table_icon)
-            table_item.setText(0, table_name)
             table_item.setData(0, Qt.ItemDataRole.UserRole, {
                 "type": "table",
                 "name": table_name,
@@ -377,6 +370,9 @@ class DatabaseManager(QWidget):
             # Load columns
             cursor.execute(f"PRAGMA table_info({table_name})")
             columns = cursor.fetchall()
+            # Set table text with column count
+            table_item.setText(0, f"{table_name} ({len(columns)} cols)")
+
             for col in columns:
                 col_name = col[1]
                 col_type = col[2]
@@ -388,11 +384,13 @@ class DatabaseManager(QWidget):
                     "column": col_name
                 })
 
+        # Set Tables folder text with count
+        tables_folder.setText(0, f"Tables ({len(tables)})")
+
         # Views folder
         views_folder = QTreeWidgetItem(server_item)
         if folder_icon:
             views_folder.setIcon(0, folder_icon)
-        views_folder.setText(0, "Views")
         views_folder.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "views_folder",
             "db_id": db_conn.id
@@ -400,18 +398,30 @@ class DatabaseManager(QWidget):
 
         cursor.execute("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name")
         views = cursor.fetchall()
+
         for view in views:
+            view_name = view[0]
             view_item = QTreeWidgetItem(views_folder)
             # Use a different style icon for views
             view_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
             view_item.setIcon(0, view_icon)
-            view_item.setText(0, view[0])
             view_item.setData(0, Qt.ItemDataRole.UserRole, {
                 "type": "view",
-                "name": view[0],
+                "name": view_name,
                 "db_id": db_conn.id,
                 "db_name": db_conn.name  # SQLite database name (connection name)
             })
+
+            # Get view columns count
+            try:
+                cursor.execute(f"PRAGMA table_info({view_name})")
+                view_columns = cursor.fetchall()
+                view_item.setText(0, f"{view_name} ({len(view_columns)} cols)")
+            except:
+                view_item.setText(0, view_name)
+
+        # Set Views folder text with count
+        views_folder.setText(0, f"Views ({len(views)})")
 
     def _load_sqlserver_schema(self, server_item: QTreeWidgetItem,
                                connection: pyodbc.Connection,
@@ -426,6 +436,9 @@ class DatabaseManager(QWidget):
         except:
             databases = [(connection.getinfo(pyodbc.SQL_DATABASE_NAME),)]
 
+        # Update server node with database count
+        server_item.setText(0, f"{db_conn.name} ({len(databases)} db)")
+
         for db in databases:
             db_name = db[0]
             db_node = QTreeWidgetItem(server_item)
@@ -433,7 +446,6 @@ class DatabaseManager(QWidget):
             db_icon = get_icon("database.png", size=16)
             if db_icon:
                 db_node.setIcon(0, db_icon)
-            db_node.setText(0, db_name)
             db_node.setData(0, Qt.ItemDataRole.UserRole, {
                 "type": "database",
                 "name": db_name,
@@ -446,7 +458,6 @@ class DatabaseManager(QWidget):
                 folder_icon = get_icon("RootFolders", size=16)
                 if folder_icon:
                     tables_folder.setIcon(0, folder_icon)
-                tables_folder.setText(0, "Tables")
                 tables_folder.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "tables_folder",
                     "db_id": db_conn.id,
@@ -468,7 +479,6 @@ class DatabaseManager(QWidget):
                     # Use Qt standard icon for tables
                     table_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogListView)
                     table_item.setIcon(0, table_icon)
-                    table_item.setText(0, f"{schema_name}.{table_name}")
                     table_item.setData(0, Qt.ItemDataRole.UserRole, {
                         "type": "table",
                         "name": full_name,
@@ -487,6 +497,10 @@ class DatabaseManager(QWidget):
                         ORDER BY c.column_id
                     """)
                     columns = cursor.fetchall()
+
+                    # Set table text with column count
+                    table_item.setText(0, f"{schema_name}.{table_name} ({len(columns)} cols)")
+
                     for col_name, col_type, max_length, precision, scale in columns:
                         type_display = col_type
                         if col_type in ('nvarchar', 'nchar'):
@@ -510,11 +524,13 @@ class DatabaseManager(QWidget):
                             "column": col_name
                         })
 
+                # Set Tables folder text with count
+                tables_folder.setText(0, f"Tables ({len(tables)})")
+
                 # Views folder
                 views_folder = QTreeWidgetItem(db_node)
                 if folder_icon:
                     views_folder.setIcon(0, folder_icon)
-                views_folder.setText(0, "Views")
                 views_folder.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "views_folder",
                     "db_id": db_conn.id,
@@ -528,18 +544,42 @@ class DatabaseManager(QWidget):
                     ORDER BY s.name, v.name
                 """)
                 views = cursor.fetchall()
+
                 for schema_name, view_name in views:
                     view_item = QTreeWidgetItem(views_folder)
                     # Use Qt standard icon for views
                     view_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
                     view_item.setIcon(0, view_icon)
-                    view_item.setText(0, f"{schema_name}.{view_name}")
                     view_item.setData(0, Qt.ItemDataRole.UserRole, {
                         "type": "view",
                         "name": f"{schema_name}.{view_name}",
                         "db_id": db_conn.id,
                         "db_name": db_name
                     })
+
+                    # Get view columns count
+                    try:
+                        cursor.execute(f"""
+                            SELECT COUNT(*)
+                            FROM [{db_name}].sys.columns c
+                            INNER JOIN [{db_name}].sys.views v ON c.object_id = v.object_id
+                            INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
+                            WHERE v.name = '{view_name}' AND s.name = '{schema_name}'
+                        """)
+                        view_col_count = cursor.fetchone()[0]
+                        view_item.setText(0, f"{schema_name}.{view_name} ({view_col_count} cols)")
+                    except:
+                        view_item.setText(0, f"{schema_name}.{view_name}")
+
+                # Set Views folder text with count
+                views_folder.setText(0, f"Views ({len(views)})")
+
+                # Update database node with table/view count
+                total = len(tables) + len(views)
+                if total == 0:
+                    db_node.setText(0, f"{db_name} (0)")
+                else:
+                    db_node.setText(0, f"{db_name} ({len(tables)} T / {len(views)} V)")
 
             except Exception as e:
                 logger.warning(f"Could not load schema for database {db_name}: {e}")
@@ -712,7 +752,13 @@ class DatabaseManager(QWidget):
 
         node_type = data.get("type", "")
 
-        if node_type in ["table", "view"]:
+        if node_type == "server" and not data.get("connected", False):
+            # Try to connect (first attempt or retry, same code)
+            db_conn = data.get("config")
+            if db_conn:
+                self._connect_and_load_schema(item, db_conn)
+
+        elif node_type in ["table", "view"]:
             # Generate SELECT TOP 100 query by default on double-click
             self._generate_select_query(data, limit=100)
 
@@ -764,8 +810,12 @@ class DatabaseManager(QWidget):
             parent=self,
             connection=connection,
             db_connection=db_conn,
-            tab_name=tab_name
+            tab_name=tab_name,
+            database_manager=self
         )
+
+        # Connect query_saved signal to forward to DatabaseManager's signal
+        query_tab.query_saved.connect(self.query_saved.emit)
 
         # Add to tab widget
         index = self.tab_widget.addTab(query_tab, tab_name)
@@ -1000,6 +1050,84 @@ class DatabaseManager(QWidget):
                 logger.info(f"Created workspace '{ws.name}' and added {db_desc}")
             else:
                 DialogHelper.warning("Failed to create workspace. Name may already exist.", parent=self)
+
+    def reconnect_database(self, db_id: str) -> Optional[Union[pyodbc.Connection, sqlite3.Connection]]:
+        """
+        Reconnect to a database and update all QueryTabs using this connection.
+
+        Args:
+            db_id: Database connection ID
+
+        Returns:
+            New connection object or None if failed
+        """
+        # Close existing connection if any
+        old_conn = self.connections.pop(db_id, None)
+        if old_conn:
+            try:
+                old_conn.close()
+            except Exception:
+                pass
+
+        # Get connection config
+        db_conn = self._get_connection_by_id(db_id)
+        if not db_conn:
+            return None
+
+        # Try to reconnect
+        try:
+            if db_conn.db_type == "sqlite":
+                conn_str = db_conn.connection_string
+                if conn_str.startswith("sqlite:///"):
+                    db_path = conn_str.replace("sqlite:///", "")
+                elif "Database=" in conn_str:
+                    import re
+                    match = re.search(r'Database=([^;]+)', conn_str)
+                    db_path = match.group(1) if match else conn_str
+                else:
+                    db_path = conn_str
+
+                connection = sqlite3.connect(db_path)
+                self.connections[db_id] = connection
+
+            elif db_conn.db_type == "sqlserver":
+                conn_str = db_conn.connection_string
+
+                if "trusted_connection=yes" not in conn_str.lower():
+                    from ...utils.credential_manager import CredentialManager
+                    username, password = CredentialManager.get_credentials(db_id)
+                    if username and password:
+                        if "uid=" not in conn_str.lower() and "user id=" not in conn_str.lower():
+                            if not conn_str.endswith(";"):
+                                conn_str += ";"
+                            conn_str += f"UID={username};PWD={password};"
+
+                if "timeout" not in conn_str.lower() and "connection timeout" not in conn_str.lower():
+                    conn_str += ";Connection Timeout=5"
+
+                connection = pyodbc.connect(conn_str, timeout=5)
+                self.connections[db_id] = connection
+            else:
+                return None
+
+            # Update all QueryTabs using this connection
+            self._update_query_tabs_connection(db_id, connection)
+
+            logger.info(f"Reconnected to database: {db_conn.name}")
+            return connection
+
+        except Exception as e:
+            logger.error(f"Failed to reconnect to {db_conn.name}: {e}")
+            return None
+
+    def _update_query_tabs_connection(self, db_id: str, new_connection):
+        """Update connection reference in all QueryTabs using this db_id"""
+        for i in range(self.tab_widget.count()):
+            widget = self.tab_widget.widget(i)
+            if isinstance(widget, QueryTab):
+                if widget.db_connection and widget.db_connection.id == db_id:
+                    widget.connection = new_connection
+                    logger.debug(f"Updated connection in tab: {widget.tab_name}")
 
     def cleanup(self):
         """

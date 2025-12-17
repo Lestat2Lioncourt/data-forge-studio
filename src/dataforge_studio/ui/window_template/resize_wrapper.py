@@ -329,14 +329,7 @@ class ResizeWrapper(QWidget):
         """
         self._debug_visible = visible
 
-        if visible:
-            print(f"[DEBUG] Resize wrapper visible - {self.RESIZE_MARGIN}px margin shown in red")
-            print(f"[DEBUG] Wrapper geometry: {self.geometry()}")
-            print(f"[DEBUG] Wrapper size: {self.size()}")
-            print(f"[DEBUG] Inner window geometry: {self.wrapped_widget.geometry()}")
-            print(f"[DEBUG] Inner window size: {self.wrapped_widget.size()}")
-        else:
-            print("[DEBUG] Resize wrapper hidden (almost invisible)")
+        # Debug mode enables visual feedback for troubleshooting
 
         # Force repaint
         self.update()

@@ -67,10 +67,9 @@ class QueriesManager(BaseManagerView):
             .add_field(tr("field_description"), "description") \
             .add_field(tr("field_database"), "database") \
             .add_field(tr("field_created"), "created") \
-            .add_field(tr("field_modified"), "modified") \
-            .build()
+            .add_field(tr("field_modified"), "modified")
 
-        self.details_layout.addWidget(self.details_form)
+        self.details_layout.addWidget(self.details_form.container)
 
     def _setup_content(self):
         """Setup content panel with SQL editor."""
