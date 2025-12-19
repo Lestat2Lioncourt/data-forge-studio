@@ -167,6 +167,11 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
     tab_selected_fg = palette.get("Tab_Selected_FG", normal_fg)
     tab_hover_bg = palette.get("Tab_Hover_BG", hover_bg)
 
+    # Get Section Header colors (optional, with defaults)
+    sectionheader_bg = palette.get("SectionHeader_BG", frame_bg)
+    sectionheader_fg = palette.get("SectionHeader_FG", frame_fg)
+    sectionheader_hover_bg = palette.get("SectionHeader_Hover_BG", hover_bg)
+
     # Build full colors dict
     colors = {
         # Base palette
@@ -322,6 +327,11 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         # Groupbox
         "groupbox_border": groupbox_border,
         "groupbox_title_fg": groupbox_title_fg,
+
+        # Section Headers
+        "sectionheader_bg": sectionheader_bg,
+        "sectionheader_fg": sectionheader_fg,
+        "sectionheader_hover_bg": sectionheader_hover_bg,
 
         # Checkbox
         "checkbox_bg": data_bg,

@@ -17,10 +17,11 @@ from .ui.managers import (
     ScriptsManager,
     JobsManager,
     DatabaseManager,
-    ResourcesManager,
     RootFolderManager,
     WorkspaceManager
 )
+from .ui.managers.resources_manager_v2 import ResourcesManagerV2
+from .ui.managers.image_library_manager import ImageLibraryManager
 
 
 def main():
@@ -103,22 +104,16 @@ def main():
     splash.update_progress("Chargement DatabaseManager...", 76)
     database_manager = DatabaseManager()
 
-    splash.update_progress("Chargement ResourcesManager...", 82)
-    resources_manager = ResourcesManager()
-
-    # Connect ResourcesManager to all managers (embeds their tree widgets)
-    resources_manager.set_managers(
-        database_manager=database_manager,
-        rootfolder_manager=rootfolder_manager,
-        queries_manager=queries_manager,
-        jobs_manager=jobs_manager,
-        scripts_manager=scripts_manager
-    )
-
-    splash.update_progress("Chargement WorkspaceManager...", 88)
+    splash.update_progress("Chargement WorkspaceManager...", 82)
     workspace_manager = WorkspaceManager()
 
-    # Set frames and managers in main window
+    splash.update_progress("Chargement ImageLibraryManager...", 85)
+    image_library_manager = ImageLibraryManager()
+
+    splash.update_progress("Chargement ResourcesManager...", 90)
+    resources_manager = ResourcesManagerV2()
+
+    # Set frames and managers in main window (must be before set_managers for signal connection)
     splash.update_progress("Connexion des composants...", 94)
     main_window.set_frames(
         settings_frame, help_frame,
@@ -128,17 +123,42 @@ def main():
         jobs_manager=jobs_manager,
         database_manager=database_manager,
         resources_manager=resources_manager,
-        workspace_manager=workspace_manager
+        workspace_manager=workspace_manager,
+        image_library_manager=image_library_manager
+    )
+
+    # Connect ResourcesManager to all managers (after set_frames for signal connection)
+    resources_manager.set_managers(
+        database_manager=database_manager,
+        rootfolder_manager=rootfolder_manager,
+        queries_manager=queries_manager,
+        jobs_manager=jobs_manager,
+        scripts_manager=scripts_manager,
+        image_library_manager=image_library_manager
     )
 
     # Finalize
     splash.update_progress("Finalisation...", 98)
 
     # Connect cleanup to application quit signal
+    # Note: Cleanup runs in daemon threads so it won't block app exit
+    # The main_window._on_close_event already handles cleanup in a daemon thread
+    # This is a backup in case the window is closed differently
     def on_about_to_quit():
-        """Cleanup all resources before application quits."""
-        if database_manager:
-            database_manager.cleanup()
+        """Cleanup all resources before application quits (non-blocking)."""
+        import threading
+
+        def async_cleanup():
+            if database_manager:
+                try:
+                    database_manager.cleanup()
+                except Exception:
+                    pass
+
+        # Run in daemon thread so it doesn't block app exit
+        thread = threading.Thread(target=async_cleanup, daemon=True)
+        thread.start()
+        # Don't wait - the thread is daemon so it will be terminated when app exits
 
     app.aboutToQuit.connect(on_about_to_quit)
 

@@ -1,6 +1,6 @@
 """Main frameless window with custom title bar and resizable panels."""
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QSplitter
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter
 from PySide6.QtCore import Qt, QRect, QPoint
 from PySide6.QtGui import QMouseEvent
 
@@ -67,15 +67,17 @@ class TemplateWindow(QMainWindow):
         # Add menu bar
         main_layout.addWidget(self.menu_bar)
 
-        # Create horizontal splitter for left and right panels
-        self.main_splitter = QSplitter(Qt.Horizontal)
-        self.main_splitter.setHandleWidth(4)
-        # No hardcoded style - uses theme via global QSS
+        # Create horizontal layout for left panel (fixed) and right content
+        self.main_container = QWidget()
+        main_h_layout = QHBoxLayout(self.main_container)
+        main_h_layout.setContentsMargins(0, 0, 0, 0)
+        main_h_layout.setSpacing(0)
 
-        # Left panel - single container
+        # Left panel - fixed width (icon sidebar)
         self.left_panel = QWidget()
+        self.left_panel.setFixedWidth(56)  # Fixed width for icon sidebar
         # No hardcoded style - uses theme via global QSS
-        self.main_splitter.addWidget(self.left_panel)
+        main_h_layout.addWidget(self.left_panel)
 
         # Right panel container with optional vertical splitter
         self.right_container = QWidget()
@@ -103,12 +105,9 @@ class TemplateWindow(QMainWindow):
         self.right_splitter.setSizes([1, 0])
 
         right_layout.addWidget(self.right_splitter)
-        self.main_splitter.addWidget(self.right_container)
+        main_h_layout.addWidget(self.right_container, stretch=1)
 
-        # Set initial splitter sizes (30% left, 70% right)
-        self.main_splitter.setSizes([300, 700])
-
-        main_layout.addWidget(self.main_splitter, stretch=1)
+        main_layout.addWidget(self.main_container, stretch=1)
 
         # Add status bar
         main_layout.addWidget(self.status_bar)

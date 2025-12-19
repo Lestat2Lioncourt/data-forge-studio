@@ -35,6 +35,7 @@ class DataForgeMainWindow:
         self.database_manager = None
         self.resources_manager = None
         self.workspace_manager = None
+        self.image_library_manager = None
         self.stacked_widget = None
         self._current_view = None  # Track current view
 
@@ -101,13 +102,12 @@ class DataForgeMainWindow:
         # Set as right panel (single mode)
         self.window.set_right_panel_widget(self.stacked_widget)
 
-        # Hide left panel - each manager has its own left panel
-        self.window.left_panel.hide()
-        self.window.main_splitter.setSizes([0, 1000])  # Give all space to right panel
+        # Left panel will contain icon sidebar (set in set_frames)
 
     def set_frames(self, settings_frame, help_frame,
                    rootfolder_manager=None, queries_manager=None, scripts_manager=None, jobs_manager=None,
-                   database_manager=None, resources_manager=None, workspace_manager=None):
+                   database_manager=None, resources_manager=None, workspace_manager=None,
+                   image_library_manager=None):
         """
         Set the frame and manager widgets after they're created.
         This allows frames and managers to be created separately and injected.
@@ -122,6 +122,7 @@ class DataForgeMainWindow:
             database_manager: DatabaseManager instance (optional)
             resources_manager: ResourcesManager instance (optional)
             workspace_manager: WorkspaceManager instance (optional)
+            image_library_manager: ImageLibraryManager instance (optional)
         """
         self.settings_frame = settings_frame
         self.help_frame = help_frame
@@ -132,6 +133,7 @@ class DataForgeMainWindow:
         self.database_manager = database_manager
         self.resources_manager = resources_manager
         self.workspace_manager = workspace_manager
+        self.image_library_manager = image_library_manager
 
         # Connect signals from settings frame
         if self.settings_frame:
@@ -141,6 +143,11 @@ class DataForgeMainWindow:
         # Connect signal from resources manager to open in dedicated manager
         if self.resources_manager:
             self.resources_manager.open_resource_requested.connect(self._on_open_resource)
+            self.resources_manager.open_image_library_requested.connect(
+                lambda: self._switch_frame("images")
+            )
+            # Connect icon sidebar selection to switch managers
+            self.resources_manager.manager_selected.connect(self._on_manager_selected)
 
         # Connect database_manager.query_saved to refresh only queries in resources_manager
         if self.database_manager and self.resources_manager:
@@ -156,9 +163,7 @@ class DataForgeMainWindow:
         self.stacked_widget.addWidget(self.settings_frame)
         self.stacked_widget.addWidget(self.help_frame)
 
-        # Add managers if provided
-        if self.resources_manager:
-            self.stacked_widget.addWidget(self.resources_manager)
+        # Add managers if provided (NOT resources_manager - it goes in left panel)
         if self.rootfolder_manager:
             self.stacked_widget.addWidget(self.rootfolder_manager)
         if self.database_manager:
@@ -171,12 +176,19 @@ class DataForgeMainWindow:
             self.stacked_widget.addWidget(self.jobs_manager)
         if self.workspace_manager:
             self.stacked_widget.addWidget(self.workspace_manager)
+        if self.image_library_manager:
+            self.stacked_widget.addWidget(self.image_library_manager)
 
-        # Initially show resources (unified view)
+        # Set resources_manager (icon sidebar) in left panel - always visible
         if self.resources_manager:
-            self.stacked_widget.setCurrentWidget(self.resources_manager)
-            self._current_view = "resources"
-            self._update_active_menu("resources")
+            self.window.set_left_panel_widget(self.resources_manager)
+            self.window.left_panel.show()
+
+        # Initially show database manager
+        if self.database_manager:
+            self.stacked_widget.setCurrentWidget(self.database_manager)
+            self._current_view = "database"
+            self._update_active_menu("view")
 
     def _setup_status_bar(self):
         """Setup status bar."""
@@ -187,6 +199,10 @@ class DataForgeMainWindow:
         # Connect i18n language change to UI update
         self.i18n_bridge.register_observer(self._on_language_changed)
 
+        # Connect queries manager execution signal
+        if self.queries_manager:
+            self.queries_manager.query_execute_requested.connect(self._on_execute_saved_query)
+
     def _switch_frame(self, frame_name: str):
         """
         Switch to a different frame or manager.
@@ -194,8 +210,11 @@ class DataForgeMainWindow:
         Args:
             frame_name: Name of the frame/manager to switch to
         """
+        # "resources" now means show the database manager (icon sidebar always visible)
+        if frame_name == "resources":
+            frame_name = "database"
+
         frame_map = {
-            "resources": (self.resources_manager, "status_viewing_resources"),
             "rootfolders": (self.rootfolder_manager, "status_viewing_rootfolders"),
             "options": (self.settings_frame, "status_viewing_settings"),
             "settings": (self.settings_frame, "status_viewing_settings"),  # Alias for backward compatibility
@@ -204,7 +223,8 @@ class DataForgeMainWindow:
             "queries": (self.queries_manager, "status_viewing_queries"),
             "scripts": (self.scripts_manager, "status_viewing_scripts"),
             "jobs": (self.jobs_manager, "status_viewing_jobs"),
-            "workspaces": (self.workspace_manager, "status_viewing_workspaces")
+            "workspaces": (self.workspace_manager, "status_viewing_workspaces"),
+            "images": (self.image_library_manager, "status_viewing_images")
         }
 
         if frame_name in frame_map:
@@ -214,6 +234,17 @@ class DataForgeMainWindow:
                 self.window.status_bar.set_message(tr(status_key))
                 self._current_view = frame_name
                 self._update_active_menu(frame_name)
+
+                # Show/hide icon sidebar based on context
+                resource_views = ["database", "rootfolders", "queries", "jobs", "scripts", "images"]
+                if frame_name in resource_views:
+                    # Show sidebar and sync selection
+                    if self.resources_manager:
+                        self.window.left_panel.show()
+                        self.resources_manager.update_selection(frame_name)
+                else:
+                    # Hide sidebar for non-resource contexts (Settings, Help, Workspaces)
+                    self.window.left_panel.hide()
             else:
                 # Manager not yet initialized
                 self.window.status_bar.set_message(tr("status_ready"))
@@ -233,6 +264,7 @@ class DataForgeMainWindow:
             "queries": "view",
             "scripts": "view",
             "jobs": "view",
+            "images": "view",
             "workspaces": "workspaces",
             "options": "options",
             "settings": "options",
@@ -299,6 +331,16 @@ class DataForgeMainWindow:
                 self._switch_frame(frame_name)
                 # TODO: Select the specific resource in the manager if supported
 
+    @Slot(str)
+    def _on_manager_selected(self, manager_id: str):
+        """
+        Handle icon sidebar selection - switch to the selected manager.
+
+        Args:
+            manager_id: ID of the selected manager (database, rootfolders, queries, jobs, scripts, images)
+        """
+        self._switch_frame(manager_id)
+
     @Slot()
     def _on_language_changed(self):
         """Handle language change - update all UI text."""
@@ -319,11 +361,7 @@ class DataForgeMainWindow:
         self.window.menu_bar.setStyleSheet(f"background-color: {colors.get('feature_menu_bar_bg', panel_bg)}; border: 2px solid magenta;")
         self.window.left_panel.setStyleSheet(f"background-color: {panel_bg}; border: 2px solid brown;")
         self.window.right_container.setStyleSheet(f"background-color: {panel_bg}; border: 2px solid pink;")
-        self.window.main_splitter.setStyleSheet(f"""
-            QSplitter {{ border: 2px solid navy; }}
-            QSplitter::handle {{ background-color: {colors.get('splitter_bg', '#4d4d4d')}; }}
-            QSplitter::handle:hover {{ background-color: {colors.get('splitter_hover_bg', '#0078d4')}; }}
-        """)
+        self.window.main_container.setStyleSheet(f"background-color: {panel_bg}; border: 2px solid navy;")
         self.window.status_bar.setStyleSheet(f"background-color: {colors.get('status_bar_bg', panel_bg)}; border: 2px solid lime;")
 
         # Central widget - preserve theme background
@@ -471,3 +509,80 @@ class DataForgeMainWindow:
         # Call original close event immediately - don't wait for cleanup
         if self._original_close_event:
             self._original_close_event(event)
+
+    def _on_execute_saved_query(self, saved_query):
+        """
+        Handle saved query execution request from QueriesManager.
+        Opens the query in DatabaseManager and executes it.
+        """
+        from ..managers.query_tab import QueryTab
+        from ..widgets.dialog_helper import DialogHelper
+
+        if not self.database_manager:
+            DialogHelper.warning(
+                "Database Manager not available.\nLe gestionnaire de bases de données n'est pas disponible.",
+                parent=self.window
+            )
+            return
+
+        # Get the target database connection
+        db_id = saved_query.target_database_id
+        if not db_id:
+            DialogHelper.warning(
+                "No target database specified for this query.\nAucune base de données cible n'est spécifiée pour cette requête.",
+                parent=self.window
+            )
+            return
+
+        # Check if database is connected, if not try to connect
+        connection = self.database_manager.connections.get(db_id)
+        db_conn = self.database_manager._get_connection_by_id(db_id)
+
+        if not db_conn:
+            DialogHelper.warning(
+                "Target database not found in connections.\nBase de données cible non trouvée dans les connexions.",
+                parent=self.window
+            )
+            return
+
+        if not connection:
+            # Try to connect
+            try:
+                connection = self.database_manager.reconnect_database(db_id)
+                if not connection:
+                    DialogHelper.error(
+                        f"Failed to connect to {db_conn.name}.\nÉchec de la connexion à {db_conn.name}.",
+                        parent=self.window
+                    )
+                    return
+            except Exception as e:
+                DialogHelper.error(f"Connection error: {e}", parent=self.window)
+                return
+
+        # Switch to database manager view
+        self._switch_frame("database")
+
+        # Create a new query tab named after the saved query
+        tab_name = saved_query.name
+
+        query_tab = QueryTab(
+            parent=self.database_manager,
+            connection=connection,
+            db_connection=db_conn,
+            tab_name=tab_name,
+            database_manager=self.database_manager
+        )
+
+        # Connect query_saved signal
+        query_tab.query_saved.connect(self.database_manager.query_saved.emit)
+
+        # Add to tab widget
+        index = self.database_manager.tab_widget.addTab(query_tab, tab_name)
+        self.database_manager.tab_widget.setCurrentIndex(index)
+
+        # Set query text and execute
+        query_tab.set_query_text(saved_query.query_text or "")
+        query_tab._execute_query()
+
+        import logging
+        logging.getLogger(__name__).info(f"Executed saved query: {saved_query.name}")

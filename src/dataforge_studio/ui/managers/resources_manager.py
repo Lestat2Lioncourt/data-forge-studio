@@ -60,6 +60,9 @@ class ResourcesManager(BaseManagerView):
     # Signal emitted when user wants to open a resource in dedicated view
     open_resource_requested = Signal(str, str)  # (resource_type, resource_id as UUID string)
 
+    # Signal emitted when user wants to open the Image Library Manager
+    open_image_library_requested = Signal()
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent, title=tr("menu_view"))
 
@@ -71,6 +74,10 @@ class ResourcesManager(BaseManagerView):
         self._queries_manager = None
         self._jobs_manager = None
         self._scripts_manager = None
+
+        # Image navigation
+        self._image_nav_list = []
+        self._image_nav_index = 0
 
         # Enable tree expansion
         self.tree_view.tree.setRootIsDecorated(True)
@@ -260,13 +267,54 @@ class ResourcesManager(BaseManagerView):
 
         self.content_stack.addWidget(query_widget)
 
+        # Page 2: Image preview (for saved images)
+        from PySide6.QtWidgets import QScrollArea
+        from PySide6.QtGui import QPixmap
+        image_widget = QWidget()
+        image_layout = QVBoxLayout(image_widget)
+        image_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Toolbar for image actions
+        image_toolbar = QHBoxLayout()
+        self.image_open_btn = QPushButton("📂 Open in Explorer")
+        self.image_open_btn.clicked.connect(self._open_image_location)
+        image_toolbar.addWidget(self.image_open_btn)
+
+        self.image_copy_btn = QPushButton("📋 Copy to Clipboard")
+        self.image_copy_btn.clicked.connect(self._copy_image_to_clipboard)
+        image_toolbar.addWidget(self.image_copy_btn)
+
+        self.image_edit_btn = QPushButton("✏️ Edit")
+        self.image_edit_btn.clicked.connect(self._edit_current_image)
+        image_toolbar.addWidget(self.image_edit_btn)
+
+        image_toolbar.addStretch()
+        image_layout.addLayout(image_toolbar)
+
+        # Scrollable image preview area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { background-color: #2d2d2d; }")
+
+        self.image_preview_label = QLabel()
+        self.image_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_preview_label.setStyleSheet("QLabel { background-color: #2d2d2d; }")
+        scroll_area.setWidget(self.image_preview_label)
+
+        image_layout.addWidget(scroll_area)
+
+        self.content_stack.addWidget(image_widget)
+
         # Pages for managers will be added in set_managers()
-        self._page_indices = {"generic": 0, "query": 1}
+        self._page_indices = {"generic": 0, "query": 1, "image": 2}
 
         # Current query context
         self._current_query_obj = None
         self._current_query_connection = None
         self._current_query_db_conn = None
+
+        # Current image context
+        self._current_image_obj = None
 
     def _load_items(self):
         """Load all resources into tree."""
@@ -279,6 +327,7 @@ class ResourcesManager(BaseManagerView):
                 ("databases", tr("menu_database")),
                 ("rootfolders", "Rootfolders"),
                 ("queries", tr("menu_queries")),
+                ("images", "Images"),
                 ("jobs", tr("menu_jobs")),
                 ("scripts", tr("menu_scripts")),
             ]
@@ -339,6 +388,46 @@ class ResourcesManager(BaseManagerView):
                         data={"type": "query", "id": query.id, "obj": query}
                     )
                     self._set_item_icon(item, "queries")
+
+            # Images - only logical categories (user-defined)
+            # Images without categories are only visible in ImageLibraryManager
+            self._image_category_items = {}
+            category_names = config_db.get_all_image_category_names()
+
+            # Always add "Open Image Manager" action item first
+            open_manager_item = self.tree_view.add_item(
+                parent=self._category_items["images"],
+                text=["📷 Ouvrir le gestionnaire d'images..."],
+                data={"type": "open_image_manager"}
+            )
+
+            for category_name in sorted(category_names):
+                images_in_cat = config_db.get_images_by_category(category_name)
+                if not images_in_cat:
+                    continue
+
+                # Create category folder
+                cat_item = self.tree_view.add_item(
+                    parent=self._category_items["images"],
+                    text=[f"{category_name} ({len(images_in_cat)})"],
+                    data={"type": "image_category", "name": category_name}
+                )
+                self._set_item_icon(cat_item, "folder")
+                self._image_category_items[category_name] = cat_item
+
+                # Add images under this category
+                for image in images_in_cat:
+                    # Check if image has tags for indicator
+                    tags = config_db.get_image_tags(image.id)
+                    indicator = " ⭐" if tags else ""
+                    item = self.tree_view.add_item(
+                        parent=cat_item,
+                        text=[f"{image.name}{indicator}"],
+                        data={"type": "image", "id": image.id, "obj": image}
+                    )
+                    self._set_item_icon(item, "file")
+                    # Store for navigation
+                    self._tree_items[f"img_{image.id}"] = item
 
             # Jobs
             jobs = config_db.get_all_jobs()
@@ -652,7 +741,7 @@ class ResourcesManager(BaseManagerView):
 
         if item_type in ("category", "database", "server", "rootfolder", "folder",
                          "tables_folder", "views_folder", "table", "view",
-                         "query_category"):
+                         "query_category", "image_category"):
             # Toggle expand for expandable items (including tables to show columns)
             item.setExpanded(not item.isExpanded())
 
@@ -669,6 +758,16 @@ class ResourcesManager(BaseManagerView):
                 self._load_saved_query(query_obj)
                 # Auto-execute after loading (will auto-connect if needed)
                 self._execute_saved_query()
+
+        elif item_type == "image":
+            # Load and display image preview
+            image_obj = data.get("obj")
+            if image_obj:
+                self._load_image_preview(image_obj)
+
+        elif item_type == "open_image_manager":
+            # Open dedicated Image Library Manager
+            self._open_image_library_manager()
 
         else:
             # For other items (job, script), emit signal to open in dedicated manager
@@ -918,6 +1017,49 @@ class ResourcesManager(BaseManagerView):
                 open_location_action.triggered.connect(lambda: self._rootfolder_manager._open_file_location(Path(path)))
                 menu.addAction(open_location_action)
 
+        elif item_type == "category" and data.get("category_key") == "images":
+            # Images root category context menu
+            open_manager_action = QAction("📷 Ouvrir le gestionnaire d'images...", self)
+            open_manager_action.triggered.connect(self._open_image_library_manager)
+            menu.addAction(open_manager_action)
+
+            menu.addSeparator()
+            menu.addAction(tr("btn_refresh"), self.refresh_images)
+
+        elif item_type == "image_category":
+            # Image category folder context menu (logical category)
+            category_name = data.get("name", "")
+
+            open_manager_action = QAction("📷 Ouvrir le gestionnaire d'images...", self)
+            open_manager_action.triggered.connect(self._open_image_library_manager)
+            menu.addAction(open_manager_action)
+
+        elif item_type == "image":
+            # Image item context menu
+            image_obj = data.get("obj")
+            if image_obj:
+                # Open in explorer
+                open_location_action = QAction("📂 Open in Explorer", self)
+                open_location_action.triggered.connect(self._open_image_location)
+                menu.addAction(open_location_action)
+
+                # Copy to clipboard
+                copy_action = QAction("📋 Copy to Clipboard", self)
+                copy_action.triggered.connect(self._copy_image_to_clipboard)
+                menu.addAction(copy_action)
+
+                menu.addSeparator()
+
+                # Edit
+                edit_action = QAction("✏️ Edit", self)
+                edit_action.triggered.connect(lambda: self._edit_image(image_obj))
+                menu.addAction(edit_action)
+
+                # Delete
+                delete_action = QAction("🗑️ Delete", self)
+                delete_action.triggered.connect(lambda: self._delete_image(image_obj))
+                menu.addAction(delete_action)
+
         # Debug: if no actions were added, log the item type
         if not menu.actions():
             logger.warning(f"No context menu for item type: '{item_type}', data: {data}")
@@ -1112,12 +1254,14 @@ class ResourcesManager(BaseManagerView):
         logger.info(f"Created empty query tab: {tab_name} for {db_conn.name}")
 
     def _execute_query_for_table(self, data: dict, limit: int = 100):
-        """Execute a SELECT query for a table/view in our query tab."""
+        """Execute a SELECT query for a table/view in a NEW query tab named after the table."""
+        from .query_tab import QueryTab
+
         table_name = data.get("name", "")
         db_id = data.get("db_id")
         db_name = data.get("db_name")
 
-        if not db_id or not table_name:
+        if not db_id or not table_name or not self._database_manager:
             return
 
         # Switch to database page and collapse details panel
@@ -1125,16 +1269,24 @@ class ResourcesManager(BaseManagerView):
             self.content_stack.setCurrentIndex(self._page_indices["database"])
             self._collapse_details_panel()
 
-        # Get or create query tab
-        query_tab = self._get_or_create_query_tab(db_id, db_name)
-        if not query_tab:
-            return
-
-        # Generate query based on database type
+        # Get database connection info
         db_conn = self._database_manager._get_connection_by_id(db_id)
         if not db_conn:
             return
 
+        # Get or establish connection
+        connection = self._database_manager.connections.get(db_id)
+        if not connection:
+            try:
+                connection = self._database_manager.reconnect_database(db_id)
+                if not connection:
+                    DialogHelper.error(f"Failed to connect to {db_conn.name}.", parent=self)
+                    return
+            except Exception as e:
+                DialogHelper.error(f"Connection error: {e}", parent=self)
+                return
+
+        # Generate query based on database type
         if db_conn.db_type == "sqlite":
             if limit:
                 query = f"SELECT * FROM {table_name} LIMIT {limit}"
@@ -1154,9 +1306,31 @@ class ResourcesManager(BaseManagerView):
             else:
                 query = f"SELECT * FROM {table_name}"
 
+        # Always create a NEW tab named after the table (don't reuse existing)
+        # Extract simple table name for tab title (remove schema prefix if present)
+        simple_name = table_name.split('.')[-1].strip('[]')
+        tab_name = simple_name
+
+        query_tab = QueryTab(
+            parent=self,
+            connection=connection,
+            db_connection=db_conn,
+            tab_name=tab_name,
+            database_manager=self._database_manager
+        )
+
+        # Connect query_saved signal to refresh
+        query_tab.query_saved.connect(self.refresh_queries)
+
+        # Add to tab widget
+        index = self.query_tab_widget.addTab(query_tab, tab_name)
+        self.query_tab_widget.setCurrentIndex(index)
+
         # Set query and execute
         query_tab.set_query_text(query)
         query_tab._execute_query()
+
+        logger.info(f"Created query tab '{tab_name}' for table {table_name}")
 
     # ==================== File Content Loading ====================
 
@@ -1459,6 +1633,234 @@ class ResourcesManager(BaseManagerView):
         result = msg.exec()
         return result == QMessageBox.StandardButton.Yes
 
+    # ==================== Image Preview ====================
+
+    def _load_image_preview(self, image_obj):
+        """Load and display an image in the preview panel."""
+        from PySide6.QtGui import QPixmap
+
+        self._current_image_obj = image_obj
+
+        # Switch to image page
+        if "image" in self._page_indices:
+            self.content_stack.setCurrentIndex(self._page_indices["image"])
+            self._expand_details_panel()
+
+        # Get image categories and tags from database
+        config_db = get_config_db()
+        categories = config_db.get_image_categories(image_obj.id)
+        tags = config_db.get_image_tags(image_obj.id)
+
+        categories_str = ", ".join(categories) if categories else "-"
+        tags_str = ", ".join(tags) if tags else "-"
+
+        # Update details panel
+        self.details_form_builder.set_value("name", image_obj.name)
+        self.details_form_builder.set_value("resource_type", "Image")
+        self.details_form_builder.set_value("description", image_obj.description or "-")
+        self.details_form_builder.set_value("path", image_obj.filepath)
+        self.details_form_builder.set_value("encoding", f"Categories: {categories_str}")
+        self.details_form_builder.set_value("separator", f"Tags: {tags_str}")
+        self.details_form_builder.set_value("delimiter", "-")
+
+        # Load image
+        filepath = Path(image_obj.filepath)
+        if filepath.exists():
+            pixmap = QPixmap(str(filepath))
+            if not pixmap.isNull():
+                # Scale to fit while maintaining aspect ratio
+                scaled = pixmap.scaled(
+                    800, 600,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self.image_preview_label.setPixmap(scaled)
+            else:
+                self.image_preview_label.setText("Cannot load image / Impossible de charger l'image")
+        else:
+            self.image_preview_label.setText(f"File not found: {filepath}\nFichier introuvable: {filepath}")
+
+        # Store image list for navigation (siblings in the same category)
+        self._build_image_navigation_list(image_obj)
+
+        logger.info(f"Loaded image preview: {image_obj.name}")
+
+    def _build_image_navigation_list(self, current_image):
+        """Build the list of images for arrow navigation."""
+        # Get the current tree item
+        current_item = self.tree_view.tree.currentItem()
+        if not current_item:
+            self._image_nav_list = [current_image]
+            self._image_nav_index = 0
+            return
+
+        # Get parent item (category)
+        parent_item = current_item.parent()
+        if not parent_item:
+            self._image_nav_list = [current_image]
+            self._image_nav_index = 0
+            return
+
+        # Collect all images from this category
+        self._image_nav_list = []
+        self._image_nav_index = 0
+
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole) or {}
+            if data.get("type") == "image":
+                img_obj = data.get("obj")
+                if img_obj:
+                    self._image_nav_list.append(img_obj)
+                    if img_obj.id == current_image.id:
+                        self._image_nav_index = len(self._image_nav_list) - 1
+
+    def _navigate_image(self, direction: int):
+        """Navigate to previous (-1) or next (+1) image."""
+        if not hasattr(self, '_image_nav_list') or not self._image_nav_list:
+            return
+
+        new_index = self._image_nav_index + direction
+        if 0 <= new_index < len(self._image_nav_list):
+            self._image_nav_index = new_index
+            image_obj = self._image_nav_list[new_index]
+            self._load_image_preview(image_obj)
+
+            # Update tree selection
+            item_key = f"img_{image_obj.id}"
+            if item_key in self._tree_items:
+                self.tree_view.tree.setCurrentItem(self._tree_items.get(item_key))
+
+    def keyPressEvent(self, event):
+        """Handle key press events for image navigation."""
+        from PySide6.QtCore import Qt as QtCore
+
+        # Check if we're viewing an image
+        if self._current_image_obj and self._image_nav_list:
+            if event.key() == QtCore.Key.Key_Left:
+                self._navigate_image(-1)
+                event.accept()
+                return
+            elif event.key() == QtCore.Key.Key_Right:
+                self._navigate_image(1)
+                event.accept()
+                return
+
+        # Default handling
+        super().keyPressEvent(event)
+
+    def _open_image_location(self):
+        """Open the image file location in explorer."""
+        import subprocess
+        import platform
+
+        if not self._current_image_obj:
+            return
+
+        filepath = Path(self._current_image_obj.filepath)
+        if filepath.exists():
+            if platform.system() == "Windows":
+                subprocess.run(["explorer", "/select,", str(filepath)])
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", "-R", str(filepath)])
+            else:  # Linux
+                subprocess.run(["xdg-open", str(filepath.parent)])
+
+    def _copy_image_to_clipboard(self):
+        """Copy the current image to clipboard."""
+        from PySide6.QtGui import QPixmap, QClipboard
+        from PySide6.QtWidgets import QApplication
+
+        if not self._current_image_obj:
+            return
+
+        filepath = Path(self._current_image_obj.filepath)
+        if filepath.exists():
+            pixmap = QPixmap(str(filepath))
+            if not pixmap.isNull():
+                QApplication.clipboard().setPixmap(pixmap)
+                DialogHelper.info(
+                    "Image copied to clipboard.\nImage copiée dans le presse-papier.",
+                    parent=self
+                )
+
+    def _edit_current_image(self):
+        """Edit the current image metadata (from preview toolbar)."""
+        if not self._current_image_obj:
+            return
+        # Delegate to the main edit method
+        self._edit_image(self._current_image_obj)
+
+    def refresh_images(self):
+        """Refresh only the Images section of the tree (logical categories only)."""
+        if "images" not in self._category_items:
+            return
+
+        images_item = self._category_items["images"]
+
+        # Clear existing image children
+        while images_item.childCount() > 0:
+            images_item.removeChild(images_item.child(0))
+
+        # Reload images - only logical categories (user-defined)
+        try:
+            config_db = get_config_db()
+            category_names = config_db.get_all_image_category_names()
+
+            # Always add "Open Image Manager" action item first
+            open_manager_item = self.tree_view.add_item(
+                parent=images_item,
+                text=["📷 Ouvrir le gestionnaire d'images..."],
+                data={"type": "open_image_manager"}
+            )
+
+            self._image_category_items = {}
+            total_images = 0
+
+            for category_name in sorted(category_names):
+                images_in_cat = config_db.get_images_by_category(category_name)
+                if not images_in_cat:
+                    continue
+
+                cat_item = self.tree_view.add_item(
+                    parent=images_item,
+                    text=[f"{category_name} ({len(images_in_cat)})"],
+                    data={"type": "image_category", "name": category_name}
+                )
+                self._set_item_icon(cat_item, "folder")
+                self._image_category_items[category_name] = cat_item
+
+                for image in images_in_cat:
+                    tags = config_db.get_image_tags(image.id)
+                    indicator = " ⭐" if tags else ""
+                    item = self.tree_view.add_item(
+                        parent=cat_item,
+                        text=[f"{image.name}{indicator}"],
+                        data={"type": "image", "id": image.id, "obj": image}
+                    )
+                    self._set_item_icon(item, "file")
+                    self._tree_items[f"img_{image.id}"] = item
+                    total_images += 1
+
+                cat_item.setExpanded(True)
+
+            # Update images category count
+            count = images_item.childCount()
+            text = images_item.text(0).split(" (")[0]
+            images_item.setText(0, f"{text} ({count})")
+
+            images_item.setExpanded(True)
+
+            logger.info(f"Images refreshed: {total_images} images in {len(category_names)} categories")
+
+        except Exception as e:
+            logger.error(f"Error refreshing images: {e}")
+
+    def _open_image_library_manager(self):
+        """Emit signal to open the Image Library Manager."""
+        self.open_image_library_requested.emit()
+        logger.info("Requested to open Image Library Manager")
+
     # ==================== Saved Query Execution ====================
 
     def _load_saved_query(self, query_obj):
@@ -1719,3 +2121,128 @@ class ResourcesManager(BaseManagerView):
                 DialogHelper.error("Reconnection failed.\nÉchec de la reconnexion.", parent=self)
         except Exception as e:
             DialogHelper.error(f"Reconnection error: {e}", parent=self)
+
+    # ==================== Image Management ====================
+
+    def _add_new_image(self, default_category: str = ""):
+        """Add a new image to the library."""
+        from PySide6.QtWidgets import QDialog
+        from ..widgets.save_image_dialog import SaveImageDialog
+
+        dialog = SaveImageDialog(
+            parent=self,
+            default_category=default_category
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_image_data()
+
+            try:
+                config_db = get_config_db()
+                image_id = config_db.add_saved_image(
+                    name=data["name"],
+                    filepath=data["filepath"],
+                    category=data["category"],
+                    description=data["description"]
+                )
+
+                if image_id:
+                    DialogHelper.info(
+                        f"Image '{data['name']}' added successfully.\n"
+                        f"Image '{data['name']}' ajoutée avec succès.",
+                        parent=self
+                    )
+                    self.refresh_images()
+                    logger.info(f"Added new image: {data['name']}")
+                else:
+                    DialogHelper.error(
+                        "Failed to add image.\nÉchec de l'ajout de l'image.",
+                        parent=self
+                    )
+
+            except Exception as e:
+                logger.error(f"Error adding image: {e}")
+                DialogHelper.error(f"Error: {e}", parent=self)
+
+    def _edit_image(self, image_obj):
+        """Edit an image's metadata."""
+        from PySide6.QtWidgets import QDialog
+        from ..widgets.save_image_dialog import SaveImageDialog
+
+        # Store current image for preview panel context
+        self._current_image_obj = image_obj
+
+        dialog = SaveImageDialog(
+            parent=self,
+            image=image_obj,
+            edit_mode=True
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_image_data()
+
+            # Update image object
+            image_obj.name = data["name"]
+            image_obj.category = data["category"]
+            image_obj.description = data["description"]
+            image_obj.filepath = data["filepath"]
+
+            try:
+                config_db = get_config_db()
+                if config_db.update_saved_image(image_obj):
+                    DialogHelper.info(
+                        f"Image '{data['name']}' updated.\n"
+                        f"Image '{data['name']}' mise à jour.",
+                        parent=self
+                    )
+                    self.refresh_images()
+                    # Reload preview if currently viewing this image
+                    if self._current_image_obj and self._current_image_obj.id == image_obj.id:
+                        self._load_image_preview(image_obj)
+                    logger.info(f"Updated image: {data['name']}")
+                else:
+                    DialogHelper.error(
+                        "Failed to update image.\nÉchec de la mise à jour.",
+                        parent=self
+                    )
+
+            except Exception as e:
+                logger.error(f"Error updating image: {e}")
+                DialogHelper.error(f"Error: {e}", parent=self)
+
+    def _delete_image(self, image_obj):
+        """Delete an image from the library."""
+        if not DialogHelper.confirm(
+            f"Delete image '{image_obj.name}'?\n"
+            f"Supprimer l'image '{image_obj.name}' ?\n\n"
+            f"(The file will not be deleted from disk)\n"
+            f"(Le fichier ne sera pas supprimé du disque)",
+            parent=self
+        ):
+            return
+
+        try:
+            config_db = get_config_db()
+            if config_db.delete_saved_image(image_obj.id):
+                DialogHelper.info(
+                    f"Image '{image_obj.name}' removed from library.\n"
+                    f"Image '{image_obj.name}' retirée de la bibliothèque.",
+                    parent=self
+                )
+                self.refresh_images()
+
+                # Clear preview if this was the displayed image
+                if self._current_image_obj and self._current_image_obj.id == image_obj.id:
+                    self._current_image_obj = None
+                    self.content_stack.setCurrentIndex(self._page_indices["generic"])
+
+                logger.info(f"Deleted image: {image_obj.name}")
+            else:
+                DialogHelper.error(
+                    "Failed to delete image.\nÉchec de la suppression.",
+                    parent=self
+                )
+
+        except Exception as e:
+            logger.error(f"Error deleting image: {e}")
+            DialogHelper.error(f"Error: {e}", parent=self)

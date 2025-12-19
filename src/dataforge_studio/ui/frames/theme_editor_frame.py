@@ -86,6 +86,14 @@ PALETTE_CATEGORIES = {
             ("Tab_Hover_BG", "Survol"),
         ]
     },
+    "sections": {
+        "name": "Sections",
+        "properties": [
+            ("SectionHeader_BG", "Fond"),
+            ("SectionHeader_FG", "Texte"),
+            ("SectionHeader_Hover_BG", "Survol"),
+        ]
+    },
 }
 
 # Default dark palette
@@ -117,6 +125,9 @@ DEFAULT_DARK_PALETTE = {
     "Tab_Selected_BG": "#2d2d2d",
     "Tab_Selected_FG": "#ffffff",
     "Tab_Hover_BG": "#383838",
+    "SectionHeader_BG": "#3c3c3c",
+    "SectionHeader_FG": "#e0e0e0",
+    "SectionHeader_Hover_BG": "#4a4a4a",
 }
 
 
@@ -581,6 +592,10 @@ class ThemeEditorFrame(QWidget):
         if app:
             app.setStyleSheet(global_qss)
             self.theme_bridge.current_theme = theme_id
+
+            # Notify theme observers (for widgets that need dynamic updates)
+            theme_colors = self.theme_bridge.get_theme_colors(theme_id)
+            self.theme_bridge._notify_observers(theme_colors)
 
             # Save preference
             self.user_prefs.set("theme", theme_id)

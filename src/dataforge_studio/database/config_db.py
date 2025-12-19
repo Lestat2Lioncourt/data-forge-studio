@@ -168,6 +168,55 @@ class Job:
             self.updated_at = datetime.now().isoformat()
 
 
+@dataclass
+class ImageRootfolder:
+    """Image root folder for automatic image scanning"""
+    id: str
+    path: str
+    name: str = None
+    description: str = ""
+    created_at: str = None
+    updated_at: str = None
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = str(uuid.uuid4())
+        if not self.name:
+            self.name = Path(self.path).name if self.path else "Unnamed"
+        if not self.created_at:
+            self.created_at = datetime.now().isoformat()
+        if not self.updated_at:
+            self.updated_at = datetime.now().isoformat()
+
+
+@dataclass
+class SavedImage:
+    """
+    Saved image reference for image library.
+
+    An image has:
+    - Physical location: rootfolder + physical_path (subfolder within rootfolder)
+    - Logical categories: many-to-many (stored in image_categories table)
+    - Tags: many-to-many (stored in image_tags table)
+    """
+    id: str
+    name: str
+    filepath: str  # Absolute path to the image file
+    rootfolder_id: str = None  # FK to image_rootfolders (None if manually added)
+    physical_path: str = ""  # Relative path within rootfolder (e.g., "Screenshots/2024")
+    description: str = ""
+    created_at: str = None
+    updated_at: str = None
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = str(uuid.uuid4())
+        if not self.created_at:
+            self.created_at = datetime.now().isoformat()
+        if not self.updated_at:
+            self.updated_at = datetime.now().isoformat()
+
+
 class ConfigDatabase:
     """SQLite database for configuration management"""
 
@@ -351,6 +400,55 @@ class ConfigDatabase:
             )
         """)
 
+        # Image Rootfolders table (for automatic image scanning)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS image_rootfolders (
+                id TEXT PRIMARY KEY,
+                path TEXT NOT NULL UNIQUE,
+                name TEXT,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Saved Images table (image library)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS saved_images (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                filepath TEXT NOT NULL UNIQUE,
+                rootfolder_id TEXT,
+                physical_path TEXT DEFAULT '',
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (rootfolder_id) REFERENCES image_rootfolders(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Image Categories junction table (many-to-many: image <-> logical categories)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS image_categories (
+                image_id TEXT NOT NULL,
+                category_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (image_id, category_name),
+                FOREIGN KEY (image_id) REFERENCES saved_images(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Image Tags junction table (many-to-many: image <-> tags)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS image_tags (
+                image_id TEXT NOT NULL,
+                tag_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (image_id, tag_name),
+                FOREIGN KEY (image_id) REFERENCES saved_images(id) ON DELETE CASCADE
+            )
+        """)
+
         # User Preferences table (key-value store)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_preferences (
@@ -368,6 +466,9 @@ class ConfigDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_root_path ON file_roots(path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_script_name ON scripts(name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_project ON jobs(project_id)")
+        # Image library indexes (created after migration adds the columns)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_category_name ON image_categories(category_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_tag_name ON image_tags(tag_name)")
 
         conn.commit()
 
@@ -481,6 +582,65 @@ class ConfigDatabase:
 
             conn.commit()
             print("[OK] Migration complete: project_databases now supports database_name")
+
+        # Migration 3: Update saved_images table structure (add rootfolder_id, physical_path)
+        cursor.execute("PRAGMA table_info(saved_images)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'rootfolder_id' not in columns:
+            print("[MIGRATION] Updating saved_images table structure...")
+
+            # Create new table with updated schema
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS saved_images_new (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    filepath TEXT NOT NULL UNIQUE,
+                    rootfolder_id TEXT,
+                    physical_path TEXT DEFAULT '',
+                    description TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (rootfolder_id) REFERENCES image_rootfolders(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Copy existing data (old 'category' column becomes a logical category)
+            cursor.execute("""
+                INSERT INTO saved_images_new (id, name, filepath, rootfolder_id, physical_path, description, created_at, updated_at)
+                SELECT id, name, filepath, NULL, '', description, created_at, updated_at FROM saved_images
+            """)
+
+            # Migrate old categories to image_categories junction table
+            cursor.execute("""
+                SELECT id, category FROM saved_images WHERE category IS NOT NULL AND category != 'No category'
+            """)
+            old_categories = cursor.fetchall()
+
+            for image_id, category in old_categories:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO image_categories (image_id, category_name, created_at)
+                    VALUES (?, ?, ?)
+                """, (image_id, category, datetime.now().isoformat()))
+
+            # Drop old table and rename new one
+            cursor.execute("DROP TABLE saved_images")
+            cursor.execute("ALTER TABLE saved_images_new RENAME TO saved_images")
+
+            # Create indexes on new columns
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_rootfolder ON saved_images(rootfolder_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_physical_path ON saved_images(physical_path)")
+
+            conn.commit()
+            print(f"[OK] Migration complete: saved_images updated, {len(old_categories)} categories migrated")
+
+        # Ensure image indexes exist (for fresh installs or post-migration)
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_rootfolder ON saved_images(rootfolder_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_physical_path ON saved_images(physical_path)")
+            conn.commit()
+        except Exception:
+            pass  # Indexes may already exist or columns don't exist yet
 
         conn.close()
 
@@ -1427,6 +1587,565 @@ class ConfigDatabase:
         db_conn.close()
 
         return {row[0]: row[1] for row in rows}
+
+    # ==================== Image Rootfolders ====================
+
+    def get_all_image_rootfolders(self) -> List[ImageRootfolder]:
+        """Get all image rootfolders"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM image_rootfolders ORDER BY name")
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [ImageRootfolder(**dict(row)) for row in rows]
+
+    def get_image_rootfolder(self, rootfolder_id: str) -> Optional[ImageRootfolder]:
+        """Get an image rootfolder by ID"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM image_rootfolders WHERE id = ?", (rootfolder_id,))
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        return ImageRootfolder(**dict(row)) if row else None
+
+    def add_image_rootfolder(self, rootfolder: ImageRootfolder) -> bool:
+        """Add a new image rootfolder"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO image_rootfolders
+                (id, path, name, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (rootfolder.id, rootfolder.path, rootfolder.name,
+                  rootfolder.description, rootfolder.created_at, rootfolder.updated_at))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error adding image rootfolder: {e}")
+            return False
+
+    def update_image_rootfolder(self, rootfolder: ImageRootfolder) -> bool:
+        """Update an existing image rootfolder"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            rootfolder.updated_at = datetime.now().isoformat()
+
+            cursor.execute("""
+                UPDATE image_rootfolders
+                SET path = ?, name = ?, description = ?, updated_at = ?
+                WHERE id = ?
+            """, (rootfolder.path, rootfolder.name, rootfolder.description,
+                  rootfolder.updated_at, rootfolder.id))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error updating image rootfolder: {e}")
+            return False
+
+    def delete_image_rootfolder(self, rootfolder_id: str) -> bool:
+        """Delete an image rootfolder (cascade deletes associated images)"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("DELETE FROM image_rootfolders WHERE id = ?", (rootfolder_id,))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error deleting image rootfolder: {e}")
+            return False
+
+    # ==================== Saved Images ====================
+
+    def get_all_saved_images(self) -> List[SavedImage]:
+        """Get all saved images"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM saved_images ORDER BY physical_path, name")
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [SavedImage(**dict(row)) for row in rows]
+
+    def get_images_by_rootfolder(self, rootfolder_id: str) -> List[SavedImage]:
+        """Get all images in a rootfolder"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM saved_images
+            WHERE rootfolder_id = ?
+            ORDER BY physical_path, name
+        """, (rootfolder_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [SavedImage(**dict(row)) for row in rows]
+
+    def get_images_by_physical_path(self, rootfolder_id: str, physical_path: str) -> List[SavedImage]:
+        """Get all images in a specific physical path within a rootfolder"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM saved_images
+            WHERE rootfolder_id = ? AND physical_path = ?
+            ORDER BY name
+        """, (rootfolder_id, physical_path))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [SavedImage(**dict(row)) for row in rows]
+
+    def get_saved_image(self, image_id: str) -> Optional[SavedImage]:
+        """Get a saved image by ID"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM saved_images WHERE id = ?", (image_id,))
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        return SavedImage(**dict(row)) if row else None
+
+    def get_saved_image_by_filepath(self, filepath: str) -> Optional[SavedImage]:
+        """Get a saved image by filepath"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM saved_images WHERE filepath = ?", (filepath,))
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        return SavedImage(**dict(row)) if row else None
+
+    def add_saved_image(self, name: str, filepath: str, rootfolder_id: str = None,
+                        physical_path: str = "", description: str = "") -> Optional[str]:
+        """
+        Add a new saved image.
+
+        Args:
+            name: Display name for the image
+            filepath: Absolute path to the image file
+            rootfolder_id: Optional FK to image_rootfolders
+            physical_path: Relative path within rootfolder (e.g., "Screenshots/2024")
+            description: Optional description
+
+        Returns:
+            Image ID if successful, None otherwise
+        """
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            image = SavedImage(
+                id=str(uuid.uuid4()),
+                name=name,
+                filepath=filepath,
+                rootfolder_id=rootfolder_id,
+                physical_path=physical_path,
+                description=description
+            )
+
+            cursor.execute("""
+                INSERT INTO saved_images
+                (id, name, filepath, rootfolder_id, physical_path, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (image.id, image.name, image.filepath, image.rootfolder_id,
+                  image.physical_path, image.description, image.created_at, image.updated_at))
+
+            db_conn.commit()
+            db_conn.close()
+            return image.id
+        except Exception as e:
+            print(f"Error adding saved image: {e}")
+            return None
+
+    def update_saved_image(self, image: SavedImage) -> bool:
+        """Update an existing saved image"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            image.updated_at = datetime.now().isoformat()
+
+            cursor.execute("""
+                UPDATE saved_images
+                SET name = ?, filepath = ?, rootfolder_id = ?, physical_path = ?,
+                    description = ?, updated_at = ?
+                WHERE id = ?
+            """, (image.name, image.filepath, image.rootfolder_id, image.physical_path,
+                  image.description, image.updated_at, image.id))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error updating saved image: {e}")
+            return False
+
+    def delete_saved_image(self, image_id: str) -> bool:
+        """Delete a saved image (cascade deletes categories and tags)"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("DELETE FROM saved_images WHERE id = ?", (image_id,))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error deleting saved image: {e}")
+            return False
+
+    def delete_images_by_rootfolder(self, rootfolder_id: str) -> int:
+        """Delete all images in a rootfolder. Returns count of deleted images."""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM saved_images WHERE rootfolder_id = ?", (rootfolder_id,))
+            count = cursor.fetchone()[0]
+
+            cursor.execute("DELETE FROM saved_images WHERE rootfolder_id = ?", (rootfolder_id,))
+
+            db_conn.commit()
+            db_conn.close()
+            return count
+        except Exception as e:
+            print(f"Error deleting images by rootfolder: {e}")
+            return 0
+
+    # ==================== Image Categories ====================
+
+    def get_image_categories(self, image_id: str) -> List[str]:
+        """Get all logical categories for an image"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT category_name FROM image_categories
+            WHERE image_id = ?
+            ORDER BY category_name
+        """, (image_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [row[0] for row in rows]
+
+    def get_all_image_category_names(self) -> List[str]:
+        """Get all unique logical category names across all images"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT DISTINCT category_name FROM image_categories
+            ORDER BY category_name
+        """)
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [row[0] for row in rows]
+
+    def get_images_by_category(self, category_name: str) -> List[SavedImage]:
+        """Get all images in a logical category"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT si.* FROM saved_images si
+            INNER JOIN image_categories ic ON si.id = ic.image_id
+            WHERE ic.category_name = ?
+            ORDER BY si.name
+        """, (category_name,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [SavedImage(**dict(row)) for row in rows]
+
+    def add_image_category(self, image_id: str, category_name: str) -> bool:
+        """Add a logical category to an image"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                INSERT OR IGNORE INTO image_categories (image_id, category_name, created_at)
+                VALUES (?, ?, ?)
+            """, (image_id, category_name, datetime.now().isoformat()))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error adding image category: {e}")
+            return False
+
+    def remove_image_category(self, image_id: str, category_name: str) -> bool:
+        """Remove a logical category from an image"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                DELETE FROM image_categories
+                WHERE image_id = ? AND category_name = ?
+            """, (image_id, category_name))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error removing image category: {e}")
+            return False
+
+    def set_image_categories(self, image_id: str, category_names: List[str]) -> bool:
+        """Set all logical categories for an image (replaces existing)"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            # Remove existing categories
+            cursor.execute("DELETE FROM image_categories WHERE image_id = ?", (image_id,))
+
+            # Add new categories
+            now = datetime.now().isoformat()
+            for cat_name in category_names:
+                if cat_name.strip():
+                    cursor.execute("""
+                        INSERT INTO image_categories (image_id, category_name, created_at)
+                        VALUES (?, ?, ?)
+                    """, (image_id, cat_name.strip(), now))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error setting image categories: {e}")
+            return False
+
+    # ==================== Image Tags ====================
+
+    def get_image_tags(self, image_id: str) -> List[str]:
+        """Get all tags for an image"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT tag_name FROM image_tags
+            WHERE image_id = ?
+            ORDER BY tag_name
+        """, (image_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [row[0] for row in rows]
+
+    def get_all_image_tag_names(self) -> List[str]:
+        """Get all unique tag names across all images"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT DISTINCT tag_name FROM image_tags
+            ORDER BY tag_name
+        """)
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [row[0] for row in rows]
+
+    def get_images_by_tag(self, tag_name: str) -> List[SavedImage]:
+        """Get all images with a specific tag"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT si.* FROM saved_images si
+            INNER JOIN image_tags it ON si.id = it.image_id
+            WHERE it.tag_name = ?
+            ORDER BY si.name
+        """, (tag_name,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [SavedImage(**dict(row)) for row in rows]
+
+    def add_image_tag(self, image_id: str, tag_name: str) -> bool:
+        """Add a tag to an image"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                INSERT OR IGNORE INTO image_tags (image_id, tag_name, created_at)
+                VALUES (?, ?, ?)
+            """, (image_id, tag_name.strip().lower(), datetime.now().isoformat()))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error adding image tag: {e}")
+            return False
+
+    def remove_image_tag(self, image_id: str, tag_name: str) -> bool:
+        """Remove a tag from an image"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                DELETE FROM image_tags
+                WHERE image_id = ? AND tag_name = ?
+            """, (image_id, tag_name))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error removing image tag: {e}")
+            return False
+
+    def set_image_tags(self, image_id: str, tag_names: List[str]) -> bool:
+        """Set all tags for an image (replaces existing)"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            # Remove existing tags
+            cursor.execute("DELETE FROM image_tags WHERE image_id = ?", (image_id,))
+
+            # Add new tags (normalized to lowercase)
+            now = datetime.now().isoformat()
+            for tag in tag_names:
+                tag_clean = tag.strip().lower()
+                if tag_clean:
+                    cursor.execute("""
+                        INSERT INTO image_tags (image_id, tag_name, created_at)
+                        VALUES (?, ?, ?)
+                    """, (image_id, tag_clean, now))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error setting image tags: {e}")
+            return False
+
+    # ==================== Image Search ====================
+
+    def search_images(self, query: str, search_name: bool = True,
+                      search_categories: bool = True, search_tags: bool = True) -> List[SavedImage]:
+        """
+        Search images by name, categories, and/or tags.
+
+        Args:
+            query: Search query string
+            search_name: Include filename in search
+            search_categories: Include logical categories in search
+            search_tags: Include tags in search
+
+        Returns:
+            List of matching SavedImage objects (deduplicated)
+        """
+        if not query.strip():
+            return []
+
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        query_pattern = f"%{query.strip()}%"
+        image_ids = set()
+
+        # Search in name
+        if search_name:
+            cursor.execute("""
+                SELECT id FROM saved_images
+                WHERE name LIKE ? OR filepath LIKE ?
+            """, (query_pattern, query_pattern))
+            for row in cursor.fetchall():
+                image_ids.add(row[0])
+
+        # Search in categories
+        if search_categories:
+            cursor.execute("""
+                SELECT DISTINCT image_id FROM image_categories
+                WHERE category_name LIKE ?
+            """, (query_pattern,))
+            for row in cursor.fetchall():
+                image_ids.add(row[0])
+
+        # Search in tags
+        if search_tags:
+            cursor.execute("""
+                SELECT DISTINCT image_id FROM image_tags
+                WHERE tag_name LIKE ?
+            """, (query_pattern.lower(),))
+            for row in cursor.fetchall():
+                image_ids.add(row[0])
+
+        # Fetch full image objects
+        if not image_ids:
+            db_conn.close()
+            return []
+
+        placeholders = ",".join("?" * len(image_ids))
+        cursor.execute(f"""
+            SELECT * FROM saved_images
+            WHERE id IN ({placeholders})
+            ORDER BY name
+        """, list(image_ids))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [SavedImage(**dict(row)) for row in rows]
+
+    def get_image_physical_paths(self, rootfolder_id: str) -> List[str]:
+        """Get all unique physical paths within a rootfolder"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT DISTINCT physical_path FROM saved_images
+            WHERE rootfolder_id = ?
+            ORDER BY physical_path
+        """, (rootfolder_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [row[0] for row in rows]
 
 
 # Global configuration database instance

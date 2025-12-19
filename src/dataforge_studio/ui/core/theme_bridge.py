@@ -15,6 +15,43 @@ CUSTOM_THEMES_PATH = Path(__file__).parent.parent.parent.parent.parent / "_AppCo
 ASSETS_PATH = Path(__file__).parent.parent / "assets" / "images"
 
 
+def generate_dropdown_arrow(color: str, output_dir: Path, size: int = 12) -> str:
+    """
+    Generate a dropdown arrow PNG image with the specified color.
+
+    Args:
+        color: Hex color string (e.g., "#E6E6E6")
+        output_dir: Directory to save the image
+        size: Size of the image (default 12x12)
+
+    Returns:
+        Path to the generated image
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return ""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create down-pointing triangle
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # Triangle pointing down - centered
+    margin = 2
+    draw.polygon([
+        (margin, margin + 2),           # Top-left
+        (size - margin, margin + 2),    # Top-right
+        (size // 2, size - margin)      # Bottom-center
+    ], fill=color)
+
+    arrow_path = output_dir / "dropdown-arrow.png"
+    img.save(arrow_path)
+
+    return str(arrow_path)
+
+
 def generate_branch_images(color: str, output_dir: Path) -> dict:
     """
     Generate tree branch PNG images with the specified color.
@@ -300,6 +337,12 @@ class ThemeBridge(BaseThemeManager):
                 }}
                 QComboBox::drop-down {{
                     border: none;
+                    width: 20px;
+                }}
+                QComboBox::down-arrow {{
+                    /* Arrow image set by global QSS */
+                    width: 10px;
+                    height: 10px;
                 }}
                 QComboBox QAbstractItemView {{
                     background-color: {colors['dd_menu_bg']};
@@ -448,12 +491,34 @@ class ThemeBridge(BaseThemeManager):
                 "arrow_open": str(ASSETS_PATH / "branch-open.png"),
             }
 
+        # Generate dropdown arrow for ComboBox
+        combo_fg = colors.get('combo_fg', colors.get('text_primary', '#E6E6E6'))
+        dropdown_arrow_color_file = theme_assets_dir / "dropdown_arrow_color.txt"
+        cached_dropdown_color = None
+        if dropdown_arrow_color_file.exists():
+            try:
+                cached_dropdown_color = dropdown_arrow_color_file.read_text().strip()
+            except:
+                pass
+
+        # Generate dropdown arrow if color changed or not exists
+        dropdown_arrow_path = theme_assets_dir / "dropdown-arrow.png"
+        if cached_dropdown_color != combo_fg or not dropdown_arrow_path.exists():
+            dropdown_arrow = generate_dropdown_arrow(combo_fg, theme_assets_dir)
+            try:
+                dropdown_arrow_color_file.write_text(combo_fg)
+            except:
+                pass
+        else:
+            dropdown_arrow = str(dropdown_arrow_path)
+
         # Convert to CSS-friendly paths
         branch_vline = branch_images["vline"].replace("\\", "/")
         branch_more = branch_images["more"].replace("\\", "/")
         branch_end = branch_images["end"].replace("\\", "/")
         arrow_closed = branch_images["arrow_closed"].replace("\\", "/")
         arrow_open = branch_images["arrow_open"].replace("\\", "/")
+        dropdown_arrow_css = dropdown_arrow.replace("\\", "/") if dropdown_arrow else ""
 
         # Build comprehensive QSS
         qss = f"""
@@ -584,11 +649,9 @@ class ThemeBridge(BaseThemeManager):
             width: 20px;
         }}
         QComboBox::down-arrow {{
-            image: none;
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-top: 6px solid {colors['text_primary']};
-            margin-right: 6px;
+            image: url({dropdown_arrow_css});
+            width: 10px;
+            height: 10px;
         }}
         QComboBox QAbstractItemView {{
             background-color: {colors['dd_menu_bg']};

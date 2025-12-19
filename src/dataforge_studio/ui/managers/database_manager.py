@@ -10,7 +10,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                                QTabWidget, QPushButton, QTreeWidget, QTreeWidgetItem,
                                QLabel, QMenu, QApplication, QInputDialog)
-from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtCore import Qt, QPoint, Signal, QTimer
 from PySide6.QtGui import QIcon, QAction, QCursor
 import uuid
 
@@ -18,6 +18,7 @@ from .query_tab import QueryTab
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..widgets.distribution_analysis_dialog import DistributionAnalysisDialog
+from ..widgets.pinnable_panel import PinnablePanel
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, DatabaseConnection
 from ...utils.image_loader import get_database_icon, get_icon
@@ -70,14 +71,17 @@ class DatabaseManager(QWidget):
         # Main splitter (left: tree, right: tabs)
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left panel: Database explorer tree
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(5, 5, 5, 5)
+        # Left panel: Pinnable panel with database explorer tree
+        self.left_panel = PinnablePanel(
+            title="Database Explorer",
+            icon_name="database.png"
+        )
+        self.left_panel.set_normal_width(280)
 
-        tree_label = QLabel("Database Explorer")
-        tree_label.setStyleSheet("font-weight: bold;")
-        left_layout.addWidget(tree_label)
+        # Tree widget inside the pinnable panel
+        tree_container = QWidget()
+        tree_layout = QVBoxLayout(tree_container)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
 
         self.schema_tree = QTreeWidget()
         self.schema_tree.setHeaderHidden(True)
@@ -86,15 +90,17 @@ class DatabaseManager(QWidget):
         self.schema_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.schema_tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         self.schema_tree.itemDoubleClicked.connect(self._on_tree_double_click)
-        left_layout.addWidget(self.schema_tree)
+        tree_layout.addWidget(self.schema_tree)
 
-        main_splitter.addWidget(left_widget)
+        self.left_panel.set_content(tree_container)
+        main_splitter.addWidget(self.left_panel)
 
         # Right panel: Query tabs
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
+        self.tab_widget.tabBarDoubleClicked.connect(self._rename_query_tab)
 
         # Add welcome tab
         self._create_welcome_tab()
@@ -125,10 +131,6 @@ class DatabaseManager(QWidget):
         welcome_layout.addWidget(info, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.tab_widget.addTab(welcome_widget, "Welcome")
-
-    def get_tree_widget(self):
-        """Return the tree widget for embedding in ResourcesManager."""
-        return self.schema_tree
 
     def refresh(self):
         """Public refresh method."""
@@ -228,7 +230,7 @@ class DatabaseManager(QWidget):
 
             # First, check if server is reachable (skip for local databases)
             if db_conn.db_type != "sqlite":
-                self._set_status_message(f"Vérification de {db_conn.name}...")
+                self._set_status_message(f"Connexion à la base {db_conn.name}...")
                 QApplication.processEvents()
 
                 reachable, vpn_message = check_server_reachable(
@@ -270,6 +272,8 @@ class DatabaseManager(QWidget):
                     data = server_item.data(0, Qt.ItemDataRole.UserRole)
                     data["connected"] = True
                     server_item.setData(0, Qt.ItemDataRole.UserRole, data)
+                    # Delay expansion to run after Qt's double-click toggle
+                    QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
                     self._set_status_message(f"Connecté à {db_conn.name}")
                 else:
                     self._set_status_message(tr("status_ready"))
@@ -311,6 +315,8 @@ class DatabaseManager(QWidget):
                 data = server_item.data(0, Qt.ItemDataRole.UserRole)
                 data["connected"] = True
                 server_item.setData(0, Qt.ItemDataRole.UserRole, data)
+                # Delay expansion to run after Qt's double-click toggle
+                QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
                 self._set_status_message(f"Connecté à {db_conn.name}")
 
             else:
@@ -574,6 +580,96 @@ class DatabaseManager(QWidget):
                 # Set Views folder text with count
                 views_folder.setText(0, f"Views ({len(views)})")
 
+                # Stored Procedures folder
+                procs_folder = QTreeWidgetItem(db_node)
+                proc_icon = get_icon("scripts.png", size=16)
+                if proc_icon:
+                    procs_folder.setIcon(0, proc_icon)
+                elif folder_icon:
+                    procs_folder.setIcon(0, folder_icon)
+                procs_folder.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "procedures_folder",
+                    "db_id": db_conn.id,
+                    "db_name": db_name
+                })
+
+                procedures = []
+                try:
+                    cursor.execute(f"""
+                        SELECT s.name as schema_name, p.name as proc_name
+                        FROM [{db_name}].sys.procedures p
+                        INNER JOIN [{db_name}].sys.schemas s ON p.schema_id = s.schema_id
+                        ORDER BY s.name, p.name
+                    """)
+                    procedures = cursor.fetchall()
+                    logger.info(f"Loaded {len(procedures)} procedures from {db_name}")
+                except Exception as proc_err:
+                    logger.warning(f"Could not load procedures from {db_name}: {proc_err}")
+
+                for schema_name, proc_name in procedures:
+                    proc_item = QTreeWidgetItem(procs_folder)
+                    proc_item.setText(0, f"{schema_name}.{proc_name}")
+                    if proc_icon:
+                        proc_item.setIcon(0, proc_icon)
+                    proc_item.setData(0, Qt.ItemDataRole.UserRole, {
+                        "type": "procedure",
+                        "name": f"{schema_name}.{proc_name}",
+                        "schema": schema_name,
+                        "proc_name": proc_name,
+                        "db_id": db_conn.id,
+                        "db_name": db_name
+                    })
+
+                procs_folder.setText(0, f"Procedures ({len(procedures)})")
+                logger.info(f"Procedures folder has {procs_folder.childCount()} children")
+
+                # Functions folder
+                funcs_folder = QTreeWidgetItem(db_node)
+                func_icon = get_icon("jobs.png", size=16)
+                if func_icon:
+                    funcs_folder.setIcon(0, func_icon)
+                elif folder_icon:
+                    funcs_folder.setIcon(0, folder_icon)
+                funcs_folder.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "functions_folder",
+                    "db_id": db_conn.id,
+                    "db_name": db_name
+                })
+
+                functions = []
+                try:
+                    cursor.execute(f"""
+                        SELECT s.name as schema_name, o.name as func_name, o.type_desc
+                        FROM [{db_name}].sys.objects o
+                        INNER JOIN [{db_name}].sys.schemas s ON o.schema_id = s.schema_id
+                        WHERE o.type IN ('FN', 'IF', 'TF', 'AF')
+                        ORDER BY s.name, o.name
+                    """)
+                    functions = cursor.fetchall()
+                    logger.info(f"Loaded {len(functions)} functions from {db_name}")
+                except Exception as func_err:
+                    logger.warning(f"Could not load functions from {db_name}: {func_err}")
+
+                for schema_name, func_name, type_desc in functions:
+                    func_item = QTreeWidgetItem(funcs_folder)
+                    # Show function type: Scalar, Table-Valued, etc.
+                    type_short = type_desc.replace("_", " ").title() if type_desc else ""
+                    func_item.setText(0, f"{schema_name}.{func_name} ({type_short})")
+                    if func_icon:
+                        func_item.setIcon(0, func_icon)
+                    func_item.setData(0, Qt.ItemDataRole.UserRole, {
+                        "type": "function",
+                        "name": f"{schema_name}.{func_name}",
+                        "schema": schema_name,
+                        "func_name": func_name,
+                        "func_type": type_desc,
+                        "db_id": db_conn.id,
+                        "db_name": db_name
+                    })
+
+                funcs_folder.setText(0, f"Functions ({len(functions)})")
+                logger.info(f"Functions folder has {funcs_folder.childCount()} children")
+
                 # Update database node with table/view count
                 total = len(tables) + len(views)
                 if total == 0:
@@ -651,6 +747,13 @@ class DatabaseManager(QWidget):
 
             menu.addSeparator()
 
+            # Edit Code for views only
+            if node_type == "view":
+                edit_code_action = QAction("✏️ Edit Code (ALTER VIEW)", self)
+                edit_code_action.triggered.connect(lambda: self._load_view_code(data))
+                menu.addAction(edit_code_action)
+                menu.addSeparator()
+
             # Distribution Analysis action
             dist_action = QAction("📊 Distribution Analysis", self)
             dist_action.triggered.connect(lambda: self._show_distribution_analysis(data))
@@ -659,41 +762,359 @@ class DatabaseManager(QWidget):
             # Show menu at cursor position
             menu.exec(self.schema_tree.viewport().mapToGlobal(position))
 
+        # Context menu for stored procedures
+        elif node_type == "procedure":
+            # View code
+            view_code_action = QAction("📄 View Code", self)
+            view_code_action.triggered.connect(lambda: self._load_routine_code(data))
+            menu.addAction(view_code_action)
+
+            menu.addSeparator()
+
+            # Generate EXEC template
+            exec_action = QAction("⚡ Generate EXEC Template", self)
+            exec_action.triggered.connect(lambda: self._generate_exec_template(data))
+            menu.addAction(exec_action)
+
+            # Copy name
+            copy_name_action = QAction("📋 Copy Name", self)
+            copy_name_action.triggered.connect(
+                lambda: QApplication.clipboard().setText(f"[{data.get('db_name')}].[{data.get('schema')}].[{data.get('proc_name')}]")
+            )
+            menu.addAction(copy_name_action)
+
+            menu.exec(self.schema_tree.viewport().mapToGlobal(position))
+
+        # Context menu for functions
+        elif node_type == "function":
+            # View code
+            view_code_action = QAction("📄 View Code", self)
+            view_code_action.triggered.connect(lambda: self._load_routine_code(data))
+            menu.addAction(view_code_action)
+
+            menu.addSeparator()
+
+            # Generate SELECT template
+            select_action = QAction("⚡ Generate SELECT Template", self)
+            select_action.triggered.connect(lambda: self._generate_select_function(data))
+            menu.addAction(select_action)
+
+            # Copy name
+            copy_name_action = QAction("📋 Copy Name", self)
+            copy_name_action.triggered.connect(
+                lambda: QApplication.clipboard().setText(f"[{data.get('db_name')}].[{data.get('schema')}].[{data.get('func_name')}]")
+            )
+            menu.addAction(copy_name_action)
+
+            menu.exec(self.schema_tree.viewport().mapToGlobal(position))
+
     def _generate_select_query(self, data: dict, limit: Optional[int] = None):
-        """Generate and insert a SELECT query in the current tab"""
+        """Generate and execute a SELECT query in a NEW tab named after the table"""
         table_name = data["name"]
         db_id = data.get("db_id")
         db_name = data.get("db_name")  # Database name for SQL Server
 
-        # Get or create a query tab
-        current_tab = self._get_or_create_query_tab(db_id)
+        # Get database connection
+        db_conn = self._get_connection_by_id(db_id)
+        connection = self.connections.get(db_id)
 
-        if current_tab:
-            # Generate query based on database type
-            db_conn = self._get_connection_by_id(db_id)
-            if db_conn:
-                if db_conn.db_type == "sqlite":
-                    if limit:
-                        query = f"SELECT * FROM {table_name} LIMIT {limit}"
-                    else:
-                        query = f"SELECT * FROM {table_name}"
-                elif db_conn.db_type == "sqlserver" and db_name:
-                    # SQL Server: use fully qualified name [database].[schema].[table]
-                    full_table_name = f"[{db_name}].{table_name}"
-                    if limit:
-                        query = f"SELECT TOP {limit} * FROM {full_table_name}"
-                    else:
-                        query = f"SELECT * FROM {full_table_name}"
+        if not connection or not db_conn:
+            DialogHelper.warning("Database not connected. Please expand the database node first.", parent=self)
+            return
+
+        # Generate query based on database type
+        if db_conn.db_type == "sqlite":
+            if limit:
+                query = f"SELECT * FROM {table_name} LIMIT {limit}"
+            else:
+                query = f"SELECT * FROM {table_name}"
+        elif db_conn.db_type == "sqlserver" and db_name:
+            # SQL Server: use fully qualified name [database].[schema].[table]
+            full_table_name = f"[{db_name}].{table_name}"
+            if limit:
+                query = f"SELECT TOP {limit} * FROM {full_table_name}"
+            else:
+                query = f"SELECT * FROM {full_table_name}"
+        else:
+            # Other databases
+            if limit:
+                query = f"SELECT TOP {limit} * FROM {table_name}"
+            else:
+                query = f"SELECT * FROM {table_name}"
+
+        # Always create a NEW tab named after the table (don't reuse existing)
+        # Extract simple table name for tab title (remove schema prefix if present)
+        simple_name = table_name.split('.')[-1].strip('[]')
+        tab_name = simple_name
+
+        query_tab = QueryTab(
+            parent=self,
+            connection=connection,
+            db_connection=db_conn,
+            tab_name=tab_name,
+            database_manager=self
+        )
+
+        # Connect query_saved signal
+        query_tab.query_saved.connect(self.query_saved.emit)
+
+        # Add to tab widget
+        index = self.tab_widget.addTab(query_tab, tab_name)
+        self.tab_widget.setCurrentIndex(index)
+
+        # Set query and execute
+        query_tab.set_query_text(query)
+        query_tab._execute_query()
+
+        logger.info(f"Created query tab '{tab_name}' for table {table_name}")
+
+    def _load_view_code(self, data: dict):
+        """Load view code into query editor as ALTER VIEW"""
+        db_id = data.get("db_id")
+        db_name = data.get("db_name")
+        view_name = data.get("name")  # schema.viewname
+
+        if not all([db_id, db_name, view_name]):
+            return
+
+        # Parse schema and view name
+        parts = view_name.split(".")
+        if len(parts) == 2:
+            schema, name = parts
+        else:
+            schema = "dbo"
+            name = view_name
+
+        # Get connection
+        connection = self.connections.get(db_id)
+        if not connection:
+            DialogHelper.warning("Database not connected", parent=self)
+            return
+
+        try:
+            cursor = connection.cursor()
+
+            # Get view definition from sys.sql_modules
+            cursor.execute(f"""
+                SELECT m.definition
+                FROM [{db_name}].sys.sql_modules m
+                INNER JOIN [{db_name}].sys.views v ON m.object_id = v.object_id
+                INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
+                WHERE v.name = ? AND s.name = ?
+            """, (name, schema))
+
+            result = cursor.fetchone()
+
+            if result and result[0]:
+                code = result[0]
+
+                # Convert CREATE VIEW to ALTER VIEW
+                import re
+                # Match CREATE VIEW (case insensitive) and replace with ALTER VIEW
+                code = re.sub(
+                    r'\bCREATE\s+VIEW\b',
+                    'ALTER VIEW',
+                    code,
+                    count=1,
+                    flags=re.IGNORECASE
+                )
+
+                # Get or create a query tab
+                current_tab = self._get_or_create_query_tab(db_id)
+
+                if current_tab:
+                    current_tab.set_query_text(code)
+                    logger.info(f"Loaded view code: {schema}.{name}")
+            else:
+                DialogHelper.warning(
+                    f"Could not retrieve code for view {schema}.{name}\n"
+                    "You may not have permission to view the definition.",
+                    parent=self
+                )
+
+        except Exception as e:
+            logger.error(f"Error loading view code: {e}")
+            DialogHelper.error(
+                "Error loading view code",
+                parent=self,
+                details=str(e)
+            )
+
+    def _load_routine_code(self, data: dict):
+        """Load stored procedure or function code into query editor"""
+        db_id = data.get("db_id")
+        db_name = data.get("db_name")
+        schema = data.get("schema")
+        routine_type = data.get("type")  # "procedure" or "function"
+
+        if routine_type == "procedure":
+            routine_name = data.get("proc_name")
+        else:
+            routine_name = data.get("func_name")
+
+        if not all([db_id, db_name, schema, routine_name]):
+            return
+
+        # Get connection
+        connection = self.connections.get(db_id)
+        if not connection:
+            DialogHelper.warning("Database not connected", parent=self)
+            return
+
+        try:
+            cursor = connection.cursor()
+
+            # Get routine definition from sys.sql_modules
+            cursor.execute(f"""
+                SELECT m.definition
+                FROM [{db_name}].sys.sql_modules m
+                INNER JOIN [{db_name}].sys.objects o ON m.object_id = o.object_id
+                INNER JOIN [{db_name}].sys.schemas s ON o.schema_id = s.schema_id
+                WHERE o.name = ? AND s.name = ?
+            """, (routine_name, schema))
+
+            result = cursor.fetchone()
+
+            if result and result[0]:
+                code = result[0]
+
+                # Get or create a query tab
+                current_tab = self._get_or_create_query_tab(db_id)
+
+                if current_tab:
+                    current_tab.set_query_text(code)
+                    logger.info(f"Loaded {routine_type} code: {schema}.{routine_name}")
+            else:
+                DialogHelper.warning(
+                    f"Could not retrieve code for {schema}.{routine_name}\n"
+                    "You may not have permission to view the definition.",
+                    parent=self
+                )
+
+        except Exception as e:
+            logger.error(f"Error loading routine code: {e}")
+            DialogHelper.error(
+                f"Error loading {routine_type} code",
+                parent=self,
+                details=str(e)
+            )
+
+    def _generate_exec_template(self, data: dict):
+        """Generate EXEC template for stored procedure"""
+        db_id = data.get("db_id")
+        db_name = data.get("db_name")
+        schema = data.get("schema")
+        proc_name = data.get("proc_name")
+
+        if not all([db_id, db_name, schema, proc_name]):
+            return
+
+        # Get connection to fetch parameters
+        connection = self.connections.get(db_id)
+        if not connection:
+            DialogHelper.warning("Database not connected", parent=self)
+            return
+
+        try:
+            cursor = connection.cursor()
+
+            # Get procedure parameters
+            cursor.execute(f"""
+                SELECT p.name, t.name as type_name, p.max_length, p.is_output
+                FROM [{db_name}].sys.parameters p
+                INNER JOIN [{db_name}].sys.types t ON p.user_type_id = t.user_type_id
+                INNER JOIN [{db_name}].sys.procedures pr ON p.object_id = pr.object_id
+                INNER JOIN [{db_name}].sys.schemas s ON pr.schema_id = s.schema_id
+                WHERE pr.name = ? AND s.name = ?
+                ORDER BY p.parameter_id
+            """, (proc_name, schema))
+
+            params = cursor.fetchall()
+
+            # Build EXEC template
+            full_name = f"[{db_name}].[{schema}].[{proc_name}]"
+
+            if params:
+                param_list = []
+                for param_name, type_name, max_length, is_output in params:
+                    output_str = " OUTPUT" if is_output else ""
+                    param_list.append(f"    {param_name} = NULL{output_str}  -- {type_name}")
+
+                template = f"EXEC {full_name}\n" + ",\n".join(param_list)
+            else:
+                template = f"EXEC {full_name}"
+
+            # Load into editor
+            current_tab = self._get_or_create_query_tab(db_id)
+            if current_tab:
+                current_tab.set_query_text(template)
+
+        except Exception as e:
+            logger.error(f"Error generating EXEC template: {e}")
+            # Fallback to simple template
+            full_name = f"[{db_name}].[{schema}].[{proc_name}]"
+            current_tab = self._get_or_create_query_tab(db_id)
+            if current_tab:
+                current_tab.set_query_text(f"EXEC {full_name}")
+
+    def _generate_select_function(self, data: dict):
+        """Generate SELECT template for function"""
+        db_id = data.get("db_id")
+        db_name = data.get("db_name")
+        schema = data.get("schema")
+        func_name = data.get("func_name")
+        func_type = data.get("func_type", "")
+
+        if not all([db_id, db_name, schema, func_name]):
+            return
+
+        full_name = f"[{db_name}].[{schema}].[{func_name}]"
+
+        # Get connection to fetch parameters
+        connection = self.connections.get(db_id)
+
+        template = ""
+        if connection:
+            try:
+                cursor = connection.cursor()
+
+                # Get function parameters
+                cursor.execute(f"""
+                    SELECT p.name, t.name as type_name
+                    FROM [{db_name}].sys.parameters p
+                    INNER JOIN [{db_name}].sys.types t ON p.user_type_id = t.user_type_id
+                    INNER JOIN [{db_name}].sys.objects o ON p.object_id = o.object_id
+                    INNER JOIN [{db_name}].sys.schemas s ON o.schema_id = s.schema_id
+                    WHERE o.name = ? AND s.name = ? AND p.parameter_id > 0
+                    ORDER BY p.parameter_id
+                """, (func_name, schema))
+
+                params = cursor.fetchall()
+
+                if params:
+                    param_placeholders = ", ".join([f"NULL /* {p[0]}: {p[1]} */" for p in params])
                 else:
-                    # Other databases
-                    if limit:
-                        query = f"SELECT TOP {limit} * FROM {table_name}"
-                    else:
-                        query = f"SELECT * FROM {table_name}"
+                    param_placeholders = ""
 
-                current_tab.set_query_text(query)
-                # Execute query automatically
-                current_tab._execute_query()
+                # Table-valued function vs scalar function
+                if "TABLE" in func_type.upper():
+                    template = f"SELECT * FROM {full_name}({param_placeholders})"
+                else:
+                    template = f"SELECT {full_name}({param_placeholders})"
+
+            except Exception as e:
+                logger.warning(f"Could not get function parameters: {e}")
+
+        if not template:
+            # Fallback
+            if "TABLE" in func_type.upper():
+                template = f"SELECT * FROM {full_name}()"
+            else:
+                template = f"SELECT {full_name}()"
+
+        current_tab = self._get_or_create_query_tab(db_id)
+        if current_tab:
+            current_tab.set_query_text(template)
 
     def _show_distribution_analysis(self, data: dict):
         """Show distribution analysis for a table or view"""
@@ -761,6 +1182,10 @@ class DatabaseManager(QWidget):
         elif node_type in ["table", "view"]:
             # Generate SELECT TOP 100 query by default on double-click
             self._generate_select_query(data, limit=100)
+
+        elif node_type in ["procedure", "function"]:
+            # Load procedure/function code into editor
+            self._load_routine_code(data)
 
     def _get_connection_by_id(self, db_id: str) -> Optional[DatabaseConnection]:
         """Get DatabaseConnection config by ID"""
@@ -837,6 +1262,27 @@ class DatabaseManager(QWidget):
             if isinstance(widget, QueryTab):
                 widget.cleanup()
             widget.deleteLater()
+
+    def _rename_query_tab(self, index: int):
+        """Rename a query tab via double-click."""
+        if index == 0:  # Don't rename welcome tab
+            return
+
+        current_name = self.tab_widget.tabText(index)
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Tab / Renommer l'onglet",
+            "New name / Nouveau nom:",
+            text=current_name
+        )
+
+        if ok and new_name.strip():
+            self.tab_widget.setTabText(index, new_name.strip())
+            # Also update QueryTab's tab_name attribute
+            widget = self.tab_widget.widget(index)
+            if hasattr(widget, 'tab_name'):
+                widget.tab_name = new_name.strip()
+            logger.info(f"Renamed tab from '{current_name}' to '{new_name.strip()}'")
 
     def _refresh_schema(self):
         """Refresh database schema tree"""
