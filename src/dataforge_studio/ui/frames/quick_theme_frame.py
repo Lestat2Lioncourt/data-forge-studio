@@ -461,9 +461,10 @@ class QuickThemeFrame(QWidget):
 
     def _apply_theme(self):
         """Apply the current color patch with confirmation for persistence."""
-        # Check if theme is already saved
-        if self._saved_theme_id:
-            # Theme already saved - ask to remember choice
+        # Determine which theme to apply
+        # If saved theme exists OR no overrides (base theme selected), just ask to remember
+        if self._saved_theme_id or not self._overrides:
+            theme_to_apply = self._saved_theme_id or self._base_theme
             reply = QMessageBox.question(
                 self, "Appliquer le thème",
                 "Mémoriser ce choix de thème ?",
@@ -471,12 +472,12 @@ class QuickThemeFrame(QWidget):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 # Apply with persistence
-                self._apply_saved_theme(self._saved_theme_id)
+                self._apply_saved_theme(theme_to_apply)
             else:
                 # Apply as temporary preview
                 self._apply_temporary_preview()
         else:
-            # New theme not yet saved - ask to save first
+            # New theme with modifications - ask to save first
             reply = QMessageBox.question(
                 self, "Appliquer le thème",
                 "Sauvegarder ce thème avant de l'appliquer ?",
