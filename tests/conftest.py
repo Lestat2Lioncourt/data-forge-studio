@@ -1,16 +1,23 @@
 """
 Pytest configuration and fixtures for DataForge Studio tests.
 """
-import sys
-from pathlib import Path
-
-# Add src to path for imports
-src_path = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(src_path))
-
 import pytest
 import tempfile
 import shutil
+from pathlib import Path
+
+# Qt Application fixture for tests that need QWidget
+_qt_app = None
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Create a QApplication for tests that need Qt widgets."""
+    global _qt_app
+    from PySide6.QtWidgets import QApplication
+    if _qt_app is None:
+        _qt_app = QApplication.instance() or QApplication([])
+    yield _qt_app
 
 
 @pytest.fixture

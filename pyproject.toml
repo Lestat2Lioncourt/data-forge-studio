@@ -52,7 +52,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --import-mode=importlib"
+norecursedirs = ["saved_versions", ".venv", "*.egg", ".git", ".tox", "dist", "build"]
+consider_namespace_packages = false
 
 [dependency-groups]
 dev = [
