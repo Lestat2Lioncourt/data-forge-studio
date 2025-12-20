@@ -49,7 +49,7 @@ BASE_THEMES = {
 
 
 class ColorPickerWidget(QWidget):
-    """Single color picker row with label and color button."""
+    """Single color picker row with label and color button - compact single-line layout."""
 
     color_changed = Signal(str, str)  # key, color
 
@@ -59,42 +59,39 @@ class ColorPickerWidget(QWidget):
         self._color: Optional[str] = None
         self._is_overridden = False
 
+        # Fixed height for consistent layout
+        self.setFixedHeight(32)
+
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(10)
 
         # Color button
         self.color_btn = QPushButton()
-        self.color_btn.setFixedSize(32, 24)
+        self.color_btn.setFixedSize(28, 22)
         self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.color_btn.clicked.connect(self._pick_color)
+        self.color_btn.setToolTip(description)
         layout.addWidget(self.color_btn)
 
-        # Labels container
-        labels_layout = QVBoxLayout()
-        labels_layout.setSpacing(0)
-        labels_layout.setContentsMargins(0, 0, 0, 0)
-
+        # Label (single line, description in tooltip)
         self.name_label = QLabel(label)
-        self.name_label.setStyleSheet("font-weight: bold;")
-        labels_layout.addWidget(self.name_label)
+        self.name_label.setMinimumWidth(120)
+        self.name_label.setToolTip(description)
+        layout.addWidget(self.name_label)
 
-        self.desc_label = QLabel(description)
-        self.desc_label.setStyleSheet("color: #808080; font-size: 11px;")
-        labels_layout.addWidget(self.desc_label)
-
-        layout.addLayout(labels_layout, 1)
+        layout.addStretch()
 
         # Hex value display
         self.hex_label = QLabel()
-        self.hex_label.setFixedWidth(70)
-        self.hex_label.setStyleSheet("color: #808080;")
+        self.hex_label.setFixedWidth(65)
+        self.hex_label.setStyleSheet("color: #808080; font-size: 11px;")
         layout.addWidget(self.hex_label)
 
         # Reset button (only visible when overridden)
         self.reset_btn = QPushButton("×")
-        self.reset_btn.setFixedSize(20, 20)
-        self.reset_btn.setToolTip("Réinitialiser (utiliser la couleur de base)")
+        self.reset_btn.setFixedSize(18, 18)
+        self.reset_btn.setToolTip("Réinitialiser")
         self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.reset_btn.clicked.connect(self._reset_color)
         self.reset_btn.hide()
@@ -133,11 +130,11 @@ class ColorPickerWidget(QWidget):
         # Show/hide reset button
         self.reset_btn.setVisible(self._is_overridden)
 
-        # Update name label style
+        # Update name label style (bold + blue when overridden)
         if self._is_overridden:
             self.name_label.setStyleSheet("font-weight: bold; color: #0078d7;")
         else:
-            self.name_label.setStyleSheet("font-weight: bold;")
+            self.name_label.setStyleSheet("")
 
     def _pick_color(self):
         """Open color picker dialog."""
