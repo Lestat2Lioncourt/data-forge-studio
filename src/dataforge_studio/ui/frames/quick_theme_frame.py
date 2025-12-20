@@ -212,9 +212,21 @@ class QuickThemeFrame(QWidget):
 
         layout.addWidget(base_group)
 
-        # === Color Overrides ===
+        # === Color Overrides (with scroll area for small windows) ===
         colors_group = QGroupBox("Couleurs à personnaliser (optionnel)")
-        colors_layout = QVBoxLayout(colors_group)
+        colors_group_layout = QVBoxLayout(colors_group)
+        colors_group_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Scroll area for color pickers
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Container widget for color pickers
+        colors_container = QWidget()
+        colors_layout = QVBoxLayout(colors_container)
+        colors_layout.setContentsMargins(8, 8, 8, 8)
         colors_layout.setSpacing(2)
 
         for user_key, palette_key, description in QUICK_COLORS:
@@ -222,6 +234,10 @@ class QuickThemeFrame(QWidget):
             picker.color_changed.connect(self._on_color_changed)
             colors_layout.addWidget(picker)
             self._color_pickers[user_key] = picker
+
+        colors_layout.addStretch()
+        scroll_area.setWidget(colors_container)
+        colors_group_layout.addWidget(scroll_area)
 
         layout.addWidget(colors_group)
 
