@@ -52,6 +52,8 @@ class DatabaseManager(QWidget):
         self.connections: Dict[str, Union[pyodbc.Connection, sqlite3.Connection]] = {}
         self.tab_counter = 1
         self._expand_connected = False
+        self._workspace_filter: Optional[str] = None
+        self._current_item = None
 
         self._setup_ui()
         self._load_all_connections()
@@ -140,6 +142,28 @@ class DatabaseManager(QWidget):
         """Public refresh method."""
         self._load_all_connections()
 
+    # ==================== ManagerProtocol Implementation ====================
+
+    def set_workspace_filter(self, workspace_id: Optional[str]) -> None:
+        """Set workspace filter and refresh the view."""
+        self._workspace_filter = workspace_id
+        self.refresh()
+
+    def get_workspace_filter(self) -> Optional[str]:
+        """Get current workspace filter."""
+        return self._workspace_filter
+
+    def get_current_item(self) -> Optional[DatabaseConnection]:
+        """Get currently selected database connection."""
+        return self._current_item
+
+    def clear_selection(self) -> None:
+        """Clear current selection."""
+        self._current_item = None
+        self.schema_tree.clearSelection()
+
+    # ==================== Data Loading ====================
+
     def _load_all_connections(self):
         """Load all database connections into tree (lazy - no actual connection)"""
         self.schema_tree.clear()
@@ -147,7 +171,12 @@ class DatabaseManager(QWidget):
 
         try:
             config_db = get_config_db()
-            db_connections = config_db.get_all_database_connections()
+
+            # Apply workspace filter if set
+            if self._workspace_filter:
+                db_connections = config_db.get_workspace_databases(self._workspace_filter)
+            else:
+                db_connections = config_db.get_all_database_connections()
 
             if not db_connections:
                 no_conn_item = QTreeWidgetItem(self.schema_tree)

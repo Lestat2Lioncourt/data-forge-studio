@@ -56,6 +56,8 @@ class RootFolderManager(QWidget):
         self.current_file_path: Optional[Path] = None
         self._loaded = False
         self._current_json_content: Optional[str] = None  # Store raw JSON for view switching
+        self._workspace_filter: Optional[str] = None
+        self._current_item: Optional[FileRoot] = None
 
         self._setup_ui()
 
@@ -67,6 +69,33 @@ class RootFolderManager(QWidget):
             # Load in background to avoid blocking UI
             from PySide6.QtCore import QTimer
             QTimer.singleShot(100, self._load_root_folders)
+
+    # ==================== ManagerProtocol Implementation ====================
+
+    def refresh(self) -> None:
+        """Refresh the view (reload root folders from database)."""
+        self._load_root_folders()
+
+    def set_workspace_filter(self, workspace_id: Optional[str]) -> None:
+        """Set workspace filter and refresh the view."""
+        self._workspace_filter = workspace_id
+        if self._loaded:
+            self.refresh()
+
+    def get_workspace_filter(self) -> Optional[str]:
+        """Get current workspace filter."""
+        return self._workspace_filter
+
+    def get_current_item(self) -> Optional[FileRoot]:
+        """Get currently selected root folder."""
+        return self._current_item
+
+    def clear_selection(self) -> None:
+        """Clear current selection."""
+        self._current_item = None
+        self.file_tree.clearSelection()
+
+    # ==================== UI Setup ====================
 
     def _setup_ui(self):
         """Setup UI components"""
@@ -181,7 +210,11 @@ class RootFolderManager(QWidget):
         """Load all root folders into tree"""
         self.file_tree.clear()
 
-        root_folders = self.config_db.get_all_file_roots()
+        # Apply workspace filter if set
+        if self._workspace_filter:
+            root_folders = self.config_db.get_workspace_file_roots(self._workspace_filter)
+        else:
+            root_folders = self.config_db.get_all_file_roots()
 
         for root_folder in root_folders:
             self._add_rootfolder_to_tree(root_folder)

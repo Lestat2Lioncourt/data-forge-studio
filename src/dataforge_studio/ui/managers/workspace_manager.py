@@ -40,6 +40,7 @@ class WorkspaceManager(QWidget):
         self.config_db = get_config_db()
         self._loaded = False
         self._current_workspace_id = None
+        self._current_item: Optional[Workspace] = None
 
         self._setup_ui()
 
@@ -50,6 +51,36 @@ class WorkspaceManager(QWidget):
             self._loaded = True
             from PySide6.QtCore import QTimer
             QTimer.singleShot(100, self._load_workspaces)
+
+    # ==================== ManagerProtocol Implementation ====================
+
+    def refresh(self) -> None:
+        """Refresh the view (reload workspaces from database)."""
+        self._refresh()
+
+    def set_workspace_filter(self, workspace_id: Optional[str]) -> None:
+        """Set workspace filter.
+
+        Note: WorkspaceManager doesn't filter by workspace (it manages workspaces).
+        This method is provided for protocol compliance only.
+        """
+        pass  # No-op for WorkspaceManager
+
+    def get_workspace_filter(self) -> Optional[str]:
+        """Get current workspace filter (always None for WorkspaceManager)."""
+        return None
+
+    def get_current_item(self) -> Optional[Workspace]:
+        """Get currently selected workspace."""
+        return self._current_item
+
+    def clear_selection(self) -> None:
+        """Clear current selection."""
+        self._current_item = None
+        self._current_workspace_id = None
+        self.workspace_tree.clearSelection()
+
+    # ==================== UI Setup ====================
 
     def _setup_ui(self):
         """Setup UI components"""

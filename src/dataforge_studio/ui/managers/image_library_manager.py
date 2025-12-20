@@ -62,6 +62,7 @@ class ImageLibraryManager(QWidget):
         self.config_db = get_config_db()
         self._current_image: Optional[SavedImage] = None
         self._tree_items: Dict[str, QTreeWidgetItem] = {}
+        self._workspace_filter: Optional[str] = None
 
         self._setup_ui()
         self._setup_connections()
@@ -271,6 +272,31 @@ class ImageLibraryManager(QWidget):
 
         self.search_input.returnPressed.connect(self._perform_search)
         self.search_btn.clicked.connect(self._perform_search)
+
+    # ==================== ManagerProtocol Implementation ====================
+
+    def set_workspace_filter(self, workspace_id: Optional[str]) -> None:
+        """Set workspace filter and refresh the view.
+
+        Note: Image library doesn't filter by workspace currently,
+        but method is provided for protocol compliance.
+        """
+        self._workspace_filter = workspace_id
+        # Images don't have workspace association yet
+        # Could be added in future versions
+
+    def get_workspace_filter(self) -> Optional[str]:
+        """Get current workspace filter."""
+        return self._workspace_filter
+
+    def get_current_item(self) -> Optional[SavedImage]:
+        """Get currently selected image."""
+        return self._current_image
+
+    def clear_selection(self) -> None:
+        """Clear current selection."""
+        self._current_image = None
+        self.tree.clearSelection()
 
     # ==================== Tree Loading ====================
 
