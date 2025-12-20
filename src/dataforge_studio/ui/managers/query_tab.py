@@ -181,12 +181,11 @@ class QueryTab(QWidget):
         # Splitter for SQL editor (top) and results (bottom)
         splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # SQL Editor - black text for identifiers (table names, etc.)
+        # SQL Editor
         self.sql_editor = QTextEdit()
         self.sql_editor.setPlaceholderText("-- " + tr("enter_sql_query_here"))
         self.sql_editor.setFont(QFont("Consolas", 10))
-        # Force black text for non-highlighted words (table names, identifiers)
-        self.sql_editor.setStyleSheet("QTextEdit { color: #000000; }")
+        # Colors are managed by the theme system and SQLHighlighter
 
         # Apply SQL syntax highlighting
         self.sql_highlighter = SQLHighlighter(self.sql_editor.document())

@@ -15,6 +15,28 @@ class SQLHighlighter(QSyntaxHighlighter):
     Colors are loaded from the active theme.
     """
 
+    # Default colors for dark mode (VS Code style)
+    DARK_COLORS = {
+        "keyword": "#569cd6",
+        "string": "#ce9178",
+        "comment": "#6a9955",
+        "number": "#b5cea8",
+        "function": "#dcdcaa",
+        "operator": "#d4d4d4",
+        "identifier": "#9cdcfe",
+    }
+
+    # Default colors for light mode (SSMS style)
+    LIGHT_COLORS = {
+        "keyword": "#0000ff",
+        "string": "#a31515",
+        "comment": "#008000",
+        "number": "#09885a",
+        "function": "#795e26",
+        "operator": "#000000",
+        "identifier": "#001080",
+    }
+
     def __init__(self, document, theme_colors=None):
         """
         Initialize SQL highlighter.
@@ -25,36 +47,74 @@ class SQLHighlighter(QSyntaxHighlighter):
         """
         super().__init__(document)
         self.theme_colors = theme_colors
+        self._is_dark = True  # Default to dark mode
+        self._load_theme_colors()
         self._setup_formats()
         self._setup_rules()
 
+    def _load_theme_colors(self):
+        """Load colors from the active theme."""
+        try:
+            from ..ui.core.theme_bridge import ThemeBridge
+            bridge = ThemeBridge.get_instance()
+            current_theme = bridge.current_theme
+
+            if current_theme:
+                # Check if dark theme
+                theme_data = bridge.themes.get(current_theme, {})
+                palette = theme_data.get("palette", {})
+                self._is_dark = palette.get("is_dark", True)
+
+                # Try to get theme-specific SQL colors from full theme
+                colors = bridge.get_theme_colors(current_theme)
+                if colors:
+                    if "sql_keyword" in colors:
+                        self.theme_colors = {
+                            "keyword": colors.get("sql_keyword"),
+                            "string": colors.get("sql_string"),
+                            "comment": colors.get("sql_comment"),
+                            "number": colors.get("sql_number"),
+                            "function": colors.get("sql_function"),
+                            "operator": colors.get("sql_operator"),
+                            "identifier": colors.get("sql_identifier"),
+                        }
+                        return
+
+        except Exception:
+            pass
+
+        # Fallback to default colors based on theme darkness
+        self.theme_colors = self.DARK_COLORS if self._is_dark else self.LIGHT_COLORS
+
     def _setup_formats(self):
-        """Setup text formats for SQL elements - SSMS-style fixed colors."""
-        # Keyword format (blue, bold) - like SSMS
+        """Setup text formats for SQL elements based on theme."""
+        colors = self.theme_colors or (self.DARK_COLORS if self._is_dark else self.LIGHT_COLORS)
+
+        # Keyword format (bold)
         self.keyword_format = QTextCharFormat()
-        self.keyword_format.setForeground(QColor("#0000FF"))
+        self.keyword_format.setForeground(QColor(colors["keyword"]))
         self.keyword_format.setFontWeight(QFont.Weight.Bold)
 
-        # String format (red) - like SSMS
+        # String format
         self.string_format = QTextCharFormat()
-        self.string_format.setForeground(QColor("#FF0000"))
+        self.string_format.setForeground(QColor(colors["string"]))
 
-        # Comment format (green, italic) - like SSMS
+        # Comment format (italic)
         self.comment_format = QTextCharFormat()
-        self.comment_format.setForeground(QColor("#008000"))
+        self.comment_format.setForeground(QColor(colors["comment"]))
         self.comment_format.setFontItalic(True)
 
-        # Number format (black)
+        # Number format
         self.number_format = QTextCharFormat()
-        self.number_format.setForeground(QColor("#000000"))
+        self.number_format.setForeground(QColor(colors["number"]))
 
-        # Function format (magenta) - like SSMS
+        # Function format
         self.function_format = QTextCharFormat()
-        self.function_format.setForeground(QColor("#FF00FF"))
+        self.function_format.setForeground(QColor(colors["function"]))
 
-        # Operator format (gray)
+        # Operator format
         self.operator_format = QTextCharFormat()
-        self.operator_format.setForeground(QColor("#808080"))
+        self.operator_format.setForeground(QColor(colors["operator"]))
 
     def _setup_rules(self):
         """Setup highlighting rules with regular expressions."""
