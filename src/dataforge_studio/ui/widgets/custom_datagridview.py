@@ -2,21 +2,25 @@
 Custom Data Grid View - Table widget with sorting, export, and clipboard features
 Replaces the 893-line TKinter version with a more compact PySide6 implementation
 
-Supports two modes:
+Supports three modes:
 - Legacy mode: set_data() with list[list] - uses QTableWidget
 - DataFrame mode: set_dataframe() - optimized with numpy arrays
+- Virtual mode: set_dataframe() with large data - uses QTableView + DataFrameTableModel
+
+Virtual scrolling is automatically enabled for datasets > 50,000 rows.
 """
 
 from typing import List, Optional, Any, Tuple, TYPE_CHECKING
 from PySide6.QtWidgets import (QWidget, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QHBoxLayout, QPushButton, QHeaderView,
                                QFileDialog, QApplication, QDialog, QLabel, QFrame,
-                               QProgressBar)
+                               QProgressBar, QTableView, QAbstractItemView)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
 import csv
 
 from ..core.i18n_bridge import tr
+from .dataframe_model import DataFrameTableModel, VIRTUAL_SCROLL_THRESHOLD
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -79,13 +83,19 @@ class CustomDataGridView(QWidget):
         self.table_name = None  # Table/view name for context
         self._dataframe = None  # Store DataFrame reference for optimized operations
         self._computing_overlay = None  # Loading overlay widget
+
+        # Virtual scrolling mode (for large datasets)
+        self._virtual_mode = False
+        self._table_view: Optional[QTableView] = None
+        self._table_model: Optional[DataFrameTableModel] = None
+
         self._setup_ui()
         self._setup_computing_overlay()
 
     def _setup_ui(self):
         """Setup UI components."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        self._main_layout = QVBoxLayout(self)
+        self._main_layout.setContentsMargins(0, 0, 0, 0)
 
         # Toolbar (optional)
         if self.show_toolbar:
@@ -109,9 +119,9 @@ class CustomDataGridView(QWidget):
             self.distribution_btn.clicked.connect(self._show_distribution_analysis)
             toolbar_layout.addWidget(self.distribution_btn)
 
-            layout.addLayout(toolbar_layout)
+            self._main_layout.addLayout(toolbar_layout)
 
-        # Table widget
+        # Table widget (standard mode)
         self.table = QTableWidget()
         self.table.setSortingEnabled(False)  # We'll handle sorting manually for multi-column support
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -124,7 +134,7 @@ class CustomDataGridView(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(16)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
-        layout.addWidget(self.table)
+        self._main_layout.addWidget(self.table)
 
         # Connect signals
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -240,8 +250,9 @@ class CustomDataGridView(QWidget):
         """
         Set grid data from a pandas DataFrame (optimized mode).
 
-        This method is 10-50x faster than set_data() for large datasets
-        because it uses numpy arrays instead of Python iteration.
+        For datasets with > 50,000 rows, automatically switches to virtual
+        scrolling mode using QTableView + DataFrameTableModel. This uses
+        minimal memory as only visible cells are rendered.
 
         Args:
             df: pandas DataFrame
@@ -251,7 +262,57 @@ class CustomDataGridView(QWidget):
 
         self._dataframe = df  # Store reference for export
         self.columns = list(df.columns)
-        # Convert DataFrame to list[list] for fullscreen and distribution analysis
+
+        num_rows = len(df)
+        num_cols = len(df.columns)
+
+        # Decide whether to use virtual scrolling
+        use_virtual = num_rows >= VIRTUAL_SCROLL_THRESHOLD
+
+        if use_virtual:
+            # Virtual scrolling mode for large datasets
+            self._set_dataframe_virtual(df, auto_resize)
+        else:
+            # Standard mode - populate QTableWidget
+            self._set_dataframe_standard(df, auto_resize)
+
+    def _set_dataframe_virtual(self, df: "pd.DataFrame", auto_resize: bool = True):
+        """
+        Set data using virtual scrolling (QTableView + DataFrameTableModel).
+
+        Only visible cells are rendered, enabling smooth scrolling through
+        millions of rows with minimal memory usage.
+        """
+        # Switch to virtual mode if not already
+        if not self._virtual_mode:
+            self._switch_to_virtual_mode()
+
+        # Don't store full data list for virtual mode (memory optimization)
+        # Only store small sample for distribution analysis
+        self.data = df.head(10000).values.tolist() if len(df) > 10000 else df.values.tolist()
+
+        # Set data in model
+        self._table_model.set_dataframe(df)
+
+        # Auto-resize columns (limited for performance)
+        if auto_resize:
+            # For virtual mode, just set reasonable default widths
+            for col in range(len(df.columns)):
+                self._table_view.setColumnWidth(col, 120)
+
+    def _set_dataframe_standard(self, df: "pd.DataFrame", auto_resize: bool = True):
+        """
+        Set data using standard mode (QTableWidget).
+
+        Creates QTableWidgetItem for each cell. Fast for small-medium datasets.
+        """
+        import pandas as pd
+
+        # Switch back to standard mode if in virtual mode
+        if self._virtual_mode:
+            self._switch_to_standard_mode()
+
+        # Store data for fullscreen and distribution analysis
         self.data = df.values.tolist()
 
         num_rows = len(df)
@@ -306,10 +367,131 @@ class CustomDataGridView(QWidget):
             for col in range(num_cols):
                 self.table.setColumnWidth(col, 100)
 
+    def _switch_to_virtual_mode(self):
+        """Switch from QTableWidget to QTableView for virtual scrolling."""
+        if self._virtual_mode:
+            return
+
+        # Hide QTableWidget
+        self.table.hide()
+
+        # Create QTableView and model if not exists
+        if self._table_view is None:
+            self._table_model = DataFrameTableModel(self)
+            self._table_view = QTableView(self)
+            self._table_view.setModel(self._table_model)
+
+            # Configure view
+            self._table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            self._table_view.setAlternatingRowColors(True)
+            self._table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            self._table_view.horizontalHeader().setToolTip(
+                "Click to sort (▲▼), Ctrl+Click to add column to multi-sort"
+            )
+            self._table_view.verticalHeader().setVisible(True)
+            self._table_view.verticalHeader().setDefaultSectionSize(16)
+            self._table_view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+
+            # Connect signals
+            self._table_view.selectionModel().selectionChanged.connect(self._on_virtual_selection_changed)
+            self._table_view.horizontalHeader().sectionClicked.connect(self._on_virtual_header_clicked)
+
+            # Add to layout
+            self._main_layout.addWidget(self._table_view)
+
+        self._table_view.show()
+        self._virtual_mode = True
+
+    def _switch_to_standard_mode(self):
+        """Switch from QTableView back to QTableWidget."""
+        if not self._virtual_mode:
+            return
+
+        # Hide QTableView
+        if self._table_view:
+            self._table_view.hide()
+
+        # Show QTableWidget
+        self.table.show()
+        self._virtual_mode = False
+
+    def _on_virtual_selection_changed(self):
+        """Handle selection changes in virtual mode."""
+        if self._table_view:
+            selected_rows = [idx.row() for idx in self._table_view.selectionModel().selectedRows()]
+            self.selection_changed.emit(selected_rows)
+
+    def _on_virtual_header_clicked(self, column: int):
+        """Handle header click for sorting in virtual mode."""
+        from PySide6.QtWidgets import QApplication
+
+        modifiers = QApplication.keyboardModifiers()
+        ctrl_pressed = modifiers & Qt.KeyboardModifier.ControlModifier
+
+        if ctrl_pressed:
+            # Multi-column sort
+            existing = None
+            for i, (col, order) in enumerate(self.active_sorts):
+                if col == column:
+                    existing = i
+                    break
+
+            if existing is not None:
+                old_col, old_order = self.active_sorts[existing]
+                new_order = (Qt.SortOrder.DescendingOrder
+                            if old_order == Qt.SortOrder.AscendingOrder
+                            else Qt.SortOrder.AscendingOrder)
+                self.active_sorts[existing] = (column, new_order)
+            else:
+                self.active_sorts.append((column, Qt.SortOrder.AscendingOrder))
+        else:
+            # Single column sort
+            if len(self.active_sorts) == 1 and self.active_sorts[0][0] == column:
+                old_order = self.active_sorts[0][1]
+                new_order = (Qt.SortOrder.DescendingOrder
+                            if old_order == Qt.SortOrder.AscendingOrder
+                            else Qt.SortOrder.AscendingOrder)
+                self.active_sorts = [(column, new_order)]
+            else:
+                self.active_sorts = [(column, Qt.SortOrder.AscendingOrder)]
+
+        # Apply sort via model
+        self._apply_virtual_sort()
+
+    def _apply_virtual_sort(self):
+        """Apply multi-column sort in virtual mode."""
+        if not self.active_sorts or not self._table_model:
+            return
+
+        columns = [col for col, _ in self.active_sorts]
+        orders = [order for _, order in self.active_sorts]
+        self._table_model.sort_by_columns(columns, orders)
+
+        # Update header indicators
+        self._update_virtual_sort_indicators()
+
+    def _update_virtual_sort_indicators(self):
+        """Update column headers to show sort indicators in virtual mode."""
+        if not self._table_view or not self._table_model:
+            return
+
+        # The model's headerData is used automatically by QTableView
+        # We need to update the stored column names to include indicators
+        # Then refresh the headers
+
+        # For now, update via model (this will trigger header refresh)
+        # The sort indicators would need custom header view for proper display
+        pass  # Headers are automatically refreshed by the model
+
     def clear(self):
         """Clear all data from the grid."""
-        self.table.clearContents()
-        self.table.setRowCount(0)
+        if self._virtual_mode and self._table_model:
+            self._table_model.clear()
+        else:
+            self.table.clearContents()
+            self.table.setRowCount(0)
+        self.data = []
+        self._dataframe = None
 
     def autosize_columns(self, max_width: int = 300):
         """
@@ -325,10 +507,14 @@ class CustomDataGridView(QWidget):
 
     def get_row_count(self) -> int:
         """Get number of rows."""
+        if self._virtual_mode and self._table_model:
+            return self._table_model.rowCount()
         return self.table.rowCount()
 
     def get_column_count(self) -> int:
         """Get number of columns."""
+        if self._virtual_mode and self._table_model:
+            return self._table_model.columnCount()
         return self.table.columnCount()
 
     def get_cell_value(self, row: int, col: int) -> str:
@@ -342,6 +528,8 @@ class CustomDataGridView(QWidget):
         Returns:
             Cell value as string
         """
+        if self._virtual_mode and self._table_model:
+            return self._table_model.get_cell_value(row, col)
         item = self.table.item(row, col)
         return item.text() if item else ""
 
@@ -355,6 +543,8 @@ class CustomDataGridView(QWidget):
         Returns:
             List of cell values
         """
+        if self._virtual_mode and self._table_model:
+            return self._table_model.get_row_data(row)
         return [self.get_cell_value(row, col) for col in range(self.table.columnCount())]
 
     def _on_selection_changed(self):
@@ -611,12 +801,16 @@ class CustomDataGridView(QWidget):
                 writer = csv.writer(f)
 
                 # Write headers
-                headers = [self.table.horizontalHeaderItem(i).text()
-                          for i in range(self.table.columnCount())]
+                if self._virtual_mode and self._table_model:
+                    headers = self._table_model.get_columns()
+                else:
+                    headers = [self.table.horizontalHeaderItem(i).text()
+                              for i in range(self.table.columnCount())]
                 writer.writerow(headers)
 
                 # Write data
-                for row in range(self.table.rowCount()):
+                row_count = self.get_row_count()
+                for row in range(row_count):
                     row_data = self.get_row_data(row)
                     writer.writerow(row_data)
 
@@ -629,7 +823,11 @@ class CustomDataGridView(QWidget):
 
     def _copy_to_clipboard(self):
         """Copy selected rows to clipboard (tab-separated)."""
-        selection = self.table.selectedIndexes()
+        if self._virtual_mode and self._table_view:
+            selection = self._table_view.selectedIndexes()
+        else:
+            selection = self.table.selectedIndexes()
+
         if not selection:
             return
 
