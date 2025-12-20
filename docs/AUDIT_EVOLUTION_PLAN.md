@@ -1,8 +1,26 @@
-# DataForge Studio - Audit Complet et Plan d'Evolution v2
+# DataForge Studio - Audit Complet et Plan d'Evolution v3
 
-**Date**: 2025-12-19
-**Version**: 0.50.0
-**Audit**: Complet (post-Phase 6)
+**Date**: 2025-12-20
+**Version**: 0.60.0
+**Audit**: Complet (post-Migration v0.6.0)
+
+---
+
+## 0. MIGRATIONS RECENTES
+
+### v0.6.0 - Restructuration Framework (2025-12-20) ✅ TERMINE
+
+```
+ui/window_template/ → ui/templates/window/
+ui/templates/dialog/ (nouveau)
+  └── SelectorDialog (base class pour dialogs de selection)
+```
+
+**Changements**:
+- ConnectionSelectorDialog herite de SelectorDialog
+- AboutDialog herite de SelectorDialog
+- Theme keys: selector_titlebar_bg/fg, selector_border_color
+- Vision long terme: separation Framework vs Application
 
 ---
 
@@ -302,11 +320,45 @@ except (ValueError, TypeError) as e:
 - [ ] Deplacer imports au niveau module
 - [ ] Garder imports tardifs uniquement pour dependances circulaires
 
-### PHASE 2: INTERNATIONALISATION (2-3 jours)
+### PHASE 2: INTERNATIONALISATION MODULAIRE (3-4 jours)
 
-**2.1 Extraire chaines hardcodees (215 cas)**
-- [ ] Ajouter cles dans `config/i18n/en.json` et `fr.json`
-- [ ] Remplacer textes par `tr("key")`
+**Probleme actuel**:
+- Fichier monolithique `config/i18n.py` (655 lignes)
+- Toutes les traductions EN/FR hardcodees
+- Pas de modularite par plugin/module
+- 215 chaines UI non internationalisees
+
+**2.1 Architecture i18n modulaire**
+
+```
+config/
+├── i18n/
+│   ├── __init__.py           # I18nManager (registry central)
+│   ├── base.py               # ModuleTranslations (classe de base)
+│   └── core/                 # Traductions globales
+│       ├── common_en.json    # yes, no, ok, cancel, error...
+│       ├── common_fr.json
+│       ├── menu_en.json      # Menu principal
+│       └── menu_fr.json
+
+plugins/
+└── database_manager/
+    └── i18n/                 # Traductions du plugin
+        ├── __init__.py       # Auto-register au manager
+        ├── en.json           # {"db_title": "Database Manager", ...}
+        └── fr.json
+```
+
+**2.2 Mecanisme**:
+- Chaque plugin s'enregistre aupres de I18nManager avec son namespace
+- `t("db.title")` → cherche dans database_manager
+- `t("ok")` → cherche dans common (global)
+- Une nouvelle langue dans un plugin apparait automatiquement dans l'interface
+
+**2.3 Extraire chaines hardcodees (215 cas)**
+- [ ] Migrer `config/i18n.py` vers nouvelle architecture
+- [ ] Creer fichiers JSON par module
+- [ ] Remplacer textes hardcodes par `tr("key")`
 
 **Fichiers prioritaires**:
 1. settings_frame.py (50+ chaines)
@@ -402,14 +454,86 @@ class CachedConfigDB:
 - [ ] Implementer dans custom_datagridview.py
 - [ ] Seuil: 50,000+ lignes
 
-### PHASE 7: DOCUMENTATION (2 jours)
+### PHASE 7: SYSTEME DE THEMES SIMPLIFIE (2-3 jours)
 
-**7.1 Docstrings**:
+**Probleme actuel**:
+- Theme Editor permet d'editer 90+ couleurs individuellement
+- Complexe pour l'utilisateur final
+- Le systeme `_expand_minimal_palette()` existe mais n'est pas expose
+
+**7.1 Concept "Color Patch"**
+
+L'utilisateur definit seulement 5-8 couleurs, le systeme derive le reste:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Quick Theme Creator                                │
+├─────────────────────────────────────────────────────┤
+│  Base Theme: [Dark Mode ▼]                          │
+│                                                     │
+│  Override Colors (optional):                        │
+│  ┌──────────────────┬────────────────────────────┐  │
+│  │ Accent           │ [■ #0078d4] [Pick...]      │  │
+│  │ Primary BG       │ [■ #1e1e1e] [Pick...]      │  │
+│  │ Secondary BG     │ [■ #252525] [Pick...]      │  │
+│  │ Text Primary     │ [■ #ffffff] [Pick...]      │  │
+│  │ Text Secondary   │ [■ #808080] [Pick...]      │  │
+│  │ Border           │ [■ #3d3d3d] [Pick...]      │  │
+│  │ Success          │ [■ #2ecc71] [Pick...]      │  │
+│  │ Error            │ [■ #e74c3c] [Pick...]      │  │
+│  └──────────────────┴────────────────────────────┘  │
+│                                                     │
+│  [Preview] [Reset to Base] [Save as New Theme]      │
+└─────────────────────────────────────────────────────┘
+```
+
+**7.2 Structure technique**
+
+```python
+# Theme Patch = Base Theme + Overrides
+class ThemePatch:
+    base_theme: str        # "minimal_dark", "minimal_light"
+    overrides: Dict[str, str]  # {"Accent": "#ff6600", ...}
+
+# Sauvegarde dans _AppConfig/themes/my_custom.json
+{
+    "type": "patch",
+    "base": "minimal_dark",
+    "overrides": {
+        "Accent": "#ff6600",
+        "Primary_BG": "#1a1a2e"
+    }
+}
+```
+
+**7.3 Mapping des couleurs utilisateur → palette minimale**
+
+| Couleur utilisateur | Cle palette minimale |
+|---------------------|----------------------|
+| Accent              | Accent               |
+| Primary BG          | Frame_BG             |
+| Secondary BG        | Data_BG              |
+| Text Primary        | Normal_FG            |
+| Text Secondary      | Frame_FG_Secondary   |
+| Border              | Data_Border          |
+| Success             | Success_FG           |
+| Error               | Error_FG             |
+
+**7.4 Implementation**:
+- [ ] Creer `ui/frames/quick_theme_frame.py`
+- [ ] Ajouter onglet "Quick Theme" dans Settings
+- [ ] Modifier `theme_manager.py` pour supporter les patches
+- [ ] Preview en temps reel
+- [ ] Garder Theme Editor avance pour utilisateurs experts
+
+### PHASE 8: DOCUMENTATION (2 jours)
+
+**8.1 Docstrings**:
 - [ ] config_db.py (apres refactoring)
 - [ ] Managers principaux
 - [ ] Plugin system
 
-**7.2 Guides**:
+**8.2 Guides**:
 - [ ] docs/INSTALLATION.md
 - [ ] docs/CONTRIBUTING.md
 - [ ] docs/API.md (ou Sphinx)
@@ -421,39 +545,63 @@ class CachedConfigDB:
 | Phase | Duree | Priorite | Dependances |
 |-------|-------|----------|-------------|
 | 1. Qualite code | 2-3 jours | CRITIQUE | Aucune |
-| 2. Internationalisation | 2-3 jours | HAUTE | Aucune |
+| 2. Internationalisation modulaire | 3-4 jours | HAUTE | Aucune |
 | 3. Refactoring config_db | 3-4 jours | HAUTE | Phase 1 |
 | 4. Harmoniser managers | 3-4 jours | MOYENNE | Phase 3 |
 | 5. Tests | 4-5 jours | MOYENNE | Phases 3, 4 |
 | 6. Performance | 2-3 jours | BASSE | Phase 3 |
-| 7. Documentation | 2 jours | BASSE | Phases 3, 4 |
-| **TOTAL** | **18-24 jours** | | |
+| 7. Themes simplifies (Color Patch) | 2-3 jours | MOYENNE | Aucune |
+| 8. Documentation | 2 jours | BASSE | Phases 3, 4 |
+| **TOTAL** | **21-28 jours** | | |
 
 ---
 
 ## 11. PROGRESSION
 
-### Termine (Audit precedent)
+### Termine (Historique)
 - [x] Phase 1 ancien: Nettoyage code mort (1,862 lignes)
 - [x] Phase 2 ancien: Split fichiers monolithiques
 - [x] Phase 3 ancien: Consolidation duplications
 - [x] Phase 4 ancien: Standardisation et documentation
 - [x] Phase 5 ancien: Architecture plugin
 - [x] Phase 6 ancien: Unification workspaces
+- [x] **v0.6.0**: Restructuration Framework (ui/templates/, SelectorDialog)
 
-### A faire (Nouvel audit)
-- [ ] Phase 1: Qualite code immediate
-- [ ] Phase 2: Internationalisation
-- [ ] Phase 3: Refactoring config_db.py
-- [ ] Phase 4: Harmoniser managers
-- [ ] Phase 5: Tests
-- [ ] Phase 6: Performance
-- [ ] Phase 7: Documentation
+### A faire (Plan actuel v3)
+- [ ] Phase 1: Qualite code immediate (213 bare except, 67 late imports)
+- [ ] Phase 2: Internationalisation modulaire (architecture + 215 chaines)
+- [ ] Phase 3: Refactoring config_db.py (1,967 lignes → modules)
+- [ ] Phase 4: Harmoniser managers (4 managers sans heritage)
+- [ ] Phase 5: Tests (objectif 50% couverture)
+- [ ] Phase 6: Performance (pooling, cache, virtual scroll)
+- [ ] Phase 7: Themes simplifies (Color Patch system)
+- [ ] Phase 8: Documentation
+
+---
+
+## 12. ORDRE RECOMMANDE
+
+Pour minimiser les risques et maximiser la valeur:
+
+```
+Phase 1 (Qualite) ──┐
+                    ├──→ Phase 3 (config_db) ──→ Phase 4 (Managers) ──→ Phase 5 (Tests)
+Phase 2 (i18n) ─────┘                                                        │
+                                                                             ↓
+Phase 7 (Themes) ─────────────────────────────────────────────────→ Phase 8 (Docs)
+                                                                             ↑
+Phase 6 (Performance) ───────────────────────────────────────────────────────┘
+```
+
+**Phases independantes** (peuvent etre faites en parallele):
+- Phase 1 + Phase 2 (qualite + i18n)
+- Phase 7 (themes) - independante du reste
 
 ---
 
 ## Notes
 
-Ce document remplace la version precedente suite a l'audit complet du 2025-12-19.
-Les phases precedentes sont considerees terminees et archivees.
-Le nouveau plan se concentre sur la qualite du code et la maintenabilite.
+Ce document est la version 3 du plan d'evolution.
+- v1: Audit initial et 6 phases completees
+- v2: Nouvel audit post-Phase 6 (2025-12-19)
+- v3: Ajout migration v0.6.0, i18n modulaire, themes simplifies (2025-12-20)

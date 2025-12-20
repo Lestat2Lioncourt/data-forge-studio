@@ -4,6 +4,7 @@ Language and Theme have the same pattern: dropdown + editor + actions
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import List, Optional, Any, Dict
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
@@ -23,6 +24,8 @@ from ..widgets.palette_widget import PaletteWidget
 from ..core.theme_bridge import ThemeBridge
 from ..core.i18n_bridge import I18nBridge, tr
 from ...config.user_preferences import UserPreferences
+
+logger = logging.getLogger(__name__)
 
 # Path to icons
 ICONS_PATH = Path(__file__).parent.parent / "assets" / "images"
@@ -309,15 +312,15 @@ class SettingsFrame(BaseManagerView):
         """Register as observer for theme changes."""
         try:
             self.theme_bridge.register_observer(self._on_theme_changed)
-        except Exception:
-            pass
+        except AttributeError as e:
+            logger.debug(f"Could not register theme observer: {e}")
 
     def _on_theme_changed(self, theme_colors: Dict[str, str]):
         """Called when theme changes - update editor styling."""
         try:
             self._apply_theme_editor_style()
-        except Exception:
-            pass  # Ignore errors during theme update
+        except (AttributeError, RuntimeError) as e:
+            logger.debug(f"Error during theme update: {e}")
 
     def _apply_theme_editor_style(self):
         """Apply dynamic theme colors to theme editor widget."""
@@ -486,8 +489,8 @@ class SettingsFrame(BaseManagerView):
                             data = json.load(file)
                             name = data.get("name", theme_id)
                             self.theme_combo.addItem(f"{name} (perso)", theme_id)
-                    except:
-                        pass
+                    except (json.JSONDecodeError, OSError) as e:
+                        logger.warning(f"Could not load theme file {f}: {e}")
 
         current = self.theme_bridge.current_theme
         idx = self.theme_combo.findData(current)
@@ -543,8 +546,8 @@ class SettingsFrame(BaseManagerView):
             try:
                 with open(lang_file, 'r', encoding='utf-8') as f:
                     translations = json.load(f)
-            except:
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Could not load language file {lang_file}: {e}")
 
         if not translations:
             # Get from i18n bridge built-in
@@ -784,8 +787,8 @@ class SettingsFrame(BaseManagerView):
                     data = json.load(f)
                     palette = data.get("palette", {})
                     theme_name = data.get("name", theme_id)
-            except:
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Could not load theme file {theme_file}: {e}")
 
         if not palette:
             # Get from theme bridge

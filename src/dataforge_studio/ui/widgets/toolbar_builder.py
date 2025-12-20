@@ -201,7 +201,7 @@ class ToolbarBuilder:
             path = get_icon_path(icon_name)
             if path:
                 return Path(path)
-        except:
+        except (ImportError, AttributeError):
             pass
 
         # Try ui/icons/

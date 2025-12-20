@@ -302,7 +302,7 @@ class RootFolderManager(QWidget):
                 if entry.is_file():
                     count += 1
             return count
-        except:
+        except (OSError, PermissionError):
             return 0
 
     def _get_file_icon(self, file_path: Path) -> Optional[QIcon]:

@@ -237,7 +237,7 @@ class DistributionAnalysisDialog(QDialog):
                         row_data.append(f"{std_dev:.2f}")
                     else:
                         row_data.extend(["N/A", "N/A", "N/A", "N/A", "N/A"])
-                except:
+                except (ValueError, TypeError, ZeroDivisionError):
                     row_data.extend(["N/A", "N/A", "N/A", "N/A", "N/A"])
             else:
                 # For non-numeric, show first and last values

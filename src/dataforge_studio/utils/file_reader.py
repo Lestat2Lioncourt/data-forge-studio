@@ -30,7 +30,7 @@ def read_file_content(file_path: Path) -> Optional[str]:
                 try:
                     with open(file_path, 'r', encoding=encoding) as f:
                         return f.read()
-                except:
+                except (UnicodeDecodeError, OSError):
                     continue
 
             # If all fail, return None

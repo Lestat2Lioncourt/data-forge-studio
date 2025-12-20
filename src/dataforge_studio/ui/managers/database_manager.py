@@ -5,6 +5,9 @@ Database Manager - Multi-tab SQL query interface with SSMS-style tree
 from typing import Optional, Union, Dict
 import pyodbc
 import sqlite3
+import re
+import threading
+import traceback
 from pathlib import Path
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
@@ -308,8 +311,6 @@ class DatabaseManager(QWidget):
 
         Returns connection object or None if failed.
         """
-        import re
-
         if db_conn.db_type == "sqlite":
             conn_str = db_conn.connection_string
             if conn_str.startswith("sqlite:///"):
@@ -713,7 +714,6 @@ class DatabaseManager(QWidget):
                 code = result[0]
 
                 # Convert CREATE VIEW to ALTER VIEW
-                import re
                 # Match CREATE VIEW (case insensitive) and replace with ALTER VIEW
                 code = re.sub(
                     r'\bCREATE\s+VIEW\b',
@@ -996,7 +996,8 @@ class DatabaseManager(QWidget):
         try:
             config_db = get_config_db()
             return config_db.get_database_connection(db_id)
-        except:
+        except (OSError, ValueError) as e:
+            logger.debug(f"Could not get connection {db_id}: {e}")
             return None
 
     def _get_or_create_query_tab(self, db_id: str) -> Optional[QueryTab]:
@@ -1157,7 +1158,6 @@ class DatabaseManager(QWidget):
 
         except Exception as e:
             logger.error(f"Error opening connection dialog: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             DialogHelper.error("Error opening connection dialog", parent=self, details=str(e))
 
@@ -1351,7 +1351,6 @@ class DatabaseManager(QWidget):
                 if conn_str.startswith("sqlite:///"):
                     db_path = conn_str.replace("sqlite:///", "")
                 elif "Database=" in conn_str:
-                    import re
                     match = re.search(r'Database=([^;]+)', conn_str)
                     db_path = match.group(1) if match else conn_str
                 else:
@@ -1404,8 +1403,6 @@ class DatabaseManager(QWidget):
         Cleanup all resources - stop background loaders in query tabs.
         Called when the application is closing.
         """
-        import threading
-
         # Cleanup all query tabs first (stop background threads)
         for i in range(self.tab_widget.count()):
             widget = self.tab_widget.widget(i)

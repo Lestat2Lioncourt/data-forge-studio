@@ -346,8 +346,8 @@ class ThemeBridge(BaseThemeManager):
         if color_file.exists():
             try:
                 cached_color = color_file.read_text().strip()
-            except:
-                pass
+            except (OSError, UnicodeDecodeError) as e:
+                logger.debug(f"Could not read branch color cache: {e}")
 
         # Generate images if custom color and (no cache or color changed)
         if branch_color.upper() != '#E6E6E6':
@@ -357,8 +357,8 @@ class ThemeBridge(BaseThemeManager):
                 # Save color for cache check
                 try:
                     color_file.write_text(branch_color)
-                except:
-                    pass
+                except OSError as e:
+                    logger.debug(f"Could not write branch color cache: {e}")
             else:
                 # Use cached custom images
                 branch_images = {
@@ -385,8 +385,8 @@ class ThemeBridge(BaseThemeManager):
         if dropdown_arrow_color_file.exists():
             try:
                 cached_dropdown_color = dropdown_arrow_color_file.read_text().strip()
-            except:
-                pass
+            except (OSError, UnicodeDecodeError) as e:
+                logger.debug(f"Could not read dropdown arrow cache: {e}")
 
         # Generate dropdown arrow if color changed or not exists
         dropdown_arrow_path = theme_assets_dir / "dropdown-arrow.png"
@@ -394,8 +394,8 @@ class ThemeBridge(BaseThemeManager):
             dropdown_arrow = generate_dropdown_arrow(combo_fg, theme_assets_dir)
             try:
                 dropdown_arrow_color_file.write_text(combo_fg)
-            except:
-                pass
+            except OSError as e:
+                logger.debug(f"Could not write dropdown arrow cache: {e}")
         else:
             dropdown_arrow = str(dropdown_arrow_path)
 
