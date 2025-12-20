@@ -11,7 +11,8 @@ from typing import Dict, Optional, List
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QPushButton, QGroupBox, QInputDialog,
-    QColorDialog, QApplication, QScrollArea, QSizePolicy
+    QColorDialog, QApplication, QScrollArea, QSizePolicy,
+    QMessageBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -173,6 +174,7 @@ class QuickThemeFrame(QWidget):
         self._base_theme = "minimal_dark"
         self._overrides: Dict[str, str] = {}
         self._theme_name = ""
+        self._saved_theme_id: Optional[str] = None  # ID if already saved, None if new
         self._color_pickers: Dict[str, ColorPickerWidget] = {}
 
         self._setup_ui()
@@ -348,6 +350,7 @@ class QuickThemeFrame(QWidget):
     def _reset_all(self):
         """Reset all overrides."""
         self._overrides.clear()
+        self._saved_theme_id = None  # Clear saved state (new theme)
         self._load_base_palette()
         self._update_preview()
 
@@ -395,6 +398,9 @@ class QuickThemeFrame(QWidget):
             # Register in theme bridge
             # For patch themes, we need to expand and store as minimal
             self._register_patch_theme(theme_id, patch_data)
+
+            # Mark as saved
+            self._saved_theme_id = theme_id
 
             # Apply the saved theme and save preference
             self._apply_saved_theme(theme_id)
@@ -454,7 +460,40 @@ class QuickThemeFrame(QWidget):
             DialogHelper.error(f"Erreur d'application: {e}", parent=self)
 
     def _apply_theme(self):
-        """Apply the current color patch as a temporary theme."""
+        """Apply the current color patch with confirmation for persistence."""
+        # Check if theme is already saved
+        if self._saved_theme_id:
+            # Theme already saved - ask to remember choice
+            reply = QMessageBox.question(
+                self, "Appliquer le thème",
+                "Mémoriser ce choix de thème ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                # Apply with persistence
+                self._apply_saved_theme(self._saved_theme_id)
+            else:
+                # Apply as temporary preview
+                self._apply_temporary_preview()
+        else:
+            # New theme not yet saved - ask to save first
+            reply = QMessageBox.question(
+                self, "Appliquer le thème",
+                "Sauvegarder ce thème avant de l'appliquer ?",
+                QMessageBox.StandardButton.Yes |
+                QMessageBox.StandardButton.No |
+                QMessageBox.StandardButton.Cancel
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                # Save first (will also apply and persist)
+                self._save_theme()
+            elif reply == QMessageBox.StandardButton.No:
+                # Apply as temporary preview
+                self._apply_temporary_preview()
+            # Cancel = do nothing
+
+    def _apply_temporary_preview(self):
+        """Apply the current colors as a temporary preview (no persistence)."""
         # Generate effective palette
         palette = self._get_effective_palette()
 
@@ -517,6 +556,7 @@ class QuickThemeFrame(QWidget):
                     self._overrides[user_key] = overrides[palette_key]
 
             self._theme_name = data.get("name", theme_id)
+            self._saved_theme_id = theme_id  # Mark as saved (existing theme)
 
             # Update UI
             self._load_base_palette()
