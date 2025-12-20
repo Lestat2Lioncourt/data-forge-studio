@@ -257,7 +257,8 @@ def _get_connection(self) -> sqlite3.Connection:
 | Repositories | 16 | test_repositories.py | ✅ |
 | Cached Config | 16 | test_cached_config.py | ✅ |
 | Virtual Scrolling | 18 | test_virtual_scrolling.py | ✅ |
-| **Total** | **73 tests** | 4 fichiers | ✅ |
+| Theme Patch | 10 | test_theme_patch.py | ✅ |
+| **Total** | **83 tests** | 5 fichiers | ✅ |
 
 ### Lacunes Restantes
 
@@ -454,9 +455,9 @@ class ManagerProtocol(Protocol):
 - Tri multi-colonnes avec pandas
 - 18 tests dans `tests/test_virtual_scrolling.py`
 
-### PHASE 7: SYSTEME DE THEMES SIMPLIFIE (2-3 jours)
+### PHASE 7: SYSTEME DE THEMES SIMPLIFIE ✅ TERMINE
 
-**Probleme actuel**:
+**Probleme resolu**:
 - Theme Editor permet d'editer 90+ couleurs individuellement
 - Complexe pour l'utilisateur final
 - Le systeme `_expand_minimal_palette()` existe mais n'est pas expose
@@ -519,12 +520,12 @@ class ThemePatch:
 | Success             | Success_FG           |
 | Error               | Error_FG             |
 
-**7.4 Implementation**:
-- [ ] Creer `ui/frames/quick_theme_frame.py`
-- [ ] Ajouter onglet "Quick Theme" dans Settings
-- [ ] Modifier `theme_manager.py` pour supporter les patches
-- [ ] Preview en temps reel
-- [ ] Garder Theme Editor avance pour utilisateurs experts
+**7.4 Implementation** ✅:
+- [x] `ui/frames/quick_theme_frame.py` - interface simplifiée (5-8 couleurs)
+- [x] "Theme rapide" dans Settings + "Theme avance" pour experts
+- [x] `theme_bridge.py._expand_patch_theme()` pour patches
+- [x] Preview en temps reel avec ThemePreview
+- [x] 10 tests dans `tests/test_theme_patch.py`
 
 ### PHASE 8: DOCUMENTATION (2 jours)
 
@@ -576,7 +577,10 @@ class ThemePatch:
 - [x] Phase 6: Performance ✅
   - [x] Phase 6.1: TTLCache pour données fréquentes (16 tests)
   - [x] Phase 6.2: Virtual scrolling 50K+ lignes (18 tests)
-- [ ] Phase 7: Themes simplifies (Color Patch system)
+- [x] Phase 7: Themes simplifies (Color Patch system) ✅
+  - [x] QuickThemeFrame - interface simplifiée (5-8 couleurs)
+  - [x] Support des themes "patch" dans ThemeBridge
+  - [x] 10 tests de validation
 - [ ] Phase 8: Documentation
 
 ---
