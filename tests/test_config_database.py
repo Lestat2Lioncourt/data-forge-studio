@@ -4,7 +4,7 @@ Unit tests for ConfigDatabase module
 import pytest
 import sqlite3
 from pathlib import Path
-from src.database.config_db import (
+from dataforge_studio.database.config_db import (
     ConfigDatabase, DatabaseConnection, SavedQuery,
     FileConfig, Project, FileRoot
 )

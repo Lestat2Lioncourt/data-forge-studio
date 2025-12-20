@@ -5,7 +5,10 @@ import pytest
 import pandas as pd
 from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch, call
-from src.core.data_loader import DataLoader
+from dataforge_studio.core.data_loader import (
+    csv_to_dataframe, json_to_dataframe, excel_to_dataframe,
+    DataLoadResult, LoadWarningLevel
+)
 
 
 class TestDataLoader:

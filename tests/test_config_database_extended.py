@@ -3,7 +3,7 @@ Extended unit tests for ConfigDatabase to increase coverage to 70%+
 """
 import pytest
 from pathlib import Path
-from src.database.config_db import (
+from dataforge_studio.database.config_db import (
     ConfigDatabase, DatabaseConnection, SavedQuery,
     FileConfig, Project, FileRoot
 )
