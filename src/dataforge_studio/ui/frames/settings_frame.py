@@ -24,6 +24,7 @@ from ..widgets.palette_widget import PaletteWidget
 from ..core.theme_bridge import ThemeBridge
 from ..core.i18n_bridge import I18nBridge, tr
 from ...config.user_preferences import UserPreferences
+from .quick_theme_frame import QuickThemeFrame
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,12 @@ class SettingsFrame(BaseManagerView):
         self.debug_editor = self._create_debug_editor()
         self.editors_layout.addWidget(self.debug_editor)
         self.debug_editor.hide()
+
+        # Quick theme editor
+        self.quick_theme_editor = QuickThemeFrame()
+        self.quick_theme_editor.theme_applied.connect(self._on_quick_theme_applied)
+        self.editors_layout.addWidget(self.quick_theme_editor)
+        self.quick_theme_editor.hide()
 
         # Placeholder when nothing selected
         self.placeholder = QLabel(tr("settings_select_option"))
@@ -415,9 +422,17 @@ class SettingsFrame(BaseManagerView):
         )
         lang_item.setIcon(0, option_icon)
 
+        # Quick theme (simplified Color Patch system)
+        quick_theme_item = self.tree_view.add_item(
+            parent=prefs_parent,
+            text=["Theme rapide"],
+            data={"type": "quick_theme"}
+        )
+        quick_theme_item.setIcon(0, option_icon)
+
         theme_item = self.tree_view.add_item(
             parent=prefs_parent,
-            text=["Theme"],
+            text=["Theme avance"],
             data={"type": "theme", "category": None}  # None = show all categories
         )
         theme_item.setIcon(0, option_icon)
@@ -511,10 +526,13 @@ class SettingsFrame(BaseManagerView):
         self.language_editor.hide()
         self.theme_editor.hide()
         self.debug_editor.hide()
+        self.quick_theme_editor.hide()
         self.placeholder.hide()
 
         if option_type == "language":
             self.language_editor.show()
+        elif option_type == "quick_theme":
+            self.quick_theme_editor.show()
         elif option_type == "theme":
             self.theme_editor.show()
             # Apply category filter from tree selection
@@ -957,6 +975,13 @@ class SettingsFrame(BaseManagerView):
             self.theme_status.setText(tr("settings_theme_applied"))
             from PySide6.QtCore import QTimer
             QTimer.singleShot(3000, lambda: self.theme_status.setText(""))
+
+    def _on_quick_theme_applied(self, theme_id: str):
+        """Handle quick theme application."""
+        # Refresh theme combo to include new themes
+        self._populate_theme_combo()
+        # Emit theme change signal
+        self.theme_changed.emit(theme_id)
 
     # === DEBUG METHODS ===
 

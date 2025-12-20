@@ -43,9 +43,71 @@ class ThemeBridge(BaseThemeManager):
                 try:
                     with open(theme_file, 'r', encoding='utf-8') as f:
                         theme_data = json.load(f)
+
+                        # Handle "patch" type themes - expand to minimal
+                        if theme_data.get("type") == "patch":
+                            theme_data = self._expand_patch_theme(theme_data)
+
                         self.themes[theme_id] = theme_data
                 except Exception as e:
                     print(f"Warning: Failed to load custom theme '{theme_id}': {e}")
+
+    def _expand_patch_theme(self, patch_data: Dict) -> Dict:
+        """
+        Expand a patch theme to a minimal theme.
+
+        Patch themes reference a base theme and override specific colors.
+
+        Args:
+            patch_data: Theme data with type="patch", base, and overrides
+
+        Returns:
+            Theme data as type="minimal" with merged palette
+        """
+        base_id = patch_data.get("base", "minimal_dark")
+        overrides = patch_data.get("overrides", {})
+
+        # Get base theme palette
+        if base_id in self.themes:
+            base_theme = self.themes[base_id]
+            base_palette = dict(base_theme.get("palette", {}))
+        else:
+            # Fallback to minimal_dark defaults
+            base_palette = {
+                "is_dark": True,
+                "TopBar_BG": "#2b2b2b",
+                "TopBar_FG": "#ffffff",
+                "MenuBar_BG": "#3d3d3d",
+                "MenuBar_FG": "#ffffff",
+                "StatusBar_BG": "#2b2b2b",
+                "StatusBar_FG": "#ffffff",
+                "Frame_BG": "#252525",
+                "Frame_FG": "#e0e0e0",
+                "Frame_FG_Secondary": "#808080",
+                "Data_BG": "#2d2d2d",
+                "Data_FG": "#e0e0e0",
+                "Data_Border": "#3d3d3d",
+                "Hover_BG": "#383838",
+                "Selected_BG": "#0078d7",
+                "Selected_FG": "#ffffff",
+                "Accent": "#0078d7",
+                "Normal_FG": "#ffffff",
+                "Success_FG": "#2ecc71",
+                "Warning_FG": "#f39c12",
+                "Error_FG": "#e74c3c",
+                "Info_FG": "#3498db",
+            }
+
+        # Apply overrides
+        for key, value in overrides.items():
+            base_palette[key] = value
+
+        # Return as minimal theme
+        return {
+            "name": patch_data.get("name", "Custom Theme"),
+            "type": "minimal",
+            "palette": base_palette
+        }
 
     @classmethod
     def get_instance(cls):
