@@ -229,37 +229,39 @@ def _get_connection(self) -> sqlite3.Connection:
 
 **Amelioration possible**: Seuil configurable
 
-### C. Affichage Grilles
+### C. Affichage Grilles ✅ RESOLU (Phase 6.2)
 
-**Probleme** dans `custom_datagridview.py`:
-- Charge dataset entier en memoire
-- Pas de pagination pour tres gros datasets (500k+ lignes)
-- Pas de virtual scrolling
+**Solution** implementee dans `custom_datagridview.py`:
+- Mode virtuel (QTableView + DataFrameTableModel) pour datasets >= 50,000 lignes
+- Seules les cellules visibles sont rendues (memory efficient)
+- Tri multi-colonnes avec pandas
+- Compatibilite ascendante avec QTableWidget pour petits datasets
 
-### D. Requetes Dupliquees
+### D. Requetes Dupliquees ✅ RESOLU (Phase 6.1)
 
-**Probleme**: Pas de cache pour donnees frequentes
-- ResourcesManager charge databases, queries, jobs...
-- Chaque manager fait ses propres appels a config_db
-- Memes donnees rechargees plusieurs fois
+**Solution** implementee dans `cached_config.py`:
+- TTLCache avec expiration 60 secondes
+- Invalidation automatique sur operations d'ecriture
+- Thread-safe avec RLock
+- 16 tests de validation
 
 ---
 
 ## 6. TESTS
 
-### Couverture Actuelle
+### Couverture Actuelle (mise a jour Phase 5-6)
 
-| Zone | Tests | Couverture estimee |
-|------|-------|-------------------|
-| SQL Formatting | 5 fichiers | ~70% |
-| Config Database | 2 fichiers | ~30% |
-| UI Managers | 3 fichiers | ~10% |
-| Plugins | 0 fichiers | 0% |
-| Integration | 0 fichiers | 0% |
+| Zone | Tests | Fichiers | Status |
+|------|-------|----------|--------|
+| Plugin System | 23 | test_plugin_system.py | ✅ |
+| Repositories | 16 | test_repositories.py | ✅ |
+| Cached Config | 16 | test_cached_config.py | ✅ |
+| Virtual Scrolling | 18 | test_virtual_scrolling.py | ✅ |
+| **Total** | **73 tests** | 4 fichiers | ✅ |
 
-### Lacunes Critiques
+### Lacunes Restantes
 
-1. Aucun test pour le systeme de plugins
+1. ~~Aucun test pour le systeme de plugins~~ ✅ RESOLU
 2. Aucun test d'integration (workflow complet)
 3. Tests UI limites (managers de 1,469 lignes sans tests dedies)
 4. Pas de tests de performance/charge
@@ -436,23 +438,21 @@ class ManagerProtocol(Protocol):
 
 **5.3 Objectif**: 50% couverture code critique
 
-### PHASE 6: PERFORMANCE (2-3 jours)
+### PHASE 6: PERFORMANCE ✅ TERMINE
 
-**6.1 Cache donnees frequentes**:
-```python
-class CachedConfigDB:
-    def __init__(self):
-        self._cache = TTLCache(maxsize=100, ttl=60)
+**6.1 Cache donnees frequentes** ✅:
+- `database/cached_config.py` - wrapper avec TTLCache (60s, 100 entries)
+- Invalidation automatique sur add/update/delete
+- Thread-safe avec RLock
+- 16 tests dans `tests/test_cached_config.py`
 
-    def get_all_databases(self):
-        if "databases" not in self._cache:
-            self._cache["databases"] = self._db.get_all_database_connections()
-        return self._cache["databases"]
-```
-
-**6.2 Virtual scrolling pour gros datasets**:
-- [ ] Implementer dans custom_datagridview.py
-- [ ] Seuil: 50,000+ lignes
+**6.2 Virtual scrolling pour gros datasets** ✅:
+- `ui/widgets/dataframe_model.py` - QAbstractTableModel pour pandas DataFrame
+- Mode dual dans `custom_datagridview.py`:
+  - Standard (QTableWidget) pour < 50,000 lignes
+  - Virtual (QTableView) pour >= 50,000 lignes
+- Tri multi-colonnes avec pandas
+- 18 tests dans `tests/test_virtual_scrolling.py`
 
 ### PHASE 7: SYSTEME DE THEMES SIMPLIFIE (2-3 jours)
 
@@ -570,10 +570,12 @@ class ThemePatch:
 ### A faire (Plan actuel v3)
 - [ ] Phase 1: Qualite code immediate (213 bare except, 67 late imports)
 - [ ] Phase 2: Internationalisation modulaire (architecture + 215 chaines)
-- [ ] Phase 3: Refactoring config_db.py (1,967 lignes → modules)
-- [ ] Phase 4: Harmoniser managers (4 managers sans heritage)
-- [ ] Phase 5: Tests (objectif 50% couverture)
-- [ ] Phase 6: Performance (pooling, cache, virtual scroll)
+- [x] Phase 3: Refactoring config_db.py → repositories modulaires ✅
+- [x] Phase 4: ManagerProtocol + harmonisation ✅
+- [x] Phase 5: Tests (39 tests: 23 plugin + 16 repositories) ✅
+- [x] Phase 6: Performance ✅
+  - [x] Phase 6.1: TTLCache pour données fréquentes (16 tests)
+  - [x] Phase 6.2: Virtual scrolling 50K+ lignes (18 tests)
 - [ ] Phase 7: Themes simplifies (Color Patch system)
 - [ ] Phase 8: Documentation
 
