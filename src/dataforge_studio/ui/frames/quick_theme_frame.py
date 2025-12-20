@@ -36,7 +36,9 @@ QUICK_COLORS = [
     ("Text_Secondary", "Frame_FG_Secondary", "Texte secondaire (grisé)"),
     ("Border", "Data_Border", "Bordures et séparateurs"),
     ("Success", "Success_FG", "Messages de succès"),
+    ("Warning", "Warning_FG", "Messages d'avertissement"),
     ("Error", "Error_FG", "Messages d'erreur"),
+    ("Info", "Info_FG", "Messages d'information"),
 ]
 
 # Base themes available for patching
@@ -397,8 +399,11 @@ class QuickThemeFrame(QWidget):
             # For patch themes, we need to expand and store as minimal
             self._register_patch_theme(theme_id, patch_data)
 
+            # Apply the saved theme and save preference
+            self._apply_saved_theme(theme_id)
+
             DialogHelper.info(
-                f"Thème sauvegardé!\n\nFichier: {theme_path.name}",
+                f"Thème '{name}' sauvegardé et appliqué!",
                 parent=self
             )
 
@@ -427,6 +432,29 @@ class QuickThemeFrame(QWidget):
 
         # Clear any cached expansion
         self.theme_bridge._expanded_cache.pop(theme_id, None)
+
+    def _apply_saved_theme(self, theme_id: str):
+        """Apply a saved theme and persist as user preference."""
+        try:
+            # Generate and apply QSS
+            global_qss = self.theme_bridge.generate_global_qss(theme_id)
+            app = QApplication.instance()
+            if app:
+                app.setStyleSheet(global_qss)
+                self.theme_bridge.current_theme = theme_id
+
+                # Save as user preference (persists across restarts)
+                self.user_prefs.set("theme", theme_id)
+
+                # Notify observers
+                theme_colors = self.theme_bridge.get_theme_colors(theme_id)
+                self.theme_bridge._notify_observers(theme_colors)
+
+                # Emit signal for parent to update theme combo
+                self.theme_applied.emit(theme_id)
+
+        except Exception as e:
+            DialogHelper.error(f"Erreur d'application: {e}", parent=self)
 
     def _apply_theme(self):
         """Apply the current color patch as a temporary theme."""

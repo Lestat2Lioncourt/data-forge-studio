@@ -173,7 +173,7 @@ class TestQuickThemeColorMapping:
         """Test that QUICK_COLORS is properly defined."""
         from dataforge_studio.ui.frames.quick_theme_frame import QUICK_COLORS
 
-        assert len(QUICK_COLORS) == 8
+        assert len(QUICK_COLORS) == 10
 
         # Check structure (user_key, palette_key, description)
         for item in QUICK_COLORS:
@@ -196,7 +196,9 @@ class TestQuickThemeColorMapping:
         assert mapping["Text_Secondary"] == "Frame_FG_Secondary"
         assert mapping["Border"] == "Data_Border"
         assert mapping["Success"] == "Success_FG"
+        assert mapping["Warning"] == "Warning_FG"
         assert mapping["Error"] == "Error_FG"
+        assert mapping["Info"] == "Info_FG"
 
 
 class TestBaseThemes:
