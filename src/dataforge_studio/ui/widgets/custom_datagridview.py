@@ -16,6 +16,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
 import csv
 
+from ..core.i18n_bridge import tr
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -89,21 +91,21 @@ class CustomDataGridView(QWidget):
         if self.show_toolbar:
             toolbar_layout = QHBoxLayout()
 
-            self.export_csv_btn = QPushButton("Export CSV")
+            self.export_csv_btn = QPushButton(tr("export_csv"))
             self.export_csv_btn.clicked.connect(self._export_csv)
             toolbar_layout.addWidget(self.export_csv_btn)
 
-            self.copy_btn = QPushButton("Copy")
+            self.copy_btn = QPushButton(tr("copy"))
             self.copy_btn.clicked.connect(self._copy_to_clipboard)
             toolbar_layout.addWidget(self.copy_btn)
 
             toolbar_layout.addStretch()
 
-            self.fullscreen_btn = QPushButton("⛶ Fullscreen")
+            self.fullscreen_btn = QPushButton(tr("fullscreen_view"))
             self.fullscreen_btn.clicked.connect(self._toggle_fullscreen)
             toolbar_layout.addWidget(self.fullscreen_btn)
 
-            self.distribution_btn = QPushButton("📊 Distribution Analysis")
+            self.distribution_btn = QPushButton(tr("distribution_analysis"))
             self.distribution_btn.clicked.connect(self._show_distribution_analysis)
             toolbar_layout.addWidget(self.distribution_btn)
 

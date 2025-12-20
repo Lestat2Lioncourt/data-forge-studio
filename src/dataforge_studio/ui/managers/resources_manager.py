@@ -123,7 +123,7 @@ class ResourcesManager(BaseManagerView):
 
     def _get_panel_title(self) -> str:
         """Return title for the left pinnable panel."""
-        return "Resources"
+        return tr("panel_resources")
 
     def _get_panel_icon(self) -> str:
         """Return icon name for the left pinnable panel."""
@@ -193,9 +193,9 @@ class ResourcesManager(BaseManagerView):
             .add_field(tr("col_type"), "resource_type") \
             .add_field(tr("col_description"), "description") \
             .add_field(tr("field_path"), "path") \
-            .add_field("Encoding", "encoding") \
-            .add_field("Separator", "separator") \
-            .add_field("Delimiter", "delimiter")
+            .add_field(tr("field_encoding"), "encoding") \
+            .add_field(tr("field_separator"), "separator") \
+            .add_field(tr("field_delimiter"), "delimiter")
 
         details_widget = self.details_form_builder.build()
         self.details_layout.addWidget(details_widget)
@@ -217,7 +217,7 @@ class ResourcesManager(BaseManagerView):
         generic_widget = QWidget()
         generic_layout = QVBoxLayout(generic_widget)
         generic_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        generic_label = QLabel("Sélectionnez un élément pour voir son contenu")
+        generic_label = QLabel(tr("select_item_for_content"))
         generic_label.setStyleSheet("color: gray;")
         generic_layout.addWidget(generic_label)
         self.content_stack.addWidget(generic_widget)
@@ -229,13 +229,13 @@ class ResourcesManager(BaseManagerView):
 
         # Toolbar for query execution
         query_toolbar = QHBoxLayout()
-        self.query_execute_btn = QPushButton("▶ Execute (F5)")
+        self.query_execute_btn = QPushButton(tr("query_execute_f5"))
         self.query_execute_btn.clicked.connect(self._execute_saved_query)
         query_toolbar.addWidget(self.query_execute_btn)
 
-        self.query_update_btn = QPushButton("💾 Update Query")
+        self.query_update_btn = QPushButton("💾 " + tr("btn_update_query"))
         self.query_update_btn.clicked.connect(self._update_saved_query)
-        self.query_update_btn.setToolTip("Update the saved query with current SQL text")
+        self.query_update_btn.setToolTip(tr("tooltip_update_query"))
         query_toolbar.addWidget(self.query_update_btn)
 
         query_toolbar.addStretch()
@@ -246,7 +246,7 @@ class ResourcesManager(BaseManagerView):
 
         # SQL Editor
         self.query_sql_editor = QTextEdit()
-        self.query_sql_editor.setPlaceholderText("-- SQL Query")
+        self.query_sql_editor.setPlaceholderText(tr("placeholder_sql_query"))
         self.query_sql_editor.setStyleSheet("""
             QTextEdit {
                 font-family: 'Consolas', 'Monaco', monospace;
@@ -290,9 +290,9 @@ class ResourcesManager(BaseManagerView):
             # Categories
             categories = [
                 ("databases", tr("menu_database")),
-                ("rootfolders", "Rootfolders"),
+                ("rootfolders", tr("category_rootfolders")),
                 ("queries", tr("menu_queries")),
-                ("images", "Images"),
+                ("images", tr("category_images")),
                 ("jobs", tr("menu_jobs")),
                 ("scripts", tr("menu_scripts")),
             ]
@@ -337,7 +337,7 @@ class ResourcesManager(BaseManagerView):
             # Group queries by category
             queries_by_category = {}
             for query in queries:
-                cat = query.category or "No category"
+                cat = query.category or tr("category_no_category")
                 if cat not in queries_by_category:
                     queries_by_category[cat] = []
                 queries_by_category[cat].append(query)
@@ -371,7 +371,7 @@ class ResourcesManager(BaseManagerView):
             # Always add "Open Image Manager" action item first
             open_manager_item = self.tree_view.add_item(
                 parent=self._category_items["images"],
-                text=["📷 Ouvrir le gestionnaire d'images..."],
+                text=["📷 " + tr("btn_open_image_manager")],
                 data={"type": "open_image_manager"}
             )
 
@@ -554,7 +554,7 @@ class ResourcesManager(BaseManagerView):
             # Group queries by category
             queries_by_category = {}
             for query in queries:
-                cat = query.category or "No category"
+                cat = query.category or tr("category_no_category")
                 if cat not in queries_by_category:
                     queries_by_category[cat] = []
                 queries_by_category[cat].append(query)
@@ -812,7 +812,7 @@ class ResourcesManager(BaseManagerView):
                         # Connection failed - re-add dummy child to allow retry
                         item.setExpanded(False)
                         dummy = QTreeWidgetItem(item)
-                        dummy.setText(0, "Double-clic pour charger...")
+                        dummy.setText(0, tr("double_click_to_load"))
                         dummy.setForeground(0, Qt.GlobalColor.gray)
                         dummy.setData(0, Qt.ItemDataRole.UserRole, {"type": "dummy"})
                 elif item_type == "rootfolder" and self._rootfolder_manager:
@@ -931,7 +931,7 @@ class ResourcesManager(BaseManagerView):
             db_config = data.get("config") or data.get("obj")
             if db_config and self._database_manager:
                 # New Query Tab option
-                new_tab_action = QAction("➕ New Query Tab", self)
+                new_tab_action = QAction("➕ " + tr("btn_new_query_tab"), self)
                 new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_config.id))
                 menu.addAction(new_tab_action)
 
@@ -944,11 +944,11 @@ class ResourcesManager(BaseManagerView):
         elif item_type in ("tables_folder", "views_folder"):
             # Tables/Views folder - expand/collapse
             if item.isExpanded():
-                collapse_action = QAction("Collapse", self)
+                collapse_action = QAction(tr("menu_collapse"), self)
                 collapse_action.triggered.connect(lambda: item.setExpanded(False))
                 menu.addAction(collapse_action)
             else:
-                expand_action = QAction("Expand", self)
+                expand_action = QAction(tr("menu_expand"), self)
                 expand_action.triggered.connect(lambda: item.setExpanded(True))
                 menu.addAction(expand_action)
 
@@ -958,18 +958,18 @@ class ResourcesManager(BaseManagerView):
 
             # New Query Tab option
             if db_id:
-                new_tab_action = QAction("➕ New Query Tab", self)
+                new_tab_action = QAction("➕ " + tr("btn_new_query_tab"), self)
                 new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_id))
                 menu.addAction(new_tab_action)
                 menu.addSeparator()
 
             # SELECT TOP 100 action
-            select_top_action = QAction("SELECT TOP 100 *", self)
+            select_top_action = QAction(tr("menu_select_top_100"), self)
             select_top_action.triggered.connect(lambda: self._execute_query_for_table(data, limit=100))
             menu.addAction(select_top_action)
 
             # SELECT * action
-            select_all_action = QAction("SELECT *", self)
+            select_all_action = QAction(tr("menu_select_all"), self)
             select_all_action.triggered.connect(lambda: self._execute_query_for_table(data, limit=None))
             menu.addAction(select_all_action)
 
@@ -985,7 +985,7 @@ class ResourcesManager(BaseManagerView):
             # RootFolder context menu
             rootfolder_obj = data.get("obj")
             if rootfolder_obj and self._rootfolder_manager:
-                edit_action = QAction("Edit Name & Description", self)
+                edit_action = QAction(tr("menu_edit_name_desc"), self)
                 edit_action.triggered.connect(lambda: self._rootfolder_manager._edit_rootfolder(rootfolder_obj))
                 menu.addAction(edit_action)
 
@@ -999,7 +999,7 @@ class ResourcesManager(BaseManagerView):
             # Folder context menu
             path = data.get("path")
             if path:
-                open_location_action = QAction("Open Folder Location", self)
+                open_location_action = QAction(tr("menu_open_folder_location"), self)
                 open_location_action.triggered.connect(lambda: self._open_location(Path(path)))
                 menu.addAction(open_location_action)
 
@@ -1014,17 +1014,17 @@ class ResourcesManager(BaseManagerView):
             # File context menu
             path = data.get("path")
             if path and self._rootfolder_manager:
-                open_action = QAction("Open", self)
+                open_action = QAction(tr("open"), self)
                 open_action.triggered.connect(lambda: self._rootfolder_manager._open_file(Path(path)))
                 menu.addAction(open_action)
 
-                open_location_action = QAction("Open File Location", self)
+                open_location_action = QAction(tr("menu_open_file_location"), self)
                 open_location_action.triggered.connect(lambda: self._rootfolder_manager._open_file_location(Path(path)))
                 menu.addAction(open_location_action)
 
         elif item_type == "category" and data.get("category_key") == "images":
             # Images root category context menu
-            open_manager_action = QAction("📷 Ouvrir le gestionnaire d'images...", self)
+            open_manager_action = QAction("📷 " + tr("btn_open_image_manager"), self)
             open_manager_action.triggered.connect(self._open_image_library_manager)
             menu.addAction(open_manager_action)
 
@@ -1035,7 +1035,7 @@ class ResourcesManager(BaseManagerView):
             # Image category folder context menu (logical category)
             category_name = data.get("name", "")
 
-            open_manager_action = QAction("📷 Ouvrir le gestionnaire d'images...", self)
+            open_manager_action = QAction("📷 " + tr("btn_open_image_manager"), self)
             open_manager_action.triggered.connect(self._open_image_library_manager)
             menu.addAction(open_manager_action)
 
@@ -1106,19 +1106,19 @@ class ResourcesManager(BaseManagerView):
         welcome_layout = QVBoxLayout(welcome_widget)
         welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title = QLabel("Database Explorer")
+        title = QLabel(tr("db_explorer_title"))
         title.setStyleSheet("font-size: 16pt; font-weight: bold;")
         welcome_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        subtitle = QLabel("Double-cliquez sur une table ou vue pour exécuter SELECT TOP 100")
+        subtitle = QLabel(tr("db_explorer_double_click"))
         subtitle.setStyleSheet("font-size: 11pt; color: gray;")
         welcome_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        info = QLabel("Clic droit pour plus d'options (SELECT *, Distribution Analysis)")
+        info = QLabel(tr("db_explorer_right_click"))
         info.setStyleSheet("font-size: 10pt; color: gray;")
         welcome_layout.addWidget(info, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.query_tab_widget.addTab(welcome_widget, "Bienvenue")
+        self.query_tab_widget.addTab(welcome_widget, tr("welcome_tab"))
 
     def _close_query_tab(self, index: int):
         """Close a query tab."""
@@ -1143,8 +1143,8 @@ class ResourcesManager(BaseManagerView):
         current_name = self.query_tab_widget.tabText(index)
         new_name, ok = QInputDialog.getText(
             self,
-            "Rename Tab / Renommer l'onglet",
-            "New name / Nouveau nom:",
+            tr("dialog_rename_tab"),
+            tr("dialog_new_name"),
             text=current_name
         )
 
@@ -1168,8 +1168,7 @@ class ResourcesManager(BaseManagerView):
         db_conn = self._database_manager._get_connection_by_id(db_id)
 
         if not connection or not db_conn:
-            DialogHelper.warning("Connexion à la base de données non disponible.\n"
-                               "Développez d'abord le noeud de la base de données.", parent=self)
+            DialogHelper.warning(tr("db_connection_unavailable"), parent=self)
             return None
 
         # Check if there's already a tab for this database
@@ -1219,7 +1218,7 @@ class ResourcesManager(BaseManagerView):
         db_conn = self._database_manager._get_connection_by_id(db_id)
 
         if not db_conn:
-            DialogHelper.warning("Database configuration not found.", parent=self)
+            DialogHelper.warning(tr("db_config_not_found"), parent=self)
             return
 
         # If not connected, try to connect
@@ -1228,13 +1227,12 @@ class ResourcesManager(BaseManagerView):
                 connection = self._database_manager.reconnect_database(db_id)
                 if not connection:
                     DialogHelper.error(
-                        f"Failed to connect to {db_conn.name}.\n"
-                        f"Échec de la connexion à {db_conn.name}.",
+                        tr("failed_to_connect", name=db_conn.name),
                         parent=self
                     )
                     return
             except Exception as e:
-                DialogHelper.error(f"Connection error: {e}", parent=self)
+                DialogHelper.error(tr("connection_error"), parent=self, details=str(e))
                 return
 
         # Create new tab (always new, don't reuse existing)
@@ -1285,10 +1283,10 @@ class ResourcesManager(BaseManagerView):
             try:
                 connection = self._database_manager.reconnect_database(db_id)
                 if not connection:
-                    DialogHelper.error(f"Failed to connect to {db_conn.name}.", parent=self)
+                    DialogHelper.error(tr("failed_to_connect", name=db_conn.name), parent=self)
                     return
             except Exception as e:
-                DialogHelper.error(f"Connection error: {e}", parent=self)
+                DialogHelper.error(tr("connection_error"), parent=self, details=str(e))
                 return
 
         # Generate query based on database type
@@ -1407,7 +1405,7 @@ class ResourcesManager(BaseManagerView):
             # Always add "Open Image Manager" action item first
             open_manager_item = self.tree_view.add_item(
                 parent=images_item,
-                text=["📷 Ouvrir le gestionnaire d'images..."],
+                text=["📷 " + tr("btn_open_image_manager")],
                 data={"type": "open_image_manager"}
             )
 
@@ -1531,26 +1529,19 @@ class ResourcesManager(BaseManagerView):
     def _update_saved_query(self):
         """Update the current saved query with the text from the editor."""
         if not self._current_query_obj:
-            DialogHelper.warning(
-                "No saved query loaded.\nAucune requête enregistrée chargée.",
-                parent=self
-            )
+            DialogHelper.warning(tr("no_saved_query_loaded"), parent=self)
             return
 
         # Get new query text
         new_query_text = self.query_sql_editor.toPlainText().strip()
         if not new_query_text:
-            DialogHelper.warning(
-                "Query text is empty.\nLe texte de la requête est vide.",
-                parent=self
-            )
+            DialogHelper.warning(tr("query_text_empty"), parent=self)
             return
 
         # Confirm update
         query_name = getattr(self._current_query_obj, 'name', 'Query')
         if not DialogHelper.confirm(
-            f"Update query '{query_name}' with current SQL text?\n"
-            f"Mettre à jour la requête '{query_name}' avec le texte SQL actuel ?",
+            tr("dialog_confirm_update", name=query_name),
             parent=self
         ):
             return
@@ -1564,22 +1555,20 @@ class ResourcesManager(BaseManagerView):
             # Save to database
             if config_db.update_saved_query(self._current_query_obj):
                 DialogHelper.info(
-                    f"Query '{query_name}' updated successfully.\n"
-                    f"Requête '{query_name}' mise à jour avec succès.",
+                    tr("query_updated_success", name=query_name),
                     parent=self
                 )
                 logger.info(f"Updated saved query: {query_name}")
             else:
                 DialogHelper.error(
-                    f"Failed to update query '{query_name}'.\n"
-                    f"Échec de la mise à jour de la requête '{query_name}'.",
+                    tr("query_update_failed", name=query_name),
                     parent=self
                 )
 
         except Exception as e:
             logger.error(f"Error updating saved query: {e}")
             DialogHelper.error(
-                f"Error updating query: {e}\nErreur lors de la mise à jour: {e}",
+                tr("query_error_update", error=str(e)),
                 parent=self
             )
 
@@ -1592,7 +1581,7 @@ class ResourcesManager(BaseManagerView):
             # Try to establish connection first
             db_conn = self._current_query_db_conn
             self.query_execute_btn.setEnabled(False)
-            self.query_execute_btn.setText(f"⏳ Connecting to {db_conn.name}...")
+            self.query_execute_btn.setText("⏳ " + tr("connecting_to", name=db_conn.name))
             QApplication.processEvents()
 
             try:
@@ -1605,36 +1594,28 @@ class ResourcesManager(BaseManagerView):
                     self.query_execute_btn.setText(f"▶ Execute on {db_conn.name} (F5)")
                     self.query_execute_btn.setEnabled(True)
                     DialogHelper.error(
-                        f"Failed to connect to {db_conn.name}.\n"
-                        f"Échec de la connexion à {db_conn.name}.",
+                        tr("failed_to_connect", name=db_conn.name),
                         parent=self
                     )
                     return
             except Exception as e:
                 self.query_execute_btn.setText(f"▶ Execute on {db_conn.name} (F5)")
                 self.query_execute_btn.setEnabled(True)
-                DialogHelper.error(
-                    f"Connection error: {e}\nErreur de connexion: {e}",
-                    parent=self
-                )
+                DialogHelper.error(tr("connection_error"), parent=self, details=str(e))
                 return
 
         if not self._current_query_connection:
-            DialogHelper.error(
-                "No database connection available.\n"
-                "Aucune connexion à la base de données disponible.",
-                parent=self
-            )
+            DialogHelper.error(tr("no_db_connection_available"), parent=self)
             return
 
         query_text = self.query_sql_editor.toPlainText().strip()
         if not query_text:
-            DialogHelper.warning("No query to execute.\nAucune requête à exécuter.", parent=self)
+            DialogHelper.warning(tr("no_query_to_execute"), parent=self)
             return
 
         # Show loading state
         self.query_execute_btn.setEnabled(False)
-        self.query_execute_btn.setText("⏳ Executing...")
+        self.query_execute_btn.setText("⏳ " + tr("executing"))
         QApplication.processEvents()
 
         try:
@@ -1682,10 +1663,10 @@ class ResourcesManager(BaseManagerView):
                 from PySide6.QtWidgets import QMessageBox
                 msg = QMessageBox(self)
                 msg.setIcon(QMessageBox.Icon.Warning)
-                msg.setWindowTitle("Connection Error")
-                msg.setText("Database connection lost.\nLa connexion a été perdue.")
-                msg.setInformativeText("Would you like to reconnect?\nVoulez-vous vous reconnecter ?")
-                reconnect_btn = msg.addButton("Reconnect", QMessageBox.ButtonRole.AcceptRole)
+                msg.setWindowTitle(tr("connection_error"))
+                msg.setText(tr("connection_lost"))
+                msg.setInformativeText(tr("would_you_reconnect"))
+                reconnect_btn = msg.addButton(tr("btn_reconnect"), QMessageBox.ButtonRole.AcceptRole)
                 msg.addButton(QMessageBox.StandardButton.Cancel)
                 msg.exec()
 
@@ -1713,11 +1694,11 @@ class ResourcesManager(BaseManagerView):
             new_connection = self._database_manager.reconnect_database(self._current_query_db_conn.id)
             if new_connection:
                 self._current_query_connection = new_connection
-                DialogHelper.info("Reconnected successfully.\nReconnexion réussie.", parent=self)
+                DialogHelper.info(tr("reconnected_success"), parent=self)
             else:
-                DialogHelper.error("Reconnection failed.\nÉchec de la reconnexion.", parent=self)
+                DialogHelper.error(tr("reconnection_failed"), parent=self)
         except Exception as e:
-            DialogHelper.error(f"Reconnection error: {e}", parent=self)
+            DialogHelper.error(tr("connection_error"), parent=self, details=str(e))
 
     # ==================== Image Management (delegated to ImageContentHandler) ====================
 

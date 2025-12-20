@@ -86,7 +86,7 @@ class ImageLibraryManager(QWidget):
 
         # Action buttons
         action_layout = QHBoxLayout()
-        self.add_folder_btn = QPushButton("➕ Add Image Folder")
+        self.add_folder_btn = QPushButton("➕ " + tr("image_add_image_folder"))
         self.add_folder_btn.clicked.connect(self._add_rootfolder)
         action_layout.addWidget(self.add_folder_btn)
         action_layout.addStretch()
@@ -113,7 +113,7 @@ class ImageLibraryManager(QWidget):
         # Page 0: Welcome / empty state
         welcome_widget = QWidget()
         welcome_layout = QVBoxLayout(welcome_widget)
-        welcome_label = QLabel("Select an image to preview\nSélectionnez une image pour l'aperçu")
+        welcome_label = QLabel(tr("image_select_preview"))
         welcome_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         welcome_label.setStyleSheet("color: gray; font-size: 14px;")
         welcome_layout.addWidget(welcome_label)
@@ -129,13 +129,13 @@ class ImageLibraryManager(QWidget):
 
     def _setup_search_section(self, parent_layout: QVBoxLayout):
         """Setup the search section."""
-        search_group = QGroupBox("Recherche / Search")
+        search_group = QGroupBox(tr("image_search"))
         search_layout = QVBoxLayout(search_group)
 
         # Search input
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search images...")
+        self.search_input.setPlaceholderText(tr("image_search_placeholder"))
         self.search_input.setClearButtonEnabled(True)
         search_row.addWidget(self.search_input)
 
@@ -146,15 +146,15 @@ class ImageLibraryManager(QWidget):
 
         # Search filters
         filters_layout = QHBoxLayout()
-        self.search_name_cb = QCheckBox("Nom")
+        self.search_name_cb = QCheckBox(tr("image_name"))
         self.search_name_cb.setChecked(True)
         filters_layout.addWidget(self.search_name_cb)
 
-        self.search_category_cb = QCheckBox("Catégories")
+        self.search_category_cb = QCheckBox(tr("image_categories"))
         self.search_category_cb.setChecked(True)
         filters_layout.addWidget(self.search_category_cb)
 
-        self.search_tag_cb = QCheckBox("Tags")
+        self.search_tag_cb = QCheckBox(tr("image_tags"))
         self.search_tag_cb.setChecked(True)
         filters_layout.addWidget(self.search_tag_cb)
 
@@ -171,21 +171,21 @@ class ImageLibraryManager(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
 
-        self.open_btn = QPushButton("📂 Open in Explorer")
+        self.open_btn = QPushButton("📂 " + tr("image_open_explorer"))
         self.open_btn.clicked.connect(self._open_image_location)
         toolbar.addWidget(self.open_btn)
 
-        self.copy_btn = QPushButton("📋 Copy to Clipboard")
+        self.copy_btn = QPushButton("📋 " + tr("image_copy_clipboard"))
         self.copy_btn.clicked.connect(self._copy_image_to_clipboard)
         toolbar.addWidget(self.copy_btn)
 
         toolbar.addStretch()
 
-        self.edit_btn = QPushButton("✏️ Edit")
+        self.edit_btn = QPushButton("✏️ " + tr("image_edit"))
         self.edit_btn.clicked.connect(self._edit_current_image)
         toolbar.addWidget(self.edit_btn)
 
-        self.fullscreen_btn = QPushButton("🔲 Fullscreen")
+        self.fullscreen_btn = QPushButton("🔲 " + tr("image_fullscreen"))
         self.fullscreen_btn.clicked.connect(self._open_fullscreen)
         toolbar.addWidget(self.fullscreen_btn)
 
@@ -204,32 +204,32 @@ class ImageLibraryManager(QWidget):
         preview_layout.addWidget(scroll_area, stretch=1)
 
         # Details section
-        details_group = QGroupBox("Details")
+        details_group = QGroupBox(tr("image_details"))
         details_layout = QFormLayout(details_group)
 
         self.detail_name = QLabel()
-        details_layout.addRow("Name:", self.detail_name)
+        details_layout.addRow(tr("image_name") + ":", self.detail_name)
 
         self.detail_path = QLabel()
         self.detail_path.setWordWrap(True)
         self.detail_path.setStyleSheet("color: gray; font-size: 10px;")
-        details_layout.addRow("Path:", self.detail_path)
+        details_layout.addRow(tr("image_path") + ":", self.detail_path)
 
         self.detail_physical = QLabel()
-        details_layout.addRow("Folder:", self.detail_physical)
+        details_layout.addRow(tr("image_folder") + ":", self.detail_physical)
 
         # Technical metadata
         self.detail_dimensions = QLabel()
-        details_layout.addRow("Dimensions:", self.detail_dimensions)
+        details_layout.addRow(tr("image_dimensions") + ":", self.detail_dimensions)
 
         self.detail_filesize = QLabel()
-        details_layout.addRow("File Size:", self.detail_filesize)
+        details_layout.addRow(tr("image_filesize") + ":", self.detail_filesize)
 
         self.detail_format = QLabel()
-        details_layout.addRow("Format:", self.detail_format)
+        details_layout.addRow(tr("image_format") + ":", self.detail_format)
 
         self.detail_modified = QLabel()
-        details_layout.addRow("Modified:", self.detail_modified)
+        details_layout.addRow(tr("image_modified") + ":", self.detail_modified)
 
         # Categories section
         cat_widget = QWidget()
@@ -240,10 +240,10 @@ class ImageLibraryManager(QWidget):
         cat_layout.addWidget(self.detail_categories)
         self.edit_categories_btn = QPushButton("+")
         self.edit_categories_btn.setFixedWidth(25)
-        self.edit_categories_btn.setToolTip("Manage categories")
+        self.edit_categories_btn.setToolTip(tr("image_manage_categories"))
         self.edit_categories_btn.clicked.connect(self._manage_categories)
         cat_layout.addWidget(self.edit_categories_btn)
-        details_layout.addRow("Categories:", cat_widget)
+        details_layout.addRow(tr("image_categories") + ":", cat_widget)
 
         # Tags section
         tag_widget = QWidget()
@@ -254,10 +254,10 @@ class ImageLibraryManager(QWidget):
         tag_layout.addWidget(self.detail_tags)
         self.edit_tags_btn = QPushButton("+")
         self.edit_tags_btn.setFixedWidth(25)
-        self.edit_tags_btn.setToolTip("Manage tags")
+        self.edit_tags_btn.setToolTip(tr("image_manage_tags"))
         self.edit_tags_btn.clicked.connect(self._manage_tags)
         tag_layout.addWidget(self.edit_tags_btn)
-        details_layout.addRow("Tags:", tag_widget)
+        details_layout.addRow(tr("image_tags") + ":", tag_widget)
 
         preview_layout.addWidget(details_group)
 
@@ -284,7 +284,7 @@ class ImageLibraryManager(QWidget):
 
     def _load_folders_section(self):
         """Load the Dossiers (physical folders) section."""
-        folders_item = QTreeWidgetItem(self.tree, ["📂 Dossiers"])
+        folders_item = QTreeWidgetItem(self.tree, ["📂 " + tr("image_folders")])
         folders_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "folders_root"
         })
@@ -297,7 +297,7 @@ class ImageLibraryManager(QWidget):
             self._add_rootfolder_to_tree(rf, folders_item)
 
         # Add "Add folder" item
-        add_item = QTreeWidgetItem(folders_item, ["➕ Add image folder..."])
+        add_item = QTreeWidgetItem(folders_item, ["➕ " + tr("image_add_folder_hint")])
         add_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "add_rootfolder"
         })
@@ -375,7 +375,7 @@ class ImageLibraryManager(QWidget):
 
     def _load_categories_section(self):
         """Load the Catégories (logical categories) section."""
-        cat_item = QTreeWidgetItem(self.tree, ["🏷️ Catégories"])
+        cat_item = QTreeWidgetItem(self.tree, ["🏷️ " + tr("image_categories")])
         cat_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "categories_root"
         })
@@ -400,7 +400,7 @@ class ImageLibraryManager(QWidget):
                 self._add_image_to_tree(img, cat_folder)
 
         # Add "Create category" item
-        add_item = QTreeWidgetItem(cat_item, ["➕ Create category..."])
+        add_item = QTreeWidgetItem(cat_item, ["➕ " + tr("image_create_category")])
         add_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "add_category"
         })
@@ -445,9 +445,9 @@ class ImageLibraryManager(QWidget):
 
         # If no item selected, show general menu
         if not item:
-            menu.addAction("➕ Add image folder...", self._add_rootfolder)
+            menu.addAction("➕ " + tr("image_add_folder_hint"), self._add_rootfolder)
             menu.addSeparator()
-            menu.addAction("🔄 Refresh", self.refresh)
+            menu.addAction("🔄 " + tr("btn_refresh"), self.refresh)
             menu.exec(self.tree.viewport().mapToGlobal(position))
             return
 
@@ -455,49 +455,49 @@ class ImageLibraryManager(QWidget):
         item_type = data.get("type", "")
 
         if item_type == "folders_root":
-            menu.addAction("➕ Add image folder...", self._add_rootfolder)
+            menu.addAction("➕ " + tr("image_add_folder_hint"), self._add_rootfolder)
             menu.addSeparator()
-            menu.addAction("🔄 Refresh", self.refresh)
+            menu.addAction("🔄 " + tr("btn_refresh"), self.refresh)
 
         elif item_type == "image_rootfolder":
             rootfolder = data.get("obj")
             if rootfolder:
-                menu.addAction("🔄 Rescan folder", lambda: self._rescan_rootfolder(rootfolder))
+                menu.addAction("🔄 " + tr("image_rescan_folder"), lambda: self._rescan_rootfolder(rootfolder))
                 menu.addSeparator()
-                menu.addAction("📂 Open in Explorer", lambda: self._open_folder_in_explorer(rootfolder.path))
+                menu.addAction("📂 " + tr("image_open_explorer"), lambda: self._open_folder_in_explorer(rootfolder.path))
                 menu.addSeparator()
-                menu.addAction("🗑️ Remove folder", lambda: self._remove_rootfolder(rootfolder))
+                menu.addAction("🗑️ " + tr("image_remove_folder"), lambda: self._remove_rootfolder(rootfolder))
 
         elif item_type == "physical_folder":
             rootfolder = data.get("rootfolder")
             path = data.get("physical_path", "")
             if rootfolder:
                 full_path = Path(rootfolder.path) / path
-                menu.addAction("📂 Open in Explorer", lambda: self._open_folder_in_explorer(str(full_path)))
+                menu.addAction("📂 " + tr("image_open_explorer"), lambda: self._open_folder_in_explorer(str(full_path)))
 
         elif item_type == "categories_root":
-            menu.addAction("➕ Create category...", self._create_category)
+            menu.addAction("➕ " + tr("image_create_category"), self._create_category)
             menu.addSeparator()
-            menu.addAction("🔄 Refresh", self.refresh)
+            menu.addAction("🔄 " + tr("btn_refresh"), self.refresh)
 
         elif item_type == "logical_category":
             cat_name = data.get("name", "")
-            menu.addAction("✏️ Rename category...", lambda: self._rename_category(cat_name))
-            menu.addAction("🗑️ Delete category", lambda: self._delete_category(cat_name))
+            menu.addAction("✏️ " + tr("image_rename_category"), lambda: self._rename_category(cat_name))
+            menu.addAction("🗑️ " + tr("image_delete_category"), lambda: self._delete_category(cat_name))
 
         elif item_type == "image":
             image = data.get("obj")
             if image:
-                menu.addAction("🔲 View Fullscreen", self._open_fullscreen)
+                menu.addAction("🔲 " + tr("image_view_fullscreen"), self._open_fullscreen)
                 menu.addSeparator()
-                menu.addAction("📂 Open in Explorer", self._open_image_location)
-                menu.addAction("📋 Copy to Clipboard", self._copy_image_to_clipboard)
+                menu.addAction("📂 " + tr("image_open_explorer"), self._open_image_location)
+                menu.addAction("📋 " + tr("image_copy_clipboard"), self._copy_image_to_clipboard)
                 menu.addSeparator()
-                menu.addAction("🏷️ Manage categories...", self._manage_categories)
-                menu.addAction("🔖 Manage tags...", self._manage_tags)
+                menu.addAction("🏷️ " + tr("image_manage_categories") + "...", self._manage_categories)
+                menu.addAction("🔖 " + tr("image_manage_tags") + "...", self._manage_tags)
                 menu.addSeparator()
-                menu.addAction("✏️ Edit details...", self._edit_current_image)
-                menu.addAction("🗑️ Remove from library", lambda: self._remove_image(image))
+                menu.addAction("✏️ " + tr("image_edit_details"), self._edit_current_image)
+                menu.addAction("🗑️ " + tr("image_remove_library"), lambda: self._remove_image(image))
 
         if menu.actions():
             menu.exec(self.tree.viewport().mapToGlobal(position))
@@ -520,12 +520,12 @@ class ImageLibraryManager(QWidget):
 
         # Load image and get metadata
         if not filepath.exists():
-            self.preview_label.setText(f"File not found:\n{image.filepath}")
+            self.preview_label.setText(tr("image_file_not_found") + f":\n{image.filepath}")
             self.preview_label.setStyleSheet("QLabel { color: red; background-color: #2d2d2d; }")
         else:
             pixmap = QPixmap(str(filepath))
             if pixmap.isNull():
-                self.preview_label.setText("Cannot load image")
+                self.preview_label.setText(tr("image_cannot_load"))
             else:
                 # Scale to fit
                 scaled = pixmap.scaled(
@@ -589,8 +589,8 @@ class ImageLibraryManager(QWidget):
         categories = self.config_db.get_image_categories(image.id)
         tags = self.config_db.get_image_tags(image.id)
 
-        self.detail_categories.setText(", ".join(categories) if categories else "(none)")
-        self.detail_tags.setText(", ".join(tags) if tags else "(none)")
+        self.detail_categories.setText(", ".join(categories) if categories else tr("categories_none"))
+        self.detail_tags.setText(", ".join(tags) if tags else tr("categories_none"))
 
         self.image_selected.emit(image)
 
@@ -600,7 +600,7 @@ class ImageLibraryManager(QWidget):
         """Add a new image rootfolder."""
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Select Image Folder / Sélectionner un dossier d'images",
+            tr("image_select_folder_title"),
             "",
             QFileDialog.Option.ShowDirsOnly
         )
@@ -613,7 +613,7 @@ class ImageLibraryManager(QWidget):
         for rf in existing:
             if rf.path == folder:
                 DialogHelper.warning(
-                    f"This folder is already in the library:\n{folder}",
+                    tr("image_folder_exists") + f"\n{folder}",
                     parent=self
                 )
                 return
@@ -621,8 +621,8 @@ class ImageLibraryManager(QWidget):
         # Get name
         name, ok = QInputDialog.getText(
             self,
-            "Folder Name",
-            "Enter a name for this folder:",
+            tr("image_folder_name_title"),
+            tr("image_folder_name_prompt"),
             text=Path(folder).name
         )
 
@@ -632,8 +632,8 @@ class ImageLibraryManager(QWidget):
         # Create rootfolder and scan
         dialog = ScanProgressDialog(
             self,
-            title="Scanning Images",
-            description=f"Scanning folder: {folder}"
+            title=tr("image_scanning"),
+            description=tr("image_scanning_folder") + f" {folder}"
         )
 
         def scan_with_rootfolder(progress_callback=None):
@@ -651,19 +651,19 @@ class ImageLibraryManager(QWidget):
         if result and result.get("success"):
             self.refresh()
             DialogHelper.info(
-                f"Folder added successfully!\n"
-                f"Found {result.get('total_found', 0)} images.",
+                tr("image_folder_added") + "\n" +
+                tr("image_found_count", count=result.get('total_found', 0)),
                 parent=self
             )
         else:
-            DialogHelper.error("Failed to add folder.", parent=self)
+            DialogHelper.error(tr("image_add_failed"), parent=self)
 
     def _rescan_rootfolder(self, rootfolder: ImageRootfolder):
         """Rescan a rootfolder for new/removed images."""
         dialog = ScanProgressDialog(
             self,
-            title="Rescanning",
-            description=f"Rescanning: {rootfolder.name}"
+            title=tr("image_rescanning"),
+            description=f"{tr('image_rescanning')}: {rootfolder.name}"
         )
 
         scanner = ImageScanner(rootfolder)
@@ -673,9 +673,9 @@ class ImageLibraryManager(QWidget):
         if result:
             self.refresh()
             DialogHelper.info(
-                f"Rescan complete!\n"
-                f"Added: {result.get('added', 0)}\n"
-                f"Removed: {result.get('removed', 0)}",
+                tr("image_rescan_complete") + "\n" +
+                tr("image_rescan_added", count=result.get('added', 0)) + "\n" +
+                tr("image_rescan_removed", count=result.get('removed', 0)),
                 parent=self
             )
 
@@ -685,9 +685,9 @@ class ImageLibraryManager(QWidget):
         count = len(images)
 
         if not DialogHelper.confirm(
-            f"Remove folder '{rootfolder.name}' from library?\n\n"
-            f"This will remove {count} images from the library.\n"
-            f"(Files will not be deleted from disk)",
+            tr("image_confirm_remove_folder", name=rootfolder.name) + "\n\n" +
+            tr("image_remove_count", count=count) + "\n" +
+            tr("image_files_not_deleted"),
             parent=self
         ):
             return
@@ -699,14 +699,14 @@ class ImageLibraryManager(QWidget):
         """Create a new logical category."""
         name, ok = QInputDialog.getText(
             self,
-            "New Category",
-            "Enter category name:"
+            tr("image_new_category_title"),
+            tr("image_new_category_prompt")
         )
 
         if ok and name.strip():
             # Category will be created when first image is added to it
             DialogHelper.info(
-                f"Category '{name.strip()}' will appear when you add images to it.",
+                tr("image_category_hint", name=name.strip()),
                 parent=self
             )
 
@@ -714,8 +714,8 @@ class ImageLibraryManager(QWidget):
         """Rename a logical category."""
         new_name, ok = QInputDialog.getText(
             self,
-            "Rename Category",
-            "Enter new name:",
+            tr("image_rename_category_title"),
+            tr("image_rename_category_prompt"),
             text=old_name
         )
 
@@ -734,9 +734,9 @@ class ImageLibraryManager(QWidget):
         count = len(images)
 
         if not DialogHelper.confirm(
-            f"Delete category '{cat_name}'?\n\n"
-            f"This will remove the category from {count} images.\n"
-            f"(Images will not be deleted)",
+            tr("image_confirm_delete_category", name=cat_name) + "\n\n" +
+            tr("image_delete_category_hint", count=count) + "\n" +
+            tr("image_files_not_deleted"),
             parent=self
         ):
             return
@@ -753,7 +753,7 @@ class ImageLibraryManager(QWidget):
 
         path = Path(self._current_image.filepath)
         if not path.exists():
-            DialogHelper.warning("File not found.", parent=self)
+            DialogHelper.warning(tr("image_file_not_found") + ".", parent=self)
             return
 
         if platform.system() == "Windows":
@@ -767,7 +767,7 @@ class ImageLibraryManager(QWidget):
         """Open a folder in file explorer."""
         path = Path(folder_path)
         if not path.exists():
-            DialogHelper.warning("Folder not found.", parent=self)
+            DialogHelper.warning(tr("image_folder_not_found") + ".", parent=self)
             return
 
         if platform.system() == "Windows":
@@ -781,7 +781,7 @@ class ImageLibraryManager(QWidget):
         """Open image with system default viewer."""
         path = Path(image.filepath)
         if not path.exists():
-            DialogHelper.warning("File not found.", parent=self)
+            DialogHelper.warning(tr("image_file_not_found") + ".", parent=self)
             return
 
         if platform.system() == "Windows":
@@ -798,13 +798,13 @@ class ImageLibraryManager(QWidget):
 
         path = Path(self._current_image.filepath)
         if not path.exists():
-            DialogHelper.warning("File not found.", parent=self)
+            DialogHelper.warning(tr("image_file_not_found") + ".", parent=self)
             return
 
         pixmap = QPixmap(str(path))
         if not pixmap.isNull():
             QApplication.clipboard().setPixmap(pixmap)
-            DialogHelper.info("Image copied to clipboard.", parent=self)
+            DialogHelper.info(tr("image_copied_clipboard"), parent=self)
 
     def _open_fullscreen(self):
         """Open current image in fullscreen dialog."""
@@ -854,8 +854,8 @@ class ImageLibraryManager(QWidget):
         # For now, just allow editing name and description
         name, ok = QInputDialog.getText(
             self,
-            "Edit Image",
-            "Image name:",
+            tr("image_edit_title"),
+            tr("image_edit_name_prompt"),
             text=self._current_image.name
         )
 
@@ -868,8 +868,8 @@ class ImageLibraryManager(QWidget):
     def _remove_image(self, image: SavedImage):
         """Remove an image from the library."""
         if not DialogHelper.confirm(
-            f"Remove '{image.name}' from library?\n\n"
-            f"(File will not be deleted from disk)",
+            tr("image_confirm_remove", name=image.name) + "\n\n" +
+            tr("image_files_not_deleted"),
             parent=self
         ):
             return
@@ -889,12 +889,12 @@ class ImageLibraryManager(QWidget):
 
         # Simple dialog for now - comma-separated input
         current_text = ", ".join(current_categories)
-        hint = f"Available: {', '.join(all_categories)}" if all_categories else ""
+        hint = tr("image_available_hint", list=', '.join(all_categories)) if all_categories else ""
 
         text, ok = QInputDialog.getText(
             self,
-            "Manage Categories",
-            f"Enter categories (comma-separated):\n{hint}",
+            tr("image_manage_categories_title"),
+            tr("image_manage_categories_prompt") + f"\n{hint}",
             text=current_text
         )
 
@@ -914,12 +914,12 @@ class ImageLibraryManager(QWidget):
 
         # Simple dialog for now - comma-separated input
         current_text = ", ".join(current_tags)
-        hint = f"Existing tags: {', '.join(all_tags)}" if all_tags else ""
+        hint = tr("image_existing_tags_hint", list=', '.join(all_tags)) if all_tags else ""
 
         text, ok = QInputDialog.getText(
             self,
-            "Manage Tags",
-            f"Enter tags (comma-separated):\n{hint}",
+            tr("image_manage_tags_title"),
+            tr("image_manage_tags_prompt") + f"\n{hint}",
             text=current_text
         )
 
@@ -950,7 +950,7 @@ class ImageLibraryManager(QWidget):
         self.tree.clear()
         self._tree_items.clear()
 
-        results_item = QTreeWidgetItem(self.tree, [f"🔍 Search results: {len(results)}"])
+        results_item = QTreeWidgetItem(self.tree, ["🔍 " + tr("image_search_results", count=len(results))])
         results_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "search_results"})
         results_item.setExpanded(True)
 
@@ -958,6 +958,6 @@ class ImageLibraryManager(QWidget):
             self._add_image_to_tree(img, results_item)
 
         # Add "Clear search" item
-        clear_item = QTreeWidgetItem(results_item, ["✕ Clear search"])
+        clear_item = QTreeWidgetItem(results_item, ["✕ " + tr("image_clear_search")])
         clear_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "clear_search"})
         clear_item.setForeground(0, Qt.GlobalColor.gray)

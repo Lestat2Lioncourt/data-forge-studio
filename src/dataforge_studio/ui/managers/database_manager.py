@@ -63,11 +63,11 @@ class DatabaseManager(QWidget):
 
         # Toolbar
         toolbar_builder = ToolbarBuilder(self)
-        toolbar_builder.add_button("➕ New Query Tab", self._new_query_tab, icon="add.png")
+        toolbar_builder.add_button("➕ " + tr("btn_new_tab"), self._new_query_tab, icon="add.png")
         toolbar_builder.add_button(tr("btn_refresh_schema"), self._refresh_schema, icon="refresh.png")
         toolbar_builder.add_separator()
-        toolbar_builder.add_button("New Connection", self._new_connection)
-        toolbar_builder.add_button("Manage Connections", self._manage_connections)
+        toolbar_builder.add_button(tr("menu_new_connection"), self._new_connection)
+        toolbar_builder.add_button(tr("db_connections"), self._manage_connections)
 
         self.toolbar = toolbar_builder.build()
         layout.addWidget(self.toolbar)
@@ -122,19 +122,19 @@ class DatabaseManager(QWidget):
         welcome_layout = QVBoxLayout(welcome_widget)
         welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title = QLabel("Welcome to Database Manager")
+        title = QLabel(tr("db_welcome_title"))
         title.setStyleSheet("font-size: 16pt; font-weight: bold;")
         welcome_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        subtitle = QLabel("Click '➕ New Query Tab' to start writing SQL queries")
+        subtitle = QLabel(tr("db_welcome_subtitle"))
         subtitle.setStyleSheet("font-size: 11pt; color: gray;")
         welcome_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        info = QLabel("Double-click on tables/views in the explorer to generate SELECT queries")
+        info = QLabel(tr("db_welcome_info"))
         info.setStyleSheet("font-size: 10pt; color: gray;")
         welcome_layout.addWidget(info, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.tab_widget.addTab(welcome_widget, "Welcome")
+        self.tab_widget.addTab(welcome_widget, tr("welcome_tab"))
 
     def refresh(self):
         """Public refresh method."""
@@ -151,7 +151,7 @@ class DatabaseManager(QWidget):
 
             if not db_connections:
                 no_conn_item = QTreeWidgetItem(self.schema_tree)
-                no_conn_item.setText(0, "No connections configured")
+                no_conn_item.setText(0, tr("no_connections_configured"))
                 no_conn_item.setForeground(0, Qt.GlobalColor.gray)
                 return
 

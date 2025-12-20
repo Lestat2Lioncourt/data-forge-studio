@@ -121,7 +121,7 @@ class SettingsFrame(BaseManagerView):
         self.debug_editor.hide()
 
         # Placeholder when nothing selected
-        self.placeholder = QLabel("Selectionnez une option dans l'arborescence")
+        self.placeholder = QLabel(tr("settings_select_option"))
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder.setStyleSheet("color: #808080; font-style: italic;")
         self.editors_layout.addWidget(self.placeholder)
@@ -137,7 +137,7 @@ class SettingsFrame(BaseManagerView):
 
         # === TOP: Dropdown ===
         top_layout = QHBoxLayout()
-        top_layout.addWidget(QLabel("Langue active:"))
+        top_layout.addWidget(QLabel(tr("settings_active_language")))
 
         self.lang_combo = QComboBox()
         self.lang_combo.setMinimumWidth(200)
@@ -146,11 +146,11 @@ class SettingsFrame(BaseManagerView):
         top_layout.addStretch()
 
         # Actions
-        self.lang_duplicate_btn = QPushButton("Dupliquer")
+        self.lang_duplicate_btn = QPushButton(tr("settings_duplicate"))
         self.lang_duplicate_btn.clicked.connect(self._duplicate_language)
         top_layout.addWidget(self.lang_duplicate_btn)
 
-        self.lang_save_btn = QPushButton("Sauvegarder")
+        self.lang_save_btn = QPushButton(tr("btn_save"))
         self.lang_save_btn.clicked.connect(self._save_language)
         top_layout.addWidget(self.lang_save_btn)
 
@@ -186,7 +186,7 @@ class SettingsFrame(BaseManagerView):
 
         # === TOP: Dropdown + Actions ===
         top_layout = QHBoxLayout()
-        top_layout.addWidget(QLabel("Theme actif:"))
+        top_layout.addWidget(QLabel(tr("settings_active_theme")))
 
         self.theme_combo = QComboBox()
         self.theme_combo.setMinimumWidth(200)
@@ -195,15 +195,15 @@ class SettingsFrame(BaseManagerView):
         top_layout.addStretch()
 
         # Actions
-        self.theme_duplicate_btn = QPushButton("Dupliquer")
+        self.theme_duplicate_btn = QPushButton(tr("settings_duplicate"))
         self.theme_duplicate_btn.clicked.connect(self._duplicate_theme)
         top_layout.addWidget(self.theme_duplicate_btn)
 
-        self.theme_save_btn = QPushButton("Sauvegarder")
+        self.theme_save_btn = QPushButton(tr("btn_save"))
         self.theme_save_btn.clicked.connect(self._save_theme)
         top_layout.addWidget(self.theme_save_btn)
 
-        self.theme_apply_btn = QPushButton("Appliquer")
+        self.theme_apply_btn = QPushButton(tr("btn_apply"))
         self.theme_apply_btn.clicked.connect(self._apply_theme)
         top_layout.addWidget(self.theme_apply_btn)
 
@@ -235,7 +235,7 @@ class SettingsFrame(BaseManagerView):
         self.palette_widget.color_selected.connect(self._on_palette_color_selected)
         right_layout.addWidget(self.palette_widget)
 
-        preview_label = QLabel("Apercu")
+        preview_label = QLabel(tr("settings_preview"))
         preview_label.setStyleSheet("font-weight: bold; font-size: 9pt; color: #808080;")
         right_layout.addWidget(preview_label)
 
@@ -584,10 +584,10 @@ class SettingsFrame(BaseManagerView):
         """Update save button style."""
         if self._is_lang_modified:
             self.lang_save_btn.setStyleSheet("background-color: #0078d7; color: white; font-weight: bold;")
-            self.lang_save_btn.setText("Sauvegarder *")
+            self.lang_save_btn.setText(tr("btn_save") + " *")
         else:
             self.lang_save_btn.setStyleSheet("")
-            self.lang_save_btn.setText("Sauvegarder")
+            self.lang_save_btn.setText(tr("btn_save"))
 
     def _duplicate_language(self):
         """Duplicate current language."""
@@ -626,7 +626,7 @@ class SettingsFrame(BaseManagerView):
 
             self._is_lang_modified = False
             self._update_lang_save_btn()
-            self.lang_status.setText("Langue sauvegardee!")
+            self.lang_status.setText(tr("settings_saved"))
             from PySide6.QtCore import QTimer
             QTimer.singleShot(3000, lambda: self.lang_status.setText(""))
         except Exception as e:
@@ -855,10 +855,10 @@ class SettingsFrame(BaseManagerView):
         """Update save button style."""
         if self._is_theme_modified:
             self.theme_save_btn.setStyleSheet("background-color: #0078d7; color: white; font-weight: bold;")
-            self.theme_save_btn.setText("Sauvegarder *")
+            self.theme_save_btn.setText(tr("btn_save") + " *")
         else:
             self.theme_save_btn.setStyleSheet("")
-            self.theme_save_btn.setText("Sauvegarder")
+            self.theme_save_btn.setText(tr("btn_save"))
 
     def _duplicate_theme(self):
         """Duplicate current theme."""
@@ -922,7 +922,7 @@ class SettingsFrame(BaseManagerView):
 
             self._is_theme_modified = False
             self._update_theme_save_btn()
-            self.theme_status.setText("Theme sauvegarde!")
+            self.theme_status.setText(tr("settings_theme_saved"))
             from PySide6.QtCore import QTimer
             QTimer.singleShot(3000, lambda: self.theme_status.setText(""))
         except Exception as e:
@@ -934,8 +934,8 @@ class SettingsFrame(BaseManagerView):
 
         # If modified, ask to save first
         if self._is_theme_modified:
-            reply = QMessageBox.question(self, "Appliquer",
-                                         "Sauvegarder les modifications avant d'appliquer?",
+            reply = QMessageBox.question(self, tr("btn_apply"),
+                                         tr("settings_confirm_apply"),
                                          QMessageBox.StandardButton.Yes |
                                          QMessageBox.StandardButton.No |
                                          QMessageBox.StandardButton.Cancel)
@@ -954,7 +954,7 @@ class SettingsFrame(BaseManagerView):
             self.user_prefs.set("theme", theme_id)
             self.theme_changed.emit(theme_id)
 
-            self.theme_status.setText("Theme applique!")
+            self.theme_status.setText(tr("settings_theme_applied"))
             from PySide6.QtCore import QTimer
             QTimer.singleShot(3000, lambda: self.theme_status.setText(""))
 
@@ -966,6 +966,6 @@ class SettingsFrame(BaseManagerView):
         self.user_prefs.set("objects_borders", objects_borders)
         self.debug_borders_changed.emit(objects_borders)
 
-        self.debug_status.setText("Options appliquees. Redemarrage peut etre necessaire.")
+        self.debug_status.setText(tr("settings_options_applied"))
         from PySide6.QtCore import QTimer
         QTimer.singleShot(3000, lambda: self.debug_status.setText(""))

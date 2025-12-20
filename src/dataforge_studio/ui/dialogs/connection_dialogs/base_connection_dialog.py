@@ -15,6 +15,7 @@ from ....database.config_db import get_config_db, DatabaseConnection
 from ....utils.credential_manager import CredentialManager
 from ....utils.network_utils import check_server_reachable
 from ...widgets.dialog_helper import DialogHelper
+from ...core.i18n_bridge import tr
 
 import logging
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
         # Generate or use existing ID
         self.connection_id = connection.id if connection else str(uuid.uuid4())
 
-        self.setWindowTitle("Edit Connection" if self.is_editing else "New Connection")
+        self.setWindowTitle(tr("conn_edit_title") if self.is_editing else tr("conn_new_title"))
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
 
@@ -76,26 +77,26 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
         layout.addLayout(self.connection_fields_layout)
 
         # Common fields group
-        common_group = QGroupBox("General Information")
+        common_group = QGroupBox(tr("conn_general_info"))
         common_layout = QFormLayout(common_group)
 
         # Alias field
         self.alias_edit = QLineEdit()
-        self.alias_edit.setPlaceholderText("Enter display name for this connection")
-        common_layout.addRow("Alias:", self.alias_edit)
+        self.alias_edit.setPlaceholderText(tr("conn_alias_placeholder"))
+        common_layout.addRow(tr("conn_alias_label"), self.alias_edit)
 
         # Description field
         self.description_edit = QTextEdit()
-        self.description_edit.setPlaceholderText("Optional description")
+        self.description_edit.setPlaceholderText(tr("conn_description_placeholder"))
         self.description_edit.setMaximumHeight(80)
-        common_layout.addRow("Description:", self.description_edit)
+        common_layout.addRow(tr("conn_description_label"), self.description_edit)
 
         layout.addWidget(common_group)
 
         # Buttons
         button_layout = QHBoxLayout()
 
-        self.test_button = QPushButton("🔌 Test Connection")
+        self.test_button = QPushButton("🔌 " + tr("conn_test_button"))
         self.test_button.clicked.connect(self._on_test_connection)
         button_layout.addWidget(self.test_button)
 
@@ -184,7 +185,7 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
             connection_string = self._build_connection_string(username, password)
 
             if not connection_string:
-                DialogHelper.warning("Please fill in required fields", parent=self)
+                DialogHelper.warning(tr("conn_fill_required"), parent=self)
                 return
 
             # First, ping the server to check if it's reachable
@@ -195,20 +196,20 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
             )
 
             if not reachable:
-                DialogHelper.error(f"❌ Server not reachable\n\n{vpn_message}", parent=self)
+                DialogHelper.error("❌ " + tr("conn_server_unreachable") + f"\n\n{vpn_message}", parent=self)
                 return
 
             # Test connection
             success, message = self._test_connection(connection_string)
 
             if success:
-                DialogHelper.info(f"✅ Connection successful!\n\n{message}", parent=self)
+                DialogHelper.info("✅ " + tr("conn_success") + f"\n\n{message}", parent=self)
             else:
-                DialogHelper.error(f"❌ Connection failed\n\n{message}", parent=self)
+                DialogHelper.error("❌ " + tr("conn_failed") + f"\n\n{message}", parent=self)
 
         except Exception as e:
             logger.error(f"Error testing connection: {e}")
-            DialogHelper.error(f"Error testing connection", parent=self, details=str(e))
+            DialogHelper.error(tr("conn_test_error"), parent=self, details=str(e))
 
     def _on_save(self):
         """Handle save button click"""
@@ -216,7 +217,7 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
             # Validate alias
             alias = self.alias_edit.text().strip()
             if not alias:
-                DialogHelper.warning("Please enter an alias for this connection", parent=self)
+                DialogHelper.warning(tr("conn_enter_alias"), parent=self)
                 return
 
             # Get credentials
@@ -226,7 +227,7 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
             connection_string = self._build_connection_string()
 
             if not connection_string:
-                DialogHelper.warning("Please fill in required fields", parent=self)
+                DialogHelper.warning(tr("conn_fill_required"), parent=self)
                 return
 
             # Create or update DatabaseConnection
@@ -248,12 +249,12 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
                 # Delete existing credentials if unchecked
                 CredentialManager.delete_credentials(self.connection_id)
 
-            DialogHelper.info("Connection saved successfully!", parent=self)
+            DialogHelper.info(tr("conn_saved"), parent=self)
             self.accept()
 
         except Exception as e:
             logger.error(f"Error saving connection: {e}")
-            DialogHelper.error("Error saving connection", parent=self, details=str(e))
+            DialogHelper.error(tr("conn_save_error"), parent=self, details=str(e))
 
     @abstractmethod
     def _get_credentials(self) -> tuple[str, str, bool]:
