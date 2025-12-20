@@ -70,9 +70,6 @@ class DataForgeMainWindow:
 
         # File menu
         menu_bar.add_menu_with_submenu("file", tr("menu_file"), [
-            (tr("menu_new_connection"), self._new_connection),
-            (tr("menu_import"), self._import_data),
-            (None, None),  # Separator
             (tr("menu_quit"), self.window.close)
         ])
 
@@ -353,26 +350,6 @@ class DataForgeMainWindow:
             "selected_bg": colors.get("feature_menu_bar_selected_bg", "#4d4d4d"),
             "selected_fg": colors.get("feature_menu_bar_selected_fg", "#ffffff")
         })
-
-    def _new_connection(self):
-        """Handle new connection action - open connection selector dialog."""
-        from ..dialogs.connection_dialogs import ConnectionSelectorDialog
-
-        dialog = ConnectionSelectorDialog(parent=self.window)
-
-        # Connect signal to refresh database manager when connection is created
-        def on_connection_created():
-            if self.database_manager:
-                self.database_manager.refresh()
-                self.window.status_bar.set_message(tr("status_connection_created"))
-
-        dialog.connection_created.connect(on_connection_created)
-        dialog.exec()
-
-    def _import_data(self):
-        """Handle import data action."""
-        # TODO: Implement import dialog
-        print("Import data - to be implemented")
 
     def _show_theme_dialog(self):
         """Show theme selection dialog."""

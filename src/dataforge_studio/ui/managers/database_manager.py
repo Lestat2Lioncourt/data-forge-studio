@@ -1093,49 +1093,12 @@ class DatabaseManager(QWidget):
         self._load_all_connections()
 
     def _new_connection(self):
-        """Open new connection dialog"""
-        from PySide6.QtWidgets import QInputDialog
-        from ..dialogs.connection_dialog_factory import ConnectionDialogFactory
+        """Open new connection dialog using ConnectionSelectorDialog"""
+        from ..dialogs.connection_dialogs import ConnectionSelectorDialog
 
-        # Get supported database types with display names
-        db_types_with_names = ConnectionDialogFactory.get_supported_types_with_names()
-
-        # Create display list
-        display_names = [name for _, name in db_types_with_names]
-
-        db_type_display, ok = QInputDialog.getItem(
-            self,
-            "New Database Connection",
-            "Select database type:",
-            display_names,
-            0,
-            False
-        )
-
-        if not ok:
-            return
-
-        # Find the corresponding db_type identifier
-        db_type = None
-        for type_id, display_name in db_types_with_names:
-            if display_name == db_type_display:
-                db_type = type_id
-                break
-
-        if not db_type:
-            return
-
-        try:
-            # Create dialog using factory
-            dialog = ConnectionDialogFactory.create_dialog(db_type, parent=self)
-
-            if dialog.exec():
-                # Refresh tree to show new connection
-                self._refresh_schema()
-
-        except Exception as e:
-            logger.error(f"Error creating connection dialog: {e}")
-            DialogHelper.error("Error creating connection dialog", parent=self, details=str(e))
+        dialog = ConnectionSelectorDialog(parent=self)
+        dialog.connection_created.connect(self._refresh_schema)
+        dialog.exec()
 
     def _manage_connections(self):
         """Open manage connections dialog"""
