@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, Signal
 
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.custom_treeview import CustomTreeView
+from ..widgets.pinnable_panel import PinnablePanel
 from ..widgets.dialog_helper import DialogHelper
 from ..utils.item_data_wrapper import ItemDataWrapper
 from ..utils.ui_helper import UIHelper
@@ -21,7 +22,7 @@ class BaseManagerView(QWidget):
     Provides a standard layout:
     - Toolbar at the top
     - Main horizontal splitter:
-      - Left: Tree view for items list
+      - Left: Pinnable panel with tree view for items list
       - Right: Vertical splitter:
         - Top: Details panel
         - Bottom: Content panel
@@ -33,6 +34,10 @@ class BaseManagerView(QWidget):
     - _setup_toolbar()
     - _setup_details()
     - _setup_content()
+
+    Subclasses may override:
+    - _get_panel_title() -> str: Title for the left pinnable panel
+    - _get_panel_icon() -> str: Icon name for the left pinnable panel
     """
 
     # Signals
@@ -53,6 +58,14 @@ class BaseManagerView(QWidget):
         self.enable_details_panel = enable_details_panel
         self._setup_base_ui()
 
+    def _get_panel_title(self) -> str:
+        """Return title for the left pinnable panel. Override in subclasses."""
+        return self.title
+
+    def _get_panel_icon(self) -> Optional[str]:
+        """Return icon name for the left pinnable panel. Override in subclasses."""
+        return None
+
     def _setup_base_ui(self):
         """Setup base UI structure."""
         layout = QVBoxLayout(self)
@@ -66,13 +79,28 @@ class BaseManagerView(QWidget):
         # Main splitter (horizontal: left tree, right content or details+content)
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left panel: Tree view
+        # Left panel: Pinnable panel with tree view
+        self.left_panel = PinnablePanel(
+            title=self._get_panel_title(),
+            icon_name=self._get_panel_icon()
+        )
+        self.left_panel.set_normal_width(280)
+
+        # Tree widget inside the pinnable panel
+        tree_container = QWidget()
+        tree_layout = QVBoxLayout(tree_container)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
+        tree_layout.setSpacing(0)
+
         self.tree_view = CustomTreeView(
             columns=self._get_tree_columns(),
             on_select=self._on_tree_select,
             on_double_click=self._on_tree_double_click
         )
-        self.main_splitter.addWidget(self.tree_view)
+        tree_layout.addWidget(self.tree_view)
+
+        self.left_panel.set_content(tree_container)
+        self.main_splitter.addWidget(self.left_panel)
 
         if self.enable_details_panel:
             # Right panel: Vertical splitter (top: details, bottom: content)
@@ -270,3 +298,47 @@ class BaseManagerView(QWidget):
             Item name or empty string
         """
         return self._wrap_item(item_data).get_str("name")
+
+    def _handle_error(self, operation: str, error: Exception, show_dialog: bool = True):
+        """
+        Standard error handling pattern.
+
+        Logs error and optionally shows dialog.
+
+        Args:
+            operation: Description of operation that failed
+            error: Exception that was raised
+            show_dialog: If True, show error dialog to user
+        """
+        import logging
+        logger = logging.getLogger(self.__class__.__name__)
+        logger.error(f"{operation} failed: {error}")
+
+        if show_dialog:
+            DialogHelper.error(
+                f"{operation} failed.",
+                parent=self,
+                details=str(error)
+            )
+
+    def _confirm_action(self, message: str, title: str = "Confirm") -> bool:
+        """
+        Show confirmation dialog for destructive actions.
+
+        Args:
+            message: Confirmation message
+            title: Dialog title
+
+        Returns:
+            True if user confirmed, False otherwise
+        """
+        return DialogHelper.confirm(message, title, self)
+
+    def _show_success(self, message: str):
+        """
+        Show success message to user.
+
+        Args:
+            message: Success message
+        """
+        DialogHelper.info(message, parent=self)

@@ -203,6 +203,8 @@ class I18n:
             # Status bar
             'status_version_up_to_date': 'Your version is up to date',
             'status_update_on_quit': 'Update will run when you close the application',
+            'status_connection_created': 'Connection created successfully',
+            'status_viewing_images': 'Viewing Image Library',
         },
 
         'fr': {
@@ -389,6 +391,8 @@ class I18n:
             # Status bar
             'status_version_up_to_date': 'Votre version est à jour',
             'status_update_on_quit': 'La mise à jour se lancera à la fermeture de l\'application',
+            'status_connection_created': 'Connexion créée avec succès',
+            'status_viewing_images': 'Affichage Bibliothèque d\'Images',
         },
     }
 

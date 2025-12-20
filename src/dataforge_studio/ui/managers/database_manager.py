@@ -21,6 +21,7 @@ from ..widgets.distribution_analysis_dialog import DistributionAnalysisDialog
 from ..widgets.pinnable_panel import PinnablePanel
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, DatabaseConnection
+from ...database.schema_loaders import SchemaLoaderFactory, SchemaNode, SchemaNodeType
 from ...utils.image_loader import get_database_icon, get_icon
 from ...utils.credential_manager import CredentialManager
 from ...utils.network_utils import check_server_reachable
@@ -228,8 +229,8 @@ class DatabaseManager(QWidget):
 
             QApplication.processEvents()
 
-            # First, check if server is reachable (skip for local databases)
-            if db_conn.db_type != "sqlite":
+            # First, check if server is reachable (skip for local file-based databases)
+            if db_conn.db_type not in ("sqlite", "access"):
                 self._set_status_message(f"Connexion à la base {db_conn.name}...")
                 QApplication.processEvents()
 
@@ -248,84 +249,44 @@ class DatabaseManager(QWidget):
                     )
                     return
 
-            if db_conn.db_type == "sqlite":
-                # Handle both formats: "sqlite:///path" and "DRIVER={...};Database=path"
-                conn_str = db_conn.connection_string
-                if conn_str.startswith("sqlite:///"):
-                    db_path = conn_str.replace("sqlite:///", "")
-                elif "Database=" in conn_str:
-                    # Extract path from ODBC-style connection string
-                    import re
-                    match = re.search(r'Database=([^;]+)', conn_str)
-                    db_path = match.group(1) if match else conn_str
-                else:
-                    db_path = conn_str
+            # Create connection based on database type
+            connection = self._create_connection(db_conn)
+            if connection is None:
+                return
 
-                if Path(db_path).exists():
-                    connection = sqlite3.connect(db_path)
-                    self.connections[db_conn.id] = connection
-                    # Remove placeholder on success
-                    while server_item.childCount() > 0:
-                        server_item.removeChild(server_item.child(0))
-                    self._load_sqlite_schema(server_item, connection, db_conn)
-                    # Mark as connected
-                    data = server_item.data(0, Qt.ItemDataRole.UserRole)
-                    data["connected"] = True
-                    server_item.setData(0, Qt.ItemDataRole.UserRole, data)
-                    # Delay expansion to run after Qt's double-click toggle
-                    QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
-                    self._set_status_message(f"Connecté à {db_conn.name}")
-                else:
-                    self._set_status_message(tr("status_ready"))
-                    server_item.setExpanded(False)  # Collapse to allow retry
-                    DialogHelper.warning(
-                        f"Fichier introuvable : {db_path}",
-                        parent=self
-                    )
-                    return
+            self.connections[db_conn.id] = connection
 
-            elif db_conn.db_type == "sqlserver":
-                # Build connection string with credentials if needed
-                conn_str = db_conn.connection_string
+            # Remove placeholder on success
+            while server_item.childCount() > 0:
+                server_item.removeChild(server_item.child(0))
 
-                # Check if NOT using Windows Authentication
-                if "trusted_connection=yes" not in conn_str.lower():
-                    # Retrieve credentials from secure storage
-                    username, password = CredentialManager.get_credentials(db_conn.id)
-                    if username and password:
-                        # Add credentials to connection string if not already present
-                        if "uid=" not in conn_str.lower() and "user id=" not in conn_str.lower():
-                            if not conn_str.endswith(";"):
-                                conn_str += ";"
-                            conn_str += f"UID={username};PWD={password};"
-                    else:
-                        logger.warning(f"No credentials found for SQL Server connection: {db_conn.name}")
+            # Use SchemaLoaderFactory to load schema
+            loader = SchemaLoaderFactory.create(
+                db_conn.db_type, connection, db_conn.id, db_conn.name
+            )
+            if loader:
+                schema = loader.load_schema()
+                self._populate_tree_from_schema(server_item, schema, db_conn)
 
-                # Set a timeout for SQL Server connections
-                if "timeout" not in conn_str.lower() and "connection timeout" not in conn_str.lower():
-                    conn_str += ";Connection Timeout=5"
-
-                connection = pyodbc.connect(conn_str, timeout=5)
-                self.connections[db_conn.id] = connection
-                # Remove placeholder on success
-                while server_item.childCount() > 0:
-                    server_item.removeChild(server_item.child(0))
-                self._load_sqlserver_schema(server_item, connection, db_conn)
-                # Mark as connected
-                data = server_item.data(0, Qt.ItemDataRole.UserRole)
-                data["connected"] = True
-                server_item.setData(0, Qt.ItemDataRole.UserRole, data)
-                # Delay expansion to run after Qt's double-click toggle
-                QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
-                self._set_status_message(f"Connecté à {db_conn.name}")
-
+                # Update server node text for SQL Server (show database count)
+                if db_conn.db_type == "sqlserver":
+                    server_item.setText(0, schema.display_name)
             else:
-                # Other DB types - show as not supported yet
                 self._set_status_message(f"Type non supporté: {db_conn.db_type}")
                 DialogHelper.warning(
                     f"Type de base non supporté : {db_conn.db_type}",
                     parent=self
                 )
+                return
+
+            # Mark as connected
+            data = server_item.data(0, Qt.ItemDataRole.UserRole)
+            data["connected"] = True
+            server_item.setData(0, Qt.ItemDataRole.UserRole, data)
+
+            # Delay expansion to run after Qt's double-click toggle
+            QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
+            self._set_status_message(f"Connecté à {db_conn.name}")
 
         except Exception as e:
             logger.warning(f"Could not connect to {db_conn.name}: {e}")
@@ -341,344 +302,179 @@ class DatabaseManager(QWidget):
             # Always restore cursor
             QApplication.restoreOverrideCursor()
 
-    def _load_sqlite_schema(self, server_item: QTreeWidgetItem,
-                           connection: sqlite3.Connection,
-                           db_conn: DatabaseConnection):
-        """Load SQLite schema"""
-        cursor = connection.cursor()
+    def _create_connection(self, db_conn: DatabaseConnection):
+        """
+        Create a database connection based on connection type.
 
-        # Tables folder
-        tables_folder = QTreeWidgetItem(server_item)
-        folder_icon = get_icon("RootFolders", size=16)
-        if folder_icon:
-            tables_folder.setIcon(0, folder_icon)
-        tables_folder.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "tables_folder",
-            "db_id": db_conn.id
-        })
+        Returns connection object or None if failed.
+        """
+        import re
 
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        tables = cursor.fetchall()
+        if db_conn.db_type == "sqlite":
+            conn_str = db_conn.connection_string
+            if conn_str.startswith("sqlite:///"):
+                db_path = conn_str.replace("sqlite:///", "")
+            elif "Database=" in conn_str:
+                match = re.search(r'Database=([^;]+)', conn_str)
+                db_path = match.group(1) if match else conn_str
+            else:
+                db_path = conn_str
 
-        for table in tables:
-            table_name = table[0]
-            table_item = QTreeWidgetItem(tables_folder)
-            # Use a simple style icon for tables
-            table_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogListView)
-            table_item.setIcon(0, table_icon)
-            table_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "table",
-                "name": table_name,
-                "db_id": db_conn.id,
-                "db_name": db_conn.name  # SQLite database name (connection name)
-            })
+            if not Path(db_path).exists():
+                self._set_status_message(tr("status_ready"))
+                DialogHelper.warning(f"Fichier introuvable : {db_path}", parent=self)
+                return None
 
-            # Load columns
-            cursor.execute(f"PRAGMA table_info({table_name})")
-            columns = cursor.fetchall()
-            # Set table text with column count
-            table_item.setText(0, f"{table_name} ({len(columns)} cols)")
+            return sqlite3.connect(db_path)
 
-            for col in columns:
-                col_name = col[1]
-                col_type = col[2]
-                col_item = QTreeWidgetItem(table_item)
-                col_item.setText(0, f"{col_name} ({col_type})")
-                col_item.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "column",
-                    "table": table_name,
-                    "column": col_name
-                })
+        elif db_conn.db_type == "sqlserver":
+            conn_str = db_conn.connection_string
 
-        # Set Tables folder text with count
-        tables_folder.setText(0, f"Tables ({len(tables)})")
-
-        # Views folder
-        views_folder = QTreeWidgetItem(server_item)
-        if folder_icon:
-            views_folder.setIcon(0, folder_icon)
-        views_folder.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "views_folder",
-            "db_id": db_conn.id
-        })
-
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='view' ORDER BY name")
-        views = cursor.fetchall()
-
-        for view in views:
-            view_name = view[0]
-            view_item = QTreeWidgetItem(views_folder)
-            # Use a different style icon for views
-            view_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
-            view_item.setIcon(0, view_icon)
-            view_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "view",
-                "name": view_name,
-                "db_id": db_conn.id,
-                "db_name": db_conn.name  # SQLite database name (connection name)
-            })
-
-            # Get view columns count
-            try:
-                cursor.execute(f"PRAGMA table_info({view_name})")
-                view_columns = cursor.fetchall()
-                view_item.setText(0, f"{view_name} ({len(view_columns)} cols)")
-            except:
-                view_item.setText(0, view_name)
-
-        # Set Views folder text with count
-        views_folder.setText(0, f"Views ({len(views)})")
-
-    def _load_sqlserver_schema(self, server_item: QTreeWidgetItem,
-                               connection: pyodbc.Connection,
-                               db_conn: DatabaseConnection):
-        """Load SQL Server schema"""
-        cursor = connection.cursor()
-
-        # Get databases
-        try:
-            cursor.execute("SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name")
-            databases = cursor.fetchall()
-        except:
-            databases = [(connection.getinfo(pyodbc.SQL_DATABASE_NAME),)]
-
-        # Update server node with database count
-        server_item.setText(0, f"{db_conn.name} ({len(databases)} db)")
-
-        for db in databases:
-            db_name = db[0]
-            db_node = QTreeWidgetItem(server_item)
-            # Use database icon
-            db_icon = get_icon("database.png", size=16)
-            if db_icon:
-                db_node.setIcon(0, db_icon)
-            db_node.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "database",
-                "name": db_name,
-                "db_id": db_conn.id
-            })
-
-            try:
-                # Tables folder
-                tables_folder = QTreeWidgetItem(db_node)
-                folder_icon = get_icon("RootFolders", size=16)
-                if folder_icon:
-                    tables_folder.setIcon(0, folder_icon)
-                tables_folder.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "tables_folder",
-                    "db_id": db_conn.id,
-                    "db_name": db_name
-                })
-
-                # Get tables
-                cursor.execute(f"""
-                    SELECT s.name as schema_name, t.name as table_name
-                    FROM [{db_name}].sys.tables t
-                    INNER JOIN [{db_name}].sys.schemas s ON t.schema_id = s.schema_id
-                    ORDER BY s.name, t.name
-                """)
-                tables = cursor.fetchall()
-
-                for schema_name, table_name in tables:
-                    full_name = f"{schema_name}.{table_name}"
-                    table_item = QTreeWidgetItem(tables_folder)
-                    # Use Qt standard icon for tables
-                    table_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogListView)
-                    table_item.setIcon(0, table_icon)
-                    table_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "table",
-                        "name": full_name,
-                        "db_id": db_conn.id,
-                        "db_name": db_name
-                    })
-
-                    # Load columns with sizes
-                    cursor.execute(f"""
-                        SELECT c.name, ty.name, c.max_length, c.precision, c.scale
-                        FROM [{db_name}].sys.columns c
-                        INNER JOIN [{db_name}].sys.types ty ON c.user_type_id = ty.user_type_id
-                        INNER JOIN [{db_name}].sys.tables t ON c.object_id = t.object_id
-                        INNER JOIN [{db_name}].sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE t.name = '{table_name}' AND s.name = '{schema_name}'
-                        ORDER BY c.column_id
-                    """)
-                    columns = cursor.fetchall()
-
-                    # Set table text with column count
-                    table_item.setText(0, f"{schema_name}.{table_name} ({len(columns)} cols)")
-
-                    for col_name, col_type, max_length, precision, scale in columns:
-                        type_display = col_type
-                        if col_type in ('nvarchar', 'nchar'):
-                            if max_length == -1:
-                                type_display = f"{col_type}(MAX)"
-                            elif max_length > 0:
-                                type_display = f"{col_type}({max_length // 2})"
-                        elif col_type in ('varchar', 'char', 'binary', 'varbinary'):
-                            if max_length == -1:
-                                type_display = f"{col_type}(MAX)"
-                            elif max_length > 0:
-                                type_display = f"{col_type}({max_length})"
-                        elif col_type in ('decimal', 'numeric'):
-                            type_display = f"{col_type}({precision},{scale})"
-
-                        col_item = QTreeWidgetItem(table_item)
-                        col_item.setText(0, f"{col_name} ({type_display})")
-                        col_item.setData(0, Qt.ItemDataRole.UserRole, {
-                            "type": "column",
-                            "table": full_name,
-                            "column": col_name
-                        })
-
-                # Set Tables folder text with count
-                tables_folder.setText(0, f"Tables ({len(tables)})")
-
-                # Views folder
-                views_folder = QTreeWidgetItem(db_node)
-                if folder_icon:
-                    views_folder.setIcon(0, folder_icon)
-                views_folder.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "views_folder",
-                    "db_id": db_conn.id,
-                    "db_name": db_name
-                })
-
-                cursor.execute(f"""
-                    SELECT s.name, v.name
-                    FROM [{db_name}].sys.views v
-                    INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
-                    ORDER BY s.name, v.name
-                """)
-                views = cursor.fetchall()
-
-                for schema_name, view_name in views:
-                    view_item = QTreeWidgetItem(views_folder)
-                    # Use Qt standard icon for views
-                    view_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
-                    view_item.setIcon(0, view_icon)
-                    view_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "view",
-                        "name": f"{schema_name}.{view_name}",
-                        "db_id": db_conn.id,
-                        "db_name": db_name
-                    })
-
-                    # Get view columns count
-                    try:
-                        cursor.execute(f"""
-                            SELECT COUNT(*)
-                            FROM [{db_name}].sys.columns c
-                            INNER JOIN [{db_name}].sys.views v ON c.object_id = v.object_id
-                            INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
-                            WHERE v.name = '{view_name}' AND s.name = '{schema_name}'
-                        """)
-                        view_col_count = cursor.fetchone()[0]
-                        view_item.setText(0, f"{schema_name}.{view_name} ({view_col_count} cols)")
-                    except:
-                        view_item.setText(0, f"{schema_name}.{view_name}")
-
-                # Set Views folder text with count
-                views_folder.setText(0, f"Views ({len(views)})")
-
-                # Stored Procedures folder
-                procs_folder = QTreeWidgetItem(db_node)
-                proc_icon = get_icon("scripts.png", size=16)
-                if proc_icon:
-                    procs_folder.setIcon(0, proc_icon)
-                elif folder_icon:
-                    procs_folder.setIcon(0, folder_icon)
-                procs_folder.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "procedures_folder",
-                    "db_id": db_conn.id,
-                    "db_name": db_name
-                })
-
-                procedures = []
-                try:
-                    cursor.execute(f"""
-                        SELECT s.name as schema_name, p.name as proc_name
-                        FROM [{db_name}].sys.procedures p
-                        INNER JOIN [{db_name}].sys.schemas s ON p.schema_id = s.schema_id
-                        ORDER BY s.name, p.name
-                    """)
-                    procedures = cursor.fetchall()
-                    logger.info(f"Loaded {len(procedures)} procedures from {db_name}")
-                except Exception as proc_err:
-                    logger.warning(f"Could not load procedures from {db_name}: {proc_err}")
-
-                for schema_name, proc_name in procedures:
-                    proc_item = QTreeWidgetItem(procs_folder)
-                    proc_item.setText(0, f"{schema_name}.{proc_name}")
-                    if proc_icon:
-                        proc_item.setIcon(0, proc_icon)
-                    proc_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "procedure",
-                        "name": f"{schema_name}.{proc_name}",
-                        "schema": schema_name,
-                        "proc_name": proc_name,
-                        "db_id": db_conn.id,
-                        "db_name": db_name
-                    })
-
-                procs_folder.setText(0, f"Procedures ({len(procedures)})")
-                logger.info(f"Procedures folder has {procs_folder.childCount()} children")
-
-                # Functions folder
-                funcs_folder = QTreeWidgetItem(db_node)
-                func_icon = get_icon("jobs.png", size=16)
-                if func_icon:
-                    funcs_folder.setIcon(0, func_icon)
-                elif folder_icon:
-                    funcs_folder.setIcon(0, folder_icon)
-                funcs_folder.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "functions_folder",
-                    "db_id": db_conn.id,
-                    "db_name": db_name
-                })
-
-                functions = []
-                try:
-                    cursor.execute(f"""
-                        SELECT s.name as schema_name, o.name as func_name, o.type_desc
-                        FROM [{db_name}].sys.objects o
-                        INNER JOIN [{db_name}].sys.schemas s ON o.schema_id = s.schema_id
-                        WHERE o.type IN ('FN', 'IF', 'TF', 'AF')
-                        ORDER BY s.name, o.name
-                    """)
-                    functions = cursor.fetchall()
-                    logger.info(f"Loaded {len(functions)} functions from {db_name}")
-                except Exception as func_err:
-                    logger.warning(f"Could not load functions from {db_name}: {func_err}")
-
-                for schema_name, func_name, type_desc in functions:
-                    func_item = QTreeWidgetItem(funcs_folder)
-                    # Show function type: Scalar, Table-Valued, etc.
-                    type_short = type_desc.replace("_", " ").title() if type_desc else ""
-                    func_item.setText(0, f"{schema_name}.{func_name} ({type_short})")
-                    if func_icon:
-                        func_item.setIcon(0, func_icon)
-                    func_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "function",
-                        "name": f"{schema_name}.{func_name}",
-                        "schema": schema_name,
-                        "func_name": func_name,
-                        "func_type": type_desc,
-                        "db_id": db_conn.id,
-                        "db_name": db_name
-                    })
-
-                funcs_folder.setText(0, f"Functions ({len(functions)})")
-                logger.info(f"Functions folder has {funcs_folder.childCount()} children")
-
-                # Update database node with table/view count
-                total = len(tables) + len(views)
-                if total == 0:
-                    db_node.setText(0, f"{db_name} (0)")
+            # Check if NOT using Windows Authentication
+            if "trusted_connection=yes" not in conn_str.lower():
+                username, password = CredentialManager.get_credentials(db_conn.id)
+                if username and password:
+                    if "uid=" not in conn_str.lower() and "user id=" not in conn_str.lower():
+                        if not conn_str.endswith(";"):
+                            conn_str += ";"
+                        conn_str += f"UID={username};PWD={password};"
                 else:
-                    db_node.setText(0, f"{db_name} ({len(tables)} T / {len(views)} V)")
+                    logger.warning(f"No credentials found for SQL Server connection: {db_conn.name}")
 
-            except Exception as e:
-                logger.warning(f"Could not load schema for database {db_name}: {e}")
+            # Set a timeout for SQL Server connections
+            if "timeout" not in conn_str.lower() and "connection timeout" not in conn_str.lower():
+                conn_str += ";Connection Timeout=5"
+
+            return pyodbc.connect(conn_str, timeout=5)
+
+        elif db_conn.db_type == "access":
+            conn_str = db_conn.connection_string
+
+            # Extract file path from connection string
+            db_path = None
+            if "Dbq=" in conn_str:
+                match = re.search(r'Dbq=([^;]+)', conn_str, re.IGNORECASE)
+                db_path = match.group(1) if match else None
+
+            if not db_path or not Path(db_path).exists():
+                self._set_status_message(tr("status_ready"))
+                DialogHelper.warning(
+                    f"Fichier Access introuvable : {db_path or 'chemin non spécifié'}",
+                    parent=self
+                )
+                return None
+
+            # Add password if stored in credentials
+            _, password = CredentialManager.get_credentials(db_conn.id)
+            if password and "Pwd=" not in conn_str:
+                if not conn_str.endswith(";"):
+                    conn_str += ";"
+                conn_str += f"Pwd={password};"
+
+            return pyodbc.connect(conn_str, timeout=5)
+
+        else:
+            # Unsupported database type
+            return None
+
+    def _populate_tree_from_schema(self, parent_item: QTreeWidgetItem,
+                                    schema: SchemaNode, db_conn: DatabaseConnection):
+        """
+        Populate tree widget from SchemaNode structure.
+
+        Converts the abstract SchemaNode tree into QTreeWidgetItem hierarchy,
+        setting appropriate icons, text, and metadata for each node.
+        """
+        folder_icon = get_icon("RootFolders", size=16)
+        db_icon = get_icon("database.png", size=16)
+        proc_icon = get_icon("scripts.png", size=16)
+        func_icon = get_icon("jobs.png", size=16)
+        table_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogListView)
+        view_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
+
+        def create_item(node: SchemaNode, parent: QTreeWidgetItem) -> QTreeWidgetItem:
+            """Recursively create tree items from schema nodes."""
+            item = QTreeWidgetItem(parent)
+            item.setText(0, node.display_name)
+
+            # Build metadata from node type and node.metadata
+            metadata = dict(node.metadata)  # Copy existing metadata
+            metadata["db_id"] = db_conn.id
+
+            # Map SchemaNodeType to tree item type and icon
+            if node.node_type == SchemaNodeType.DATABASE:
+                if metadata.get("is_server"):
+                    metadata["type"] = "server"
+                else:
+                    metadata["type"] = "database"
+                    if db_icon:
+                        item.setIcon(0, db_icon)
+
+            elif node.node_type == SchemaNodeType.TABLES_FOLDER:
+                metadata["type"] = "tables_folder"
+                if folder_icon:
+                    item.setIcon(0, folder_icon)
+
+            elif node.node_type == SchemaNodeType.VIEWS_FOLDER:
+                metadata["type"] = "views_folder"
+                if folder_icon:
+                    item.setIcon(0, folder_icon)
+
+            elif node.node_type == SchemaNodeType.PROCEDURES_FOLDER:
+                if metadata.get("is_functions"):
+                    metadata["type"] = "functions_folder"
+                    if func_icon:
+                        item.setIcon(0, func_icon)
+                    elif folder_icon:
+                        item.setIcon(0, folder_icon)
+                else:
+                    metadata["type"] = "procedures_folder"
+                    if proc_icon:
+                        item.setIcon(0, proc_icon)
+                    elif folder_icon:
+                        item.setIcon(0, folder_icon)
+
+            elif node.node_type == SchemaNodeType.TABLE:
+                metadata["type"] = "table"
+                metadata["name"] = node.name
+                # Set db_name from node metadata or fallback to connection name
+                if "db_name" not in metadata:
+                    metadata["db_name"] = db_conn.name
+                item.setIcon(0, table_icon)
+
+            elif node.node_type == SchemaNodeType.VIEW:
+                metadata["type"] = "view"
+                metadata["name"] = node.name
+                if "db_name" not in metadata:
+                    metadata["db_name"] = db_conn.name
+                item.setIcon(0, view_icon)
+
+            elif node.node_type == SchemaNodeType.COLUMN:
+                metadata["type"] = "column"
+                metadata["column"] = node.name
+                # table should already be in metadata from schema loader
+
+            elif node.node_type == SchemaNodeType.PROCEDURE:
+                if metadata.get("is_function"):
+                    metadata["type"] = "function"
+                    if func_icon:
+                        item.setIcon(0, func_icon)
+                else:
+                    metadata["type"] = "procedure"
+                    if proc_icon:
+                        item.setIcon(0, proc_icon)
+
+            item.setData(0, Qt.ItemDataRole.UserRole, metadata)
+
+            # Recursively create children
+            for child in node.children:
+                create_item(child, item)
+
+            return item
+
+        # Create items for all children of the schema root
+        for child in schema.children:
+            create_item(child, parent_item)
 
     def _on_tree_context_menu(self, position: QPoint):
         """Show context menu on tree item right-click"""
@@ -713,11 +509,19 @@ class DatabaseManager(QWidget):
             if db_config:
                 workspace_menu = self._build_workspace_submenu(db_config.id, database_name=None)
                 menu.addMenu(workspace_menu)
-                menu.addSeparator()
+
+            menu.addSeparator()
 
             refresh_action = QAction("Refresh", self)
             refresh_action.triggered.connect(self._refresh_schema)
             menu.addAction(refresh_action)
+
+            menu.addSeparator()
+
+            # Delete connection
+            delete_action = QAction("🗑️ Delete Connection", self)
+            delete_action.triggered.connect(lambda: self._delete_connection(data["config"]))
+            menu.addAction(delete_action)
 
             menu.exec(self.schema_tree.viewport().mapToGlobal(position))
 
@@ -1393,6 +1197,63 @@ class DatabaseManager(QWidget):
             import traceback
             logger.error(traceback.format_exc())
             DialogHelper.error("Error opening connection dialog", parent=self, details=str(e))
+
+    def _delete_connection(self, db_conn: DatabaseConnection):
+        """Delete a database connection after confirmation."""
+        config_db = get_config_db()
+
+        # Check if database is used in workspaces
+        workspaces = config_db.get_database_workspaces(db_conn.id)
+
+        if workspaces:
+            workspace_names = ", ".join(ws.name for ws in workspaces)
+            confirm = DialogHelper.confirm(
+                f"Delete connection '{db_conn.name}'?\n\n"
+                f"⚠️ This connection is used in {len(workspaces)} workspace(s):\n"
+                f"{workspace_names}\n\n"
+                f"The connection will be removed from these workspaces.\n"
+                f"The database itself will not be deleted.",
+                parent=self
+            )
+        else:
+            confirm = DialogHelper.confirm(
+                f"Delete connection '{db_conn.name}'?\n\n"
+                f"This will remove the connection configuration.\n"
+                f"The database itself will not be deleted.",
+                parent=self
+            )
+
+        if not confirm:
+            return
+
+        try:
+            # Close active connection if any
+            if db_conn.id in self.connections:
+                try:
+                    self.connections[db_conn.id].close()
+                except Exception:
+                    pass
+                del self.connections[db_conn.id]
+
+            # Remove from all workspaces first
+            for ws in workspaces:
+                config_db.remove_database_from_workspace(ws.id, db_conn.id)
+
+            # Delete credentials from keyring
+            CredentialManager.delete_credentials(db_conn.id)
+
+            # Delete from config database
+            config_db.delete_database_connection(db_conn.id)
+
+            # Refresh the tree
+            self._refresh_schema()
+
+            self._set_status_message(f"Connection '{db_conn.name}' deleted")
+            logger.info(f"Deleted connection: {db_conn.name} ({db_conn.id})")
+
+        except Exception as e:
+            logger.error(f"Error deleting connection: {e}")
+            DialogHelper.error("Error deleting connection", parent=self, details=str(e))
 
     # ==================== Workspace Management ====================
 

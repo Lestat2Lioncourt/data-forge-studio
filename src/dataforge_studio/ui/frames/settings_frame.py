@@ -8,17 +8,18 @@ from pathlib import Path
 from typing import List, Optional, Any, Dict
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
                                QPushButton, QLabel, QGroupBox, QCheckBox,
-                               QScrollArea, QLineEdit, QTableWidget, QTableWidgetItem,
-                               QHeaderView, QSplitter, QColorDialog, QInputDialog,
-                               QMessageBox, QApplication, QGridLayout, QTreeWidget,
-                               QTreeWidgetItem)
+                               QScrollArea, QTableWidget, QTableWidgetItem,
+                               QHeaderView, QSplitter, QInputDialog,
+                               QMessageBox, QApplication)
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon, QColor
+from PySide6.QtGui import QIcon
 
 from ..managers.base_manager_view import BaseManagerView
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..widgets.theme_preview import ThemePreview
+from ..widgets.color_property_row import ColorPropertyRow
+from ..widgets.palette_widget import PaletteWidget
 from ..core.theme_bridge import ThemeBridge
 from ..core.i18n_bridge import I18nBridge, tr
 from ...config.user_preferences import UserPreferences
@@ -57,162 +58,6 @@ THEME_CATEGORIES = {
     "Messages (log)": ["Log_BG", "Normal_FG", "Success_FG", "Warning_FG", "Error_FG", "Info_FG"],
     "Onglets": ["Tab_BG", "Tab_FG", "Tab_Selected_BG", "Tab_Selected_FG", "Tab_Hover_BG"],
 }
-
-
-class ColorPropertyRow(QWidget):
-    """Single row for editing a color property."""
-
-    color_changed = Signal(str, str)  # key, new_color
-
-    def __init__(self, key: str, color: str, parent=None):
-        super().__init__(parent)
-        self.key = key
-        self._color = color
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 1, 2, 1)
-        layout.setSpacing(5)
-
-        # Color button (click = copy, double-click = pick)
-        self.color_btn = QPushButton()
-        self.color_btn.setFixedSize(20, 18)
-        self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.color_btn.clicked.connect(self._copy_color_from_btn)
-        self.color_btn.setToolTip("Clic = copier, Double-clic = modifier")
-        layout.addWidget(self.color_btn)
-
-        # Key label
-        self.key_label = QLabel(key)
-        self.key_label.setMinimumWidth(120)
-        self.key_label.setStyleSheet("font-size: 9pt;")
-        layout.addWidget(self.key_label)
-
-        # Hex label (clickable to copy)
-        self.hex_label = QLabel(color)
-        self.hex_label.setFixedWidth(60)
-        self.hex_label.setStyleSheet("color: #808080; font-size: 9pt;")
-        self.hex_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.hex_label.mousePressEvent = self._copy_color
-        layout.addWidget(self.hex_label)
-
-        layout.addStretch()
-        self._update_display()
-
-    def set_color(self, color: str):
-        self._color = color
-        self._update_display()
-
-    def _update_display(self):
-        self.color_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self._color};
-                border: 1px solid #404040;
-                border-radius: 2px;
-            }}
-            QPushButton:hover {{ border: 1px solid #0078d7; }}
-        """)
-        self.hex_label.setText(self._color)
-
-    def _copy_color_from_btn(self):
-        """Handle click on color button - use timer to detect double-click."""
-        from PySide6.QtCore import QTimer
-        if hasattr(self, '_click_timer') and self._click_timer.isActive():
-            # Double-click detected - open picker
-            self._click_timer.stop()
-            self._pick_color()
-        else:
-            # Start timer - if no second click, copy color
-            self._click_timer = QTimer()
-            self._click_timer.setSingleShot(True)
-            self._click_timer.timeout.connect(self._do_copy_color)
-            self._click_timer.start(250)  # 250ms to detect double-click
-
-    def _do_copy_color(self):
-        """Actually copy the color to clipboard."""
-        QApplication.clipboard().setText(self._color)
-        # Flash green feedback on the color button
-        original_style = self.color_btn.styleSheet()
-        self.color_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self._color};
-                border: 2px solid #2ecc71;
-                border-radius: 2px;
-            }}
-        """)
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(300, lambda: self.color_btn.setStyleSheet(original_style))
-
-    def _pick_color(self):
-        # Create dialog with system style (not themed)
-        dialog = QColorDialog(QColor(self._color), self)
-        dialog.setWindowTitle(f"Couleur: {self.key}")
-        # Force native dialog to avoid theme issues
-        dialog.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, False)
-
-        if dialog.exec() == QColorDialog.DialogCode.Accepted:
-            self._color = dialog.currentColor().name()
-            self._update_display()
-            self.color_changed.emit(self.key, self._color)
-
-    def _copy_color(self, event):
-        QApplication.clipboard().setText(self._color)
-        self.hex_label.setStyleSheet("color: #2ecc71; font-weight: bold; font-size: 9pt;")
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(500, lambda: self.hex_label.setStyleSheet("color: #808080; font-size: 9pt;"))
-
-
-class PaletteWidget(QWidget):
-    """Shows unique colors used in theme for quick reuse."""
-
-    color_selected = Signal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._colors = []
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-
-        title = QLabel("Palette (couleurs utilisees)")
-        title.setStyleSheet("font-weight: bold; font-size: 9pt; color: #808080;")
-        layout.addWidget(title)
-
-        self.grid_widget = QWidget()
-        self.grid_layout = QGridLayout(self.grid_widget)
-        self.grid_layout.setContentsMargins(0, 0, 0, 0)
-        self.grid_layout.setSpacing(3)
-        layout.addWidget(self.grid_widget)
-        layout.addStretch()
-
-    def update_colors(self, colors_dict: Dict[str, str]):
-        """Update palette with unique colors from theme."""
-        # Clear grid
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        # Get unique colors
-        unique_colors = sorted(set(v for v in colors_dict.values() if isinstance(v, str) and v.startswith('#')))
-        self._colors = unique_colors
-
-        # Create color buttons (6 per row)
-        cols = 6
-        for i, color in enumerate(unique_colors):
-            btn = QPushButton()
-            btn.setFixedSize(22, 22)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {color};
-                    border: 1px solid #404040;
-                    border-radius: 2px;
-                }}
-                QPushButton:hover {{ border: 2px solid #0078d7; }}
-            """)
-            btn.setToolTip(color)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda checked, c=color: self.color_selected.emit(c))
-            self.grid_layout.addWidget(btn, i // cols, i % cols)
 
 
 class SettingsFrame(BaseManagerView):

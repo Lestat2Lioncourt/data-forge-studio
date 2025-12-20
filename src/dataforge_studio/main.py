@@ -10,18 +10,10 @@ from PySide6.QtGui import QIcon
 from .ui.core.main_window import DataForgeMainWindow
 from .ui.core.theme_bridge import ThemeBridge
 from .ui.core.splash_screen import show_splash_screen
-from .ui.frames.settings_frame import SettingsFrame
-from .ui.frames.help_frame import HelpFrame
-from .ui.managers import (
-    QueriesManager,
-    ScriptsManager,
-    JobsManager,
-    DatabaseManager,
-    RootFolderManager,
-    WorkspaceManager
-)
-from .ui.managers.resources_manager_v2 import ResourcesManagerV2
-from .ui.managers.image_library_manager import ImageLibraryManager
+from .core.plugin_manager import PluginManager
+from .plugins import ALL_PLUGINS
+from .ui.managers import ResourcesManager
+from .ui.widgets.icon_sidebar import IconSidebar
 
 
 def main():
@@ -71,6 +63,8 @@ def main():
     # Initialize theme bridge
     splash.update_progress("Initialisation gestionnaire themes...", 9)
     theme_bridge = ThemeBridge.get_instance()
+    from .ui.core.i18n_bridge import I18nBridge
+    i18n_bridge = I18nBridge.instance()
 
     # Generate and apply global theme
     splash.update_progress(f"Application theme: {saved_theme}...", 12)
@@ -81,39 +75,65 @@ def main():
     splash.update_progress("Creation fenetre principale...", 18)
     main_window = DataForgeMainWindow()
 
-    # Create frames
-    splash.update_progress("Chargement SettingsFrame...", 24)
-    settings_frame = SettingsFrame()
+    # Initialize Plugin Manager
+    splash.update_progress("Initialisation systeme de plugins...", 22)
+    plugin_manager = PluginManager()
 
-    splash.update_progress("Chargement HelpFrame...", 30)
-    help_frame = HelpFrame()
+    # Register all plugins
+    splash.update_progress("Enregistrement des plugins...", 26)
+    for plugin_class in ALL_PLUGINS:
+        plugin_manager.register_class(plugin_class)
 
-    # Create managers
-    splash.update_progress("Chargement RootFolderManager...", 40)
-    rootfolder_manager = RootFolderManager()
+    # Initialize plugins with app context
+    splash.update_progress("Initialisation des plugins...", 30)
+    app_context = {
+        'theme_bridge': theme_bridge,
+        'i18n_bridge': i18n_bridge,
+        'config_db': config_db,
+        'user_prefs': user_prefs,
+        'main_window': main_window,
+    }
+    plugin_manager.initialize_all(app_context)
 
-    splash.update_progress("Chargement QueriesManager...", 50)
-    queries_manager = QueriesManager()
+    # Create plugin widgets with progress updates
+    plugin_progress = {
+        'database': ("Chargement DatabaseManager...", 40),
+        'rootfolders': ("Chargement RootFolderManager...", 48),
+        'queries': ("Chargement QueriesManager...", 54),
+        'scripts': ("Chargement ScriptsManager...", 60),
+        'jobs': ("Chargement JobsManager...", 66),
+        'images': ("Chargement ImageLibraryManager...", 72),
+        'workspaces': ("Chargement WorkspaceManager...", 78),
+        'settings': ("Chargement SettingsFrame...", 82),
+        'help': ("Chargement HelpFrame...", 86),
+    }
 
-    splash.update_progress("Chargement ScriptsManager...", 58)
-    scripts_manager = ScriptsManager()
+    for plugin_id, (message, progress) in plugin_progress.items():
+        splash.update_progress(message, progress)
+        plugin = plugin_manager.get_plugin(plugin_id)
+        if plugin:
+            plugin.create_widget()
 
-    splash.update_progress("Chargement JobsManager...", 66)
-    jobs_manager = JobsManager()
+    # Create ResourcesManager (unified view - not a plugin)
+    splash.update_progress("Chargement ResourcesManager...", 88)
+    resources_manager = ResourcesManager()
 
-    splash.update_progress("Chargement DatabaseManager...", 76)
-    database_manager = DatabaseManager()
+    # Create IconSidebar
+    splash.update_progress("Chargement IconSidebar...", 90)
+    icon_sidebar = IconSidebar()
 
-    splash.update_progress("Chargement WorkspaceManager...", 82)
-    workspace_manager = WorkspaceManager()
+    # Get widgets from plugins for backward compatibility with set_frames
+    settings_frame = plugin_manager.get_plugin_widget('settings')
+    help_frame = plugin_manager.get_plugin_widget('help')
+    database_manager = plugin_manager.get_plugin_widget('database')
+    rootfolder_manager = plugin_manager.get_plugin_widget('rootfolders')
+    queries_manager = plugin_manager.get_plugin_widget('queries')
+    scripts_manager = plugin_manager.get_plugin_widget('scripts')
+    jobs_manager = plugin_manager.get_plugin_widget('jobs')
+    workspace_manager = plugin_manager.get_plugin_widget('workspaces')
+    image_library_manager = plugin_manager.get_plugin_widget('images')
 
-    splash.update_progress("Chargement ImageLibraryManager...", 85)
-    image_library_manager = ImageLibraryManager()
-
-    splash.update_progress("Chargement ResourcesManager...", 90)
-    resources_manager = ResourcesManagerV2()
-
-    # Set frames and managers in main window (must be before set_managers for signal connection)
+    # Set frames and managers in main window
     splash.update_progress("Connexion des composants...", 94)
     main_window.set_frames(
         settings_frame, help_frame,
@@ -124,10 +144,11 @@ def main():
         database_manager=database_manager,
         resources_manager=resources_manager,
         workspace_manager=workspace_manager,
-        image_library_manager=image_library_manager
+        image_library_manager=image_library_manager,
+        icon_sidebar=icon_sidebar
     )
 
-    # Connect ResourcesManager to all managers (after set_frames for signal connection)
+    # Connect ResourcesManager to all managers
     resources_manager.set_managers(
         database_manager=database_manager,
         rootfolder_manager=rootfolder_manager,
@@ -137,28 +158,23 @@ def main():
         image_library_manager=image_library_manager
     )
 
+    # Connect plugin signals
+    plugin_manager.connect_all_signals()
+
     # Finalize
     splash.update_progress("Finalisation...", 98)
 
-    # Connect cleanup to application quit signal
-    # Note: Cleanup runs in daemon threads so it won't block app exit
-    # The main_window._on_close_event already handles cleanup in a daemon thread
-    # This is a backup in case the window is closed differently
+    # Connect cleanup to application quit signal using plugin manager
     def on_about_to_quit():
         """Cleanup all resources before application quits (non-blocking)."""
         import threading
 
         def async_cleanup():
-            if database_manager:
-                try:
-                    database_manager.cleanup()
-                except Exception:
-                    pass
+            plugin_manager.cleanup_all()
 
         # Run in daemon thread so it doesn't block app exit
         thread = threading.Thread(target=async_cleanup, daemon=True)
         thread.start()
-        # Don't wait - the thread is daemon so it will be terminated when app exits
 
     app.aboutToQuit.connect(on_about_to_quit)
 

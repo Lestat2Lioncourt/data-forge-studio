@@ -47,3 +47,4 @@ data/
 # Temporary files
 *.tmp
 nul
+saved_versions/

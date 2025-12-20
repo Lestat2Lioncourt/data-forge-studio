@@ -16,6 +16,7 @@ from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..widgets.custom_datagridview import CustomDataGridView
 from ..widgets.form_builder import FormBuilder
+from ..widgets.pinnable_panel import PinnablePanel
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, FileRoot
 from ...utils.image_loader import get_icon
@@ -85,14 +86,18 @@ class RootFolderManager(QWidget):
         # Main splitter (left: tree, right: details + content)
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left panel: File explorer tree
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(5, 5, 5, 5)
+        # Left panel: Pinnable panel with file explorer tree
+        self.left_panel = PinnablePanel(
+            title="RootFolders",
+            icon_name="RootFolders.png"
+        )
+        self.left_panel.set_normal_width(280)
 
-        tree_label = QLabel("RootFolders")
-        tree_label.setStyleSheet("font-weight: bold;")
-        left_layout.addWidget(tree_label)
+        # Tree widget inside the pinnable panel
+        tree_container = QWidget()
+        tree_layout = QVBoxLayout(tree_container)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
+        tree_layout.setSpacing(0)
 
         self.file_tree = QTreeWidget()
         self.file_tree.setHeaderHidden(True)
@@ -103,9 +108,10 @@ class RootFolderManager(QWidget):
         self.file_tree.itemDoubleClicked.connect(self._on_tree_double_click)
         self.file_tree.itemClicked.connect(self._on_tree_click)
         self.file_tree.itemExpanded.connect(self._on_item_expanded)  # Lazy loading
-        left_layout.addWidget(self.file_tree)
+        tree_layout.addWidget(self.file_tree)
 
-        main_splitter.addWidget(left_widget)
+        self.left_panel.set_content(tree_container)
+        main_splitter.addWidget(self.left_panel)
 
         # Right panel: Details (top) + Content (bottom)
         right_widget = QWidget()
@@ -180,6 +186,27 @@ class RootFolderManager(QWidget):
         for root_folder in root_folders:
             self._add_rootfolder_to_tree(root_folder)
 
+    def _count_files_in_folder(self, folder_path: Path) -> int:
+        """
+        Count all files (not folders) recursively in a folder.
+
+        Args:
+            folder_path: Path to the folder to count files in
+
+        Returns:
+            Total count of files in the folder and all subfolders
+        """
+        count = 0
+        try:
+            for item in folder_path.rglob("*"):
+                if item.is_file():
+                    count += 1
+        except PermissionError:
+            pass  # Skip folders we can't access
+        except Exception as e:
+            logger.warning(f"Error counting files in {folder_path}: {e}")
+        return count
+
     def _add_rootfolder_to_tree(self, root_folder: FileRoot):
         """Add a root folder and its contents to the tree"""
         root_path = Path(root_folder.path)
@@ -196,9 +223,10 @@ class RootFolderManager(QWidget):
         if root_icon:
             root_item.setIcon(0, root_icon)
 
-        # Don't count files recursively at startup (too slow for large folders)
-        # Use the name from database
-        root_item.setText(0, root_folder.name or root_path.name)
+        # Count files recursively for display
+        file_count = self._count_files_in_folder(root_path)
+        display_name = root_folder.name or root_path.name
+        root_item.setText(0, f"{display_name} ({file_count})")
         root_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "rootfolder",
             "rootfolder_obj": root_folder,  # Store complete FileRoot object
@@ -226,8 +254,9 @@ class RootFolderManager(QWidget):
                     if folder_icon:
                         folder_item.setIcon(0, folder_icon)
 
-                    # Don't count at startup (too slow), just show folder name
-                    folder_item.setText(0, f"{entry.name}")
+                    # Count files in folder for display
+                    file_count = self._count_files_in_folder(entry)
+                    folder_item.setText(0, f"{entry.name} ({file_count})")
                     folder_item.setData(0, Qt.ItemDataRole.UserRole, {
                         "type": "folder",
                         "path": str(entry),

@@ -17,22 +17,13 @@ from PySide6.QtWidgets import QWidget, QTreeWidgetItem, QStackedWidget, QVBoxLay
 from PySide6.QtCore import Qt, Signal
 
 from .base_manager_view import BaseManagerView
+from .content_handlers import FileContentHandler, ImageContentHandler
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.form_builder import FormBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db
 from ...utils.image_loader import get_icon
-
-# DataFrame-Pivot pattern: centralized loading functions
-from ...core.data_loader import (
-    csv_to_dataframe,
-    json_to_dataframe,
-    excel_to_dataframe,
-    LoadWarningLevel,
-    LARGE_DATASET_THRESHOLD
-)
-# Using CustomDataGridView.set_dataframe() directly for optimal performance
 
 import logging
 logger = logging.getLogger(__name__)
@@ -59,6 +50,7 @@ class ResourcesManager(BaseManagerView):
 
     # Signal emitted when user wants to open a resource in dedicated view
     open_resource_requested = Signal(str, str)  # (resource_type, resource_id as UUID string)
+    manager_selected = Signal(str)  # manager_id when switching to a specific manager
 
     # Signal emitted when user wants to open the Image Library Manager
     open_image_library_requested = Signal()
@@ -67,6 +59,7 @@ class ResourcesManager(BaseManagerView):
         super().__init__(parent, title=tr("menu_view"))
 
         self._category_items = {}
+        self._workspace_filter: Optional[str] = None  # Workspace filter ID
 
         # Manager references (set via set_managers)
         self._database_manager = None
@@ -74,11 +67,38 @@ class ResourcesManager(BaseManagerView):
         self._queries_manager = None
         self._jobs_manager = None
         self._scripts_manager = None
+        self._image_library_manager = None
 
         # Image navigation
         self._image_nav_list = []
         self._image_nav_index = 0
 
+        # Tree item references (for image navigation sync)
+        self._tree_items = {}
+
+        # Initialize tree configuration
+        self._init_tree_config()
+
+    # ==================== Workspace Filtering ====================
+
+    def set_workspace_filter(self, workspace_id: Optional[str]):
+        """
+        Set workspace filter and refresh the view.
+
+        Args:
+            workspace_id: Workspace ID to filter by, or None for all items
+        """
+        self._workspace_filter = workspace_id
+        self.refresh()
+
+    def get_workspace_filter(self) -> Optional[str]:
+        """Get the current workspace filter ID."""
+        return self._workspace_filter
+
+    # ==================== Initialization ====================
+
+    def _init_tree_config(self):
+        """Configure tree widget behavior. Called from base class."""
         # Enable tree expansion
         self.tree_view.tree.setRootIsDecorated(True)
         self.tree_view.tree.setAnimated(True)
@@ -101,14 +121,24 @@ class ResourcesManager(BaseManagerView):
         # Collapse details panel by default (only useful for files)
         self._collapse_details_panel()
 
+    def _get_panel_title(self) -> str:
+        """Return title for the left pinnable panel."""
+        return "Resources"
+
+    def _get_panel_icon(self) -> str:
+        """Return icon name for the left pinnable panel."""
+        return "databases.png"
+
     def set_managers(self, database_manager=None, rootfolder_manager=None,
-                     queries_manager=None, jobs_manager=None, scripts_manager=None):
+                     queries_manager=None, jobs_manager=None, scripts_manager=None,
+                     image_library_manager=None):
         """Set references to managers for delegation and add their content to stack."""
         self._database_manager = database_manager
         self._rootfolder_manager = rootfolder_manager
         self._queries_manager = queries_manager
         self._jobs_manager = jobs_manager
         self._scripts_manager = scripts_manager
+        self._image_library_manager = image_library_manager
 
         # Add manager right panels to the stack (composition)
         self._setup_manager_pages()
@@ -141,42 +171,10 @@ class ResourcesManager(BaseManagerView):
             self._page_indices["database"] = self.content_stack.count() - 1
             self._query_tab_counter = 1
 
-        # Page 3: RootFolderManager's right panel (file viewer)
+        # Page 3: RootFolderManager's right panel (file viewer via FileContentHandler)
         if self._rootfolder_manager:
-            from PySide6.QtWidgets import QTextEdit
-            from ..widgets.custom_datagridview import CustomDataGridView
-
-            # Create file viewer stack (grid for data files, text for others)
-            self.file_viewer_stack = QStackedWidget()
-
-            # Grid viewer for CSV, Excel, etc.
-            self.file_grid_viewer = CustomDataGridView()
-            self.file_viewer_stack.addWidget(self.file_grid_viewer)
-
-            # Text viewer for text files, JSON, etc.
-            self.file_text_viewer = QTextEdit()
-            self.file_text_viewer.setReadOnly(True)
-            self.file_text_viewer.setStyleSheet("""
-                QTextEdit {
-                    font-family: 'Consolas', 'Monaco', monospace;
-                    font-size: 10pt;
-                }
-            """)
-            self.file_viewer_stack.addWidget(self.file_text_viewer)
-
-            # Welcome/placeholder widget
-            file_welcome = QWidget()
-            file_welcome_layout = QVBoxLayout(file_welcome)
-            file_welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            welcome_label = QLabel("Double-cliquez sur un fichier pour afficher son contenu")
-            welcome_label.setStyleSheet("color: gray; font-size: 11pt;")
-            file_welcome_layout.addWidget(welcome_label)
-            self.file_viewer_stack.addWidget(file_welcome)
-
-            # Start with welcome widget
-            self.file_viewer_stack.setCurrentIndex(2)
-
-            self.content_stack.addWidget(self.file_viewer_stack)
+            self._file_handler = FileContentHandler(self, self.details_form_builder)
+            self.content_stack.addWidget(self._file_handler.get_widget())
             self._page_indices["rootfolder"] = self.content_stack.count() - 1
 
     def _get_tree_columns(self) -> List[str]:
@@ -202,10 +200,9 @@ class ResourcesManager(BaseManagerView):
         details_widget = self.details_form_builder.build()
         self.details_layout.addWidget(details_widget)
 
-        # Store detected file properties for display
-        self._detected_encoding = None
-        self._detected_separator = None
-        self._detected_delimiter = None
+        # Content handlers (created after form_builder is ready)
+        self._file_handler: Optional[FileContentHandler] = None
+        self._image_handler: Optional[ImageContentHandler] = None
 
     def _setup_content(self):
         """Setup content panel (bottom right) with QStackedWidget for manager content."""
@@ -267,43 +264,11 @@ class ResourcesManager(BaseManagerView):
 
         self.content_stack.addWidget(query_widget)
 
-        # Page 2: Image preview (for saved images)
-        from PySide6.QtWidgets import QScrollArea
-        from PySide6.QtGui import QPixmap
-        image_widget = QWidget()
-        image_layout = QVBoxLayout(image_widget)
-        image_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Toolbar for image actions
-        image_toolbar = QHBoxLayout()
-        self.image_open_btn = QPushButton("📂 Open in Explorer")
-        self.image_open_btn.clicked.connect(self._open_image_location)
-        image_toolbar.addWidget(self.image_open_btn)
-
-        self.image_copy_btn = QPushButton("📋 Copy to Clipboard")
-        self.image_copy_btn.clicked.connect(self._copy_image_to_clipboard)
-        image_toolbar.addWidget(self.image_copy_btn)
-
-        self.image_edit_btn = QPushButton("✏️ Edit")
-        self.image_edit_btn.clicked.connect(self._edit_current_image)
-        image_toolbar.addWidget(self.image_edit_btn)
-
-        image_toolbar.addStretch()
-        image_layout.addLayout(image_toolbar)
-
-        # Scrollable image preview area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("QScrollArea { background-color: #2d2d2d; }")
-
-        self.image_preview_label = QLabel()
-        self.image_preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_preview_label.setStyleSheet("QLabel { background-color: #2d2d2d; }")
-        scroll_area.setWidget(self.image_preview_label)
-
-        image_layout.addWidget(scroll_area)
-
-        self.content_stack.addWidget(image_widget)
+        # Page 2: Image preview (via ImageContentHandler)
+        self._image_handler = ImageContentHandler(self, self.details_form_builder)
+        self._image_handler.set_tree_items(self._tree_items)
+        self._image_handler.images_refreshed.connect(self.refresh_images)
+        self.content_stack.addWidget(self._image_handler.get_widget())
 
         # Pages for managers will be added in set_managers()
         self._page_indices = {"generic": 0, "query": 1, "image": 2}
@@ -317,7 +282,7 @@ class ResourcesManager(BaseManagerView):
         self._current_image_obj = None
 
     def _load_items(self):
-        """Load all resources into tree."""
+        """Load all resources into tree, filtered by workspace if set."""
         try:
             config_db = get_config_db()
             self._category_items = {}
@@ -335,8 +300,11 @@ class ResourcesManager(BaseManagerView):
             for key, label in categories:
                 self._add_category(key, label)
 
-            # Databases - with expand capability
-            databases = config_db.get_all_database_connections()
+            # Databases - with expand capability (workspace filtered)
+            if self._workspace_filter:
+                databases = config_db.get_workspace_database_connections(self._workspace_filter)
+            else:
+                databases = config_db.get_all_database_connections()
             for db in databases:
                 item = self.tree_view.add_item(
                     parent=self._category_items["databases"],
@@ -346,8 +314,11 @@ class ResourcesManager(BaseManagerView):
                 self._set_item_icon(item, db.db_type)
                 self._add_dummy_child(item)
 
-            # Rootfolders - with expand capability
-            rootfolders = config_db.get_all_file_roots()
+            # Rootfolders - with expand capability (workspace filtered)
+            if self._workspace_filter:
+                rootfolders = config_db.get_workspace_file_roots(self._workspace_filter)
+            else:
+                rootfolders = config_db.get_all_file_roots()
             for rf in rootfolders:
                 item = self.tree_view.add_item(
                     parent=self._category_items["rootfolders"],
@@ -357,8 +328,11 @@ class ResourcesManager(BaseManagerView):
                 self._set_item_icon(item, "folder")
                 self._add_dummy_child(item)
 
-            # Queries - grouped by category
-            queries = config_db.get_all_saved_queries()
+            # Queries - grouped by category (workspace filtered)
+            if self._workspace_filter:
+                queries = config_db.get_workspace_queries(self._workspace_filter)
+            else:
+                queries = config_db.get_all_saved_queries()
 
             # Group queries by category
             queries_by_category = {}
@@ -429,8 +403,11 @@ class ResourcesManager(BaseManagerView):
                     # Store for navigation
                     self._tree_items[f"img_{image.id}"] = item
 
-            # Jobs
-            jobs = config_db.get_all_jobs()
+            # Jobs (workspace filtered)
+            if self._workspace_filter:
+                jobs = config_db.get_workspace_jobs(self._workspace_filter)
+            else:
+                jobs = config_db.get_all_jobs()
             for job in jobs:
                 item = self.tree_view.add_item(
                     parent=self._category_items["jobs"],
@@ -473,9 +450,87 @@ class ResourcesManager(BaseManagerView):
     def _update_category_counts(self):
         """Update counts for category items (Databases, Rootfolders, etc.)."""
         for key, item in self._category_items.items():
-            count = item.childCount()
+            if key == "rootfolders":
+                # For rootfolders, count total files in all root folders
+                count = self._count_rootfolder_files(item)
+            else:
+                count = self._count_leaf_items(item)
             text = item.text(0).split(" (")[0]
             item.setText(0, f"{text} ({count})")
+
+    def _count_rootfolder_files(self, category_item: QTreeWidgetItem) -> int:
+        """
+        Count total files (not folders) in all root folders.
+
+        Scans the filesystem recursively for each rootfolder to count files.
+
+        Args:
+            category_item: The Rootfolders category item
+
+        Returns:
+            Total count of files across all root folders
+        """
+        total_files = 0
+
+        for i in range(category_item.childCount()):
+            child = category_item.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole) or {}
+
+            if data.get("type") == "rootfolder":
+                path_str = data.get("path")
+                if path_str:
+                    root_path = Path(path_str)
+                    if root_path.exists() and root_path.is_dir():
+                        try:
+                            # Count files recursively (not directories)
+                            for _ in root_path.rglob("*"):
+                                if _.is_file():
+                                    total_files += 1
+                        except PermissionError:
+                            # Skip folders we can't access
+                            pass
+                        except Exception as e:
+                            logger.warning(f"Error counting files in {root_path}: {e}")
+
+        return total_files
+
+    def _count_leaf_items(self, item: QTreeWidgetItem) -> int:
+        """
+        Recursively count all leaf items (non-folder items) in a subtree.
+
+        For categories like Queries, this counts the total number of saved queries (not categories).
+        For Images, this counts the total number of images.
+        For Databases/Rootfolders, counts the number of connections/roots (not expanded content).
+
+        Args:
+            item: The parent item to count children for
+
+        Returns:
+            Total count of leaf items in the subtree
+        """
+        count = 0
+        for i in range(item.childCount()):
+            child = item.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole) or {}
+            item_type = data.get("type", "")
+
+            # Skip dummy items (for lazy loading)
+            if item_type == "dummy":
+                continue
+
+            # Special items to skip counting
+            if item_type in ("open_image_manager",):
+                continue
+
+            # Category/folder types that group items - recurse into them
+            if item_type in ("query_category", "image_category"):
+                count += self._count_leaf_items(child)
+            else:
+                # All other items are counted as leaf items:
+                # database, rootfolder, query, job, script, image, file, table, view, etc.
+                count += 1
+
+        return count
 
     def refresh_queries(self):
         """
@@ -678,58 +733,8 @@ class ResourcesManager(BaseManagerView):
 
     def _display_file_item(self, item_data: dict):
         """Display file/folder item details in the details panel."""
-        item_type = item_data.get("type", "")
-        path_str = item_data.get("path", "")
-        obj = item_data.get("obj")
-
-        if item_type == "rootfolder" and obj:
-            # Root folder from database
-            name = getattr(obj, "name", "") or Path(path_str).name
-            self.details_form_builder.set_value("name", name)
-            self.details_form_builder.set_value("resource_type", "Root Folder")
-            self.details_form_builder.set_value("description", getattr(obj, "description", "") or "")
-            self.details_form_builder.set_value("path", getattr(obj, "path", path_str))
-            self.details_form_builder.set_value("encoding", "-")
-            self.details_form_builder.set_value("separator", "-")
-            self.details_form_builder.set_value("delimiter", "-")
-
-        elif path_str:
-            # File or folder from filesystem
-            file_path = Path(path_str)
-            if file_path.exists():
-                try:
-                    stat = file_path.stat()
-
-                    # Format size
-                    if file_path.is_file():
-                        size_bytes = stat.st_size
-                        if size_bytes < 1024:
-                            size_str = f"{size_bytes} B"
-                        elif size_bytes < 1024 * 1024:
-                            size_str = f"{size_bytes / 1024:.2f} KB"
-                        else:
-                            size_str = f"{size_bytes / (1024 * 1024):.2f} MB"
-                        file_type = file_path.suffix.upper()[1:] if file_path.suffix else "File"
-                        # Encoding will be set when file content is loaded
-                        encoding_display = "-"
-                    else:
-                        size_str = "-"
-                        file_type = "Folder"
-                        encoding_display = "-"
-
-                    # Format modified date
-                    from datetime import datetime
-                    modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
-
-                    self.details_form_builder.set_value("name", file_path.name)
-                    self.details_form_builder.set_value("resource_type", f"{file_type} ({size_str})")
-                    self.details_form_builder.set_value("description", f"Modified: {modified}")
-                    self.details_form_builder.set_value("path", str(file_path))
-                    self.details_form_builder.set_value("encoding", encoding_display)
-                    self.details_form_builder.set_value("separator", "-")
-                    self.details_form_builder.set_value("delimiter", "-")
-                except Exception as e:
-                    logger.error(f"Error getting file info: {e}")
+        if self._file_handler:
+            self._file_handler.update_details_for_item(item_data)
 
     def _on_tree_double_click(self, item, column):
         """Double-click: expand/collapse items, or open files/queries."""
@@ -1335,408 +1340,42 @@ class ResourcesManager(BaseManagerView):
     # ==================== File Content Loading ====================
 
     def _load_file_content(self, file_path: Path):
-        """Load and display file content in the file viewer."""
-        if not file_path.exists() or not file_path.is_file():
-            return
-
-        if not hasattr(self, 'file_viewer_stack'):
+        """Load and display file content in the file viewer (delegated to FileContentHandler)."""
+        if not self._file_handler:
             return
 
         # Switch to rootfolder page in content stack
         if "rootfolder" in self._page_indices:
             self.content_stack.setCurrentIndex(self._page_indices["rootfolder"])
 
-        ext = file_path.suffix.lower()
-
-        try:
-            # CSV files
-            if ext == ".csv":
-                self._load_csv_file(file_path)
-
-            # Excel files
-            elif ext in (".xlsx", ".xls"):
-                self._load_excel_file(file_path)
-
-            # JSON files
-            elif ext == ".json":
-                self._load_json_file(file_path)
-
-            # Text files (py, sql, txt, md, etc.)
-            elif ext in (".txt", ".py", ".sql", ".md", ".log", ".ini", ".cfg", ".xml", ".html", ".css", ".js"):
-                self._load_text_file(file_path)
-
-            else:
-                # Unknown type - try as text
-                self._load_text_file(file_path)
-
-        except Exception as e:
-            logger.error(f"Error loading file {file_path}: {e}")
-            self.file_text_viewer.setPlainText(f"Erreur lors du chargement: {str(e)}")
-            self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
-
-    def _detect_encoding(self, file_path: Path) -> str:
-        """
-        Detect file encoding by trying multiple encodings.
-
-        Returns the encoding name that successfully reads the file.
-        """
-        # Try common encodings in order of likelihood
-        encodings_to_try = [
-            'utf-8-sig',  # UTF-8 with BOM (common in Windows)
-            'utf-8',      # Standard UTF-8
-            'cp1252',     # Windows Western European
-            'iso-8859-1', # Latin-1
-            'cp850',      # DOS Western European
-            'utf-16',     # UTF-16 with BOM
-        ]
-
-        # Read raw bytes to check for BOM
-        with open(file_path, 'rb') as f:
-            raw = f.read(4096)
-
-        # Check for BOM markers
-        if raw.startswith(b'\xef\xbb\xbf'):
-            return 'utf-8-sig'
-        elif raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
-            return 'utf-16'
-
-        # Try each encoding
-        for encoding in encodings_to_try:
-            try:
-                with open(file_path, 'r', encoding=encoding) as f:
-                    f.read()  # Try to read entire file
-                return encoding
-            except (UnicodeDecodeError, UnicodeError):
-                continue
-
-        # Fallback to latin-1 (never fails)
-        return 'iso-8859-1'
-
-    def _load_csv_file(self, file_path: Path):
-        """Load CSV file into grid viewer using DataFrame-Pivot pattern."""
-        # Use centralized data_loader
-        result = csv_to_dataframe(
-            file_path,
-            on_large_dataset=self._handle_large_dataset_warning
-        )
-
-        if not result.success:
-            if result.error:
-                self.file_text_viewer.setPlainText(f"Erreur: {str(result.error)}")
-                self.file_viewer_stack.setCurrentIndex(1)
-            return
-
-        # Store detected values for display
-        self._detected_encoding = result.source_info.get('encoding')
-        self._detected_separator = result.source_info.get('separator')
-        self._detected_delimiter = '"'  # pandas default
-
-        df = result.dataframe
-        if df is not None and not df.empty:
-            # Use optimized set_dataframe method
-            self.file_grid_viewer.set_dataframe(df)
-            self.file_viewer_stack.setCurrentIndex(0)  # Grid viewer
-
-            # Update details with encoding info
-            self._update_file_encoding_details(file_path)
-
-            logger.info(f"CSV loaded: {result.row_count} rows, encoding={self._detected_encoding}")
-        else:
-            self.file_text_viewer.setPlainText("(Fichier CSV vide)")
-            self.file_viewer_stack.setCurrentIndex(1)
-
-    def _load_excel_file(self, file_path: Path):
-        """Load Excel file into grid viewer using DataFrame-Pivot pattern."""
-        # Use centralized data_loader
-        result = excel_to_dataframe(
-            file_path,
-            on_large_dataset=self._handle_large_dataset_warning
-        )
-
-        if not result.success:
-            if result.error:
-                error_msg = str(result.error)
-                if "openpyxl" in error_msg.lower() or "xlrd" in error_msg.lower():
-                    self.file_text_viewer.setPlainText(
-                        "Module openpyxl non installé.\n"
-                        "Installez-le avec: pip install openpyxl"
-                    )
-                else:
-                    self.file_text_viewer.setPlainText(f"Erreur: {error_msg}")
-                self.file_viewer_stack.setCurrentIndex(1)
-            return
-
-        # Store info for display
-        self._detected_encoding = "Excel Binary"
-        self._detected_separator = None
-        self._detected_delimiter = None
-
-        df = result.dataframe
-        if df is not None and not df.empty:
-            # Use optimized set_dataframe method
-            self.file_grid_viewer.set_dataframe(df)
-            self.file_viewer_stack.setCurrentIndex(0)
-
-            # Update details
-            sheets = result.source_info.get('available_sheets', [])
-            logger.info(f"Excel loaded: {result.row_count} rows, sheets={sheets}")
-        else:
-            self.file_text_viewer.setPlainText("(Fichier Excel vide)")
-            self.file_viewer_stack.setCurrentIndex(1)
-
-    def _load_json_file(self, file_path: Path):
-        """Load JSON file - try as table first, fallback to formatted text."""
-        import json
-
-        # First, try loading as tabular data using DataFrame-Pivot
-        result = json_to_dataframe(
-            file_path,
-            on_large_dataset=self._handle_large_dataset_warning
-        )
-
-        # Store encoding info
-        self._detected_encoding = result.source_info.get('encoding', 'utf-8')
-        self._detected_separator = None
-        self._detected_delimiter = None
-
-        # If successfully loaded as table with multiple rows, show in grid
-        if result.success and result.dataframe is not None and len(result.dataframe) > 1:
-            df = result.dataframe
-            self.file_grid_viewer.set_dataframe(df)
-            self.file_viewer_stack.setCurrentIndex(0)  # Grid viewer
-            self._update_file_encoding_details(file_path)
-            logger.info(f"JSON loaded as table: {result.row_count} rows")
-            return
-
-        # Fallback: display as formatted JSON text
-        encoding = self._detect_encoding(file_path)
-        self._detected_encoding = encoding
-
-        with open(file_path, 'r', encoding=encoding) as f:
-            content = f.read()
-
-        try:
-            data = json.loads(content)
-            formatted = json.dumps(data, indent=2, ensure_ascii=False)
-            self.file_text_viewer.setPlainText(formatted)
-        except json.JSONDecodeError:
-            self.file_text_viewer.setPlainText(content)
-
-        self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
-        self._update_file_encoding_details(file_path)
-
-    def _load_text_file(self, file_path: Path):
-        """Load text file into text viewer with proper encoding detection."""
-        # Detect encoding
-        encoding = self._detect_encoding(file_path)
-        self._detected_encoding = encoding
-        self._detected_separator = None  # Not applicable for text files
-        self._detected_delimiter = None
-
-        with open(file_path, 'r', encoding=encoding) as f:
-            content = f.read()
-
-        self.file_text_viewer.setPlainText(content)
-        self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
-        self._update_file_encoding_details(file_path)
-
-    def _update_file_encoding_details(self, file_path: Path):
-        """Update the details panel with file info including encoding, separator, delimiter."""
-        try:
-            stat = file_path.stat()
-
-            # Format size
-            size_bytes = stat.st_size
-            if size_bytes < 1024:
-                size_str = f"{size_bytes} B"
-            elif size_bytes < 1024 * 1024:
-                size_str = f"{size_bytes / 1024:.2f} KB"
-            else:
-                size_str = f"{size_bytes / (1024 * 1024):.2f} MB"
-
-            file_type = file_path.suffix.upper()[1:] if file_path.suffix else "File"
-
-            # Format modified date
-            from datetime import datetime
-            modified = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
-
-            # Update details form
-            self.details_form_builder.set_value("name", file_path.name)
-            self.details_form_builder.set_value("resource_type", f"{file_type} ({size_str})")
-            self.details_form_builder.set_value("description", f"Modified: {modified}")
-            self.details_form_builder.set_value("path", str(file_path))
-
-            # Show encoding
-            encoding_display = self._detected_encoding.upper() if self._detected_encoding else "-"
-            self.details_form_builder.set_value("encoding", encoding_display)
-
-            # Show separator (with friendly names)
-            separator_names = {
-                ',': 'Comma (,)',
-                ';': 'Semicolon (;)',
-                '\t': 'Tab (\\t)',
-                '|': 'Pipe (|)',
-                ' ': 'Space',
-            }
-            if self._detected_separator:
-                sep_display = separator_names.get(self._detected_separator, f"'{self._detected_separator}'")
-            else:
-                sep_display = "-"
-            self.details_form_builder.set_value("separator", sep_display)
-
-            # Show delimiter (quote character)
-            delimiter_names = {
-                '"': 'Double quote (")',
-                "'": "Single quote (')",
-            }
-            if self._detected_delimiter:
-                delim_display = delimiter_names.get(self._detected_delimiter, f"'{self._detected_delimiter}'")
-            else:
-                delim_display = "-"
-            self.details_form_builder.set_value("delimiter", delim_display)
-
-        except Exception as e:
-            logger.error(f"Error updating file details: {e}")
-
-    def _handle_large_dataset_warning(self, row_count: int) -> bool:
-        """
-        Handle warning for large datasets (> 100k rows).
-
-        Args:
-            row_count: Number of rows detected
-
-        Returns:
-            True to proceed with loading, False to cancel
-        """
-        from PySide6.QtWidgets import QMessageBox
-
-        # Format numbers with thousands separator
-        row_count_fmt = f"{row_count:,}"
-        threshold_fmt = f"{LARGE_DATASET_THRESHOLD:,}"
-
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setWindowTitle("Large Dataset Warning")
-        msg.setText(f"This file contains {row_count_fmt} rows.")
-        msg.setInformativeText(
-            f"Loading more than {threshold_fmt} rows may:\n"
-            f"• Be slow to load\n"
-            f"• Consume significant memory\n"
-            f"• Slow down the interface\n\n"
-            f"Do you want to continue?"
-        )
-        msg.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        msg.setDefaultButton(QMessageBox.StandardButton.No)
-
-        result = msg.exec()
-        return result == QMessageBox.StandardButton.Yes
+        self._file_handler.load_file(file_path)
 
     # ==================== Image Preview ====================
 
     def _load_image_preview(self, image_obj):
-        """Load and display an image in the preview panel."""
-        from PySide6.QtGui import QPixmap
-
-        self._current_image_obj = image_obj
+        """Load and display an image in the preview panel (delegated to ImageContentHandler)."""
+        if not self._image_handler:
+            return
 
         # Switch to image page
         if "image" in self._page_indices:
             self.content_stack.setCurrentIndex(self._page_indices["image"])
             self._expand_details_panel()
 
-        # Get image categories and tags from database
-        config_db = get_config_db()
-        categories = config_db.get_image_categories(image_obj.id)
-        tags = config_db.get_image_tags(image_obj.id)
-
-        categories_str = ", ".join(categories) if categories else "-"
-        tags_str = ", ".join(tags) if tags else "-"
-
-        # Update details panel
-        self.details_form_builder.set_value("name", image_obj.name)
-        self.details_form_builder.set_value("resource_type", "Image")
-        self.details_form_builder.set_value("description", image_obj.description or "-")
-        self.details_form_builder.set_value("path", image_obj.filepath)
-        self.details_form_builder.set_value("encoding", f"Categories: {categories_str}")
-        self.details_form_builder.set_value("separator", f"Tags: {tags_str}")
-        self.details_form_builder.set_value("delimiter", "-")
-
-        # Load image
-        filepath = Path(image_obj.filepath)
-        if filepath.exists():
-            pixmap = QPixmap(str(filepath))
-            if not pixmap.isNull():
-                # Scale to fit while maintaining aspect ratio
-                scaled = pixmap.scaled(
-                    800, 600,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self.image_preview_label.setPixmap(scaled)
-            else:
-                self.image_preview_label.setText("Cannot load image / Impossible de charger l'image")
-        else:
-            self.image_preview_label.setText(f"File not found: {filepath}\nFichier introuvable: {filepath}")
-
-        # Store image list for navigation (siblings in the same category)
-        self._build_image_navigation_list(image_obj)
-
-        logger.info(f"Loaded image preview: {image_obj.name}")
-
-    def _build_image_navigation_list(self, current_image):
-        """Build the list of images for arrow navigation."""
-        # Get the current tree item
-        current_item = self.tree_view.tree.currentItem()
-        if not current_item:
-            self._image_nav_list = [current_image]
-            self._image_nav_index = 0
-            return
-
-        # Get parent item (category)
-        parent_item = current_item.parent()
-        if not parent_item:
-            self._image_nav_list = [current_image]
-            self._image_nav_index = 0
-            return
-
-        # Collect all images from this category
-        self._image_nav_list = []
-        self._image_nav_index = 0
-
-        for i in range(parent_item.childCount()):
-            child = parent_item.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole) or {}
-            if data.get("type") == "image":
-                img_obj = data.get("obj")
-                if img_obj:
-                    self._image_nav_list.append(img_obj)
-                    if img_obj.id == current_image.id:
-                        self._image_nav_index = len(self._image_nav_list) - 1
+        self._image_handler.load_image(image_obj)
+        self._image_handler.build_navigation_list(image_obj, self.tree_view)
 
     def _navigate_image(self, direction: int):
-        """Navigate to previous (-1) or next (+1) image."""
-        if not hasattr(self, '_image_nav_list') or not self._image_nav_list:
-            return
-
-        new_index = self._image_nav_index + direction
-        if 0 <= new_index < len(self._image_nav_list):
-            self._image_nav_index = new_index
-            image_obj = self._image_nav_list[new_index]
-            self._load_image_preview(image_obj)
-
-            # Update tree selection
-            item_key = f"img_{image_obj.id}"
-            if item_key in self._tree_items:
-                self.tree_view.tree.setCurrentItem(self._tree_items.get(item_key))
+        """Navigate to previous (-1) or next (+1) image (delegated to ImageContentHandler)."""
+        if self._image_handler:
+            self._image_handler.navigate(direction, self.tree_view)
 
     def keyPressEvent(self, event):
         """Handle key press events for image navigation."""
         from PySide6.QtCore import Qt as QtCore
 
-        # Check if we're viewing an image
-        if self._current_image_obj and self._image_nav_list:
+        # Check if we're viewing an image via handler
+        if self._image_handler and self._image_handler.has_navigation_list():
             if event.key() == QtCore.Key.Key_Left:
                 self._navigate_image(-1)
                 event.accept()
@@ -1748,48 +1387,6 @@ class ResourcesManager(BaseManagerView):
 
         # Default handling
         super().keyPressEvent(event)
-
-    def _open_image_location(self):
-        """Open the image file location in explorer."""
-        import subprocess
-        import platform
-
-        if not self._current_image_obj:
-            return
-
-        filepath = Path(self._current_image_obj.filepath)
-        if filepath.exists():
-            if platform.system() == "Windows":
-                subprocess.run(["explorer", "/select,", str(filepath)])
-            elif platform.system() == "Darwin":  # macOS
-                subprocess.run(["open", "-R", str(filepath)])
-            else:  # Linux
-                subprocess.run(["xdg-open", str(filepath.parent)])
-
-    def _copy_image_to_clipboard(self):
-        """Copy the current image to clipboard."""
-        from PySide6.QtGui import QPixmap, QClipboard
-        from PySide6.QtWidgets import QApplication
-
-        if not self._current_image_obj:
-            return
-
-        filepath = Path(self._current_image_obj.filepath)
-        if filepath.exists():
-            pixmap = QPixmap(str(filepath))
-            if not pixmap.isNull():
-                QApplication.clipboard().setPixmap(pixmap)
-                DialogHelper.info(
-                    "Image copied to clipboard.\nImage copiée dans le presse-papier.",
-                    parent=self
-                )
-
-    def _edit_current_image(self):
-        """Edit the current image metadata (from preview toolbar)."""
-        if not self._current_image_obj:
-            return
-        # Delegate to the main edit method
-        self._edit_image(self._current_image_obj)
 
     def refresh_images(self):
         """Refresh only the Images section of the tree (logical categories only)."""
@@ -2122,127 +1719,21 @@ class ResourcesManager(BaseManagerView):
         except Exception as e:
             DialogHelper.error(f"Reconnection error: {e}", parent=self)
 
-    # ==================== Image Management ====================
+    # ==================== Image Management (delegated to ImageContentHandler) ====================
 
     def _add_new_image(self, default_category: str = ""):
-        """Add a new image to the library."""
-        from PySide6.QtWidgets import QDialog
-        from ..widgets.save_image_dialog import SaveImageDialog
-
-        dialog = SaveImageDialog(
-            parent=self,
-            default_category=default_category
-        )
-
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            data = dialog.get_image_data()
-
-            try:
-                config_db = get_config_db()
-                image_id = config_db.add_saved_image(
-                    name=data["name"],
-                    filepath=data["filepath"],
-                    category=data["category"],
-                    description=data["description"]
-                )
-
-                if image_id:
-                    DialogHelper.info(
-                        f"Image '{data['name']}' added successfully.\n"
-                        f"Image '{data['name']}' ajoutée avec succès.",
-                        parent=self
-                    )
-                    self.refresh_images()
-                    logger.info(f"Added new image: {data['name']}")
-                else:
-                    DialogHelper.error(
-                        "Failed to add image.\nÉchec de l'ajout de l'image.",
-                        parent=self
-                    )
-
-            except Exception as e:
-                logger.error(f"Error adding image: {e}")
-                DialogHelper.error(f"Error: {e}", parent=self)
+        """Add a new image to the library (delegated to ImageContentHandler)."""
+        if self._image_handler:
+            self._image_handler.add_image(default_category)
 
     def _edit_image(self, image_obj):
-        """Edit an image's metadata."""
-        from PySide6.QtWidgets import QDialog
-        from ..widgets.save_image_dialog import SaveImageDialog
-
-        # Store current image for preview panel context
-        self._current_image_obj = image_obj
-
-        dialog = SaveImageDialog(
-            parent=self,
-            image=image_obj,
-            edit_mode=True
-        )
-
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            data = dialog.get_image_data()
-
-            # Update image object
-            image_obj.name = data["name"]
-            image_obj.category = data["category"]
-            image_obj.description = data["description"]
-            image_obj.filepath = data["filepath"]
-
-            try:
-                config_db = get_config_db()
-                if config_db.update_saved_image(image_obj):
-                    DialogHelper.info(
-                        f"Image '{data['name']}' updated.\n"
-                        f"Image '{data['name']}' mise à jour.",
-                        parent=self
-                    )
-                    self.refresh_images()
-                    # Reload preview if currently viewing this image
-                    if self._current_image_obj and self._current_image_obj.id == image_obj.id:
-                        self._load_image_preview(image_obj)
-                    logger.info(f"Updated image: {data['name']}")
-                else:
-                    DialogHelper.error(
-                        "Failed to update image.\nÉchec de la mise à jour.",
-                        parent=self
-                    )
-
-            except Exception as e:
-                logger.error(f"Error updating image: {e}")
-                DialogHelper.error(f"Error: {e}", parent=self)
+        """Edit an image's metadata (delegated to ImageContentHandler)."""
+        if self._image_handler:
+            self._image_handler.edit_image(image_obj)
 
     def _delete_image(self, image_obj):
-        """Delete an image from the library."""
-        if not DialogHelper.confirm(
-            f"Delete image '{image_obj.name}'?\n"
-            f"Supprimer l'image '{image_obj.name}' ?\n\n"
-            f"(The file will not be deleted from disk)\n"
-            f"(Le fichier ne sera pas supprimé du disque)",
-            parent=self
-        ):
-            return
-
-        try:
-            config_db = get_config_db()
-            if config_db.delete_saved_image(image_obj.id):
-                DialogHelper.info(
-                    f"Image '{image_obj.name}' removed from library.\n"
-                    f"Image '{image_obj.name}' retirée de la bibliothèque.",
-                    parent=self
-                )
-                self.refresh_images()
-
-                # Clear preview if this was the displayed image
-                if self._current_image_obj and self._current_image_obj.id == image_obj.id:
-                    self._current_image_obj = None
-                    self.content_stack.setCurrentIndex(self._page_indices["generic"])
-
-                logger.info(f"Deleted image: {image_obj.name}")
-            else:
-                DialogHelper.error(
-                    "Failed to delete image.\nÉchec de la suppression.",
-                    parent=self
-                )
-
-        except Exception as e:
-            logger.error(f"Error deleting image: {e}")
-            DialogHelper.error(f"Error: {e}", parent=self)
+        """Delete an image from the library (delegated to ImageContentHandler)."""
+        if self._image_handler:
+            if self._image_handler.delete_image(image_obj):
+                # Switch to generic page if the deleted image was being displayed
+                self.content_stack.setCurrentIndex(self._page_indices["generic"])

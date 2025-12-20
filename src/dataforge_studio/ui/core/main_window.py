@@ -3,6 +3,7 @@ Main Window - DataForge Studio v0.50
 Main application window using window-template
 """
 
+from typing import Optional
 from PySide6.QtWidgets import QWidget, QStackedWidget
 from PySide6.QtCore import Slot
 
@@ -36,11 +37,15 @@ class DataForgeMainWindow:
         self.resources_manager = None
         self.workspace_manager = None
         self.image_library_manager = None
+        self.icon_sidebar = None
+        self.workspace_selector = None
         self.stacked_widget = None
         self._current_view = None  # Track current view
+        self._current_workspace_id: Optional[str] = None  # Active workspace filter
 
         # Setup UI
         self._setup_menu_bar()
+        self._setup_workspace_selector()
         self._setup_central_widget()
         self._setup_status_bar()
         self._connect_signals()
@@ -90,6 +95,66 @@ class DataForgeMainWindow:
             (tr("menu_check_updates"), self._check_updates)
         ])
 
+    def _setup_workspace_selector(self):
+        """Setup workspace filter selector in the menu bar area."""
+        from ..widgets.workspace_selector import WorkspaceSelector
+
+        self.workspace_selector = WorkspaceSelector(show_label=True)
+        self.workspace_selector.workspace_changed.connect(self._on_workspace_filter_changed)
+
+        # Add to menu bar's right side (if supported by window template)
+        if hasattr(self.window.menu_bar, 'add_right_widget'):
+            self.window.menu_bar.add_right_widget(self.workspace_selector)
+        else:
+            # Fallback: add as a menu item that opens workspace selector
+            # The workspace selector will still work but won't be visible in menu bar
+            pass
+
+    @Slot(object)
+    def _on_workspace_filter_changed(self, workspace_id: Optional[str]):
+        """
+        Handle workspace filter change - refresh all managers with new filter.
+
+        Args:
+            workspace_id: Selected workspace ID, or None for "All"
+        """
+        self._current_workspace_id = workspace_id
+
+        # Update status bar
+        if workspace_id:
+            workspace = self.workspace_selector.get_current_workspace()
+            if workspace:
+                self.window.status_bar.set_message(f"Workspace: {workspace.name}")
+        else:
+            self.window.status_bar.set_message(tr("status_ready"))
+
+        # Notify all managers to refresh with new filter
+        self._apply_workspace_filter(workspace_id)
+
+    def _apply_workspace_filter(self, workspace_id: Optional[str]):
+        """
+        Apply workspace filter to all managers.
+
+        Args:
+            workspace_id: Workspace ID to filter by, or None for all
+        """
+        # Apply filter to managers that support it
+        managers_with_filter = [
+            self.resources_manager,
+            self.queries_manager,
+            self.jobs_manager,
+            self.scripts_manager,
+            self.rootfolder_manager,
+        ]
+
+        for manager in managers_with_filter:
+            if manager and hasattr(manager, 'set_workspace_filter'):
+                manager.set_workspace_filter(workspace_id)
+
+    def get_current_workspace_id(self) -> Optional[str]:
+        """Get the current workspace filter ID."""
+        return self._current_workspace_id
+
     def _setup_central_widget(self):
         """Setup central stacked widget for different frames."""
         self.stacked_widget = QStackedWidget()
@@ -107,7 +172,7 @@ class DataForgeMainWindow:
     def set_frames(self, settings_frame, help_frame,
                    rootfolder_manager=None, queries_manager=None, scripts_manager=None, jobs_manager=None,
                    database_manager=None, resources_manager=None, workspace_manager=None,
-                   image_library_manager=None):
+                   image_library_manager=None, icon_sidebar=None):
         """
         Set the frame and manager widgets after they're created.
         This allows frames and managers to be created separately and injected.
@@ -123,6 +188,7 @@ class DataForgeMainWindow:
             resources_manager: ResourcesManager instance (optional)
             workspace_manager: WorkspaceManager instance (optional)
             image_library_manager: ImageLibraryManager instance (optional)
+            icon_sidebar: IconSidebar instance for left panel navigation (optional)
         """
         self.settings_frame = settings_frame
         self.help_frame = help_frame
@@ -134,11 +200,19 @@ class DataForgeMainWindow:
         self.resources_manager = resources_manager
         self.workspace_manager = workspace_manager
         self.image_library_manager = image_library_manager
+        self.icon_sidebar = icon_sidebar
 
         # Connect signals from settings frame
         if self.settings_frame:
             self.settings_frame.debug_borders_changed.connect(self._on_debug_borders_changed)
             self.settings_frame.theme_changed.connect(self._on_theme_changed)
+
+        # Connect icon sidebar selection to switch managers
+        if self.icon_sidebar:
+            self.icon_sidebar.manager_selected.connect(self._on_manager_selected)
+            self.icon_sidebar.open_image_library_requested.connect(
+                lambda: self._switch_frame("images")
+            )
 
         # Connect signal from resources manager to open in dedicated manager
         if self.resources_manager:
@@ -146,10 +220,8 @@ class DataForgeMainWindow:
             self.resources_manager.open_image_library_requested.connect(
                 lambda: self._switch_frame("images")
             )
-            # Connect icon sidebar selection to switch managers
-            self.resources_manager.manager_selected.connect(self._on_manager_selected)
 
-        # Connect database_manager.query_saved to refresh only queries in resources_manager
+        # Connect database_manager.query_saved to refresh queries in resources_manager
         if self.database_manager and self.resources_manager:
             self.database_manager.query_saved.connect(self.resources_manager.refresh_queries)
 
@@ -163,7 +235,7 @@ class DataForgeMainWindow:
         self.stacked_widget.addWidget(self.settings_frame)
         self.stacked_widget.addWidget(self.help_frame)
 
-        # Add managers if provided (NOT resources_manager - it goes in left panel)
+        # Add managers if provided
         if self.rootfolder_manager:
             self.stacked_widget.addWidget(self.rootfolder_manager)
         if self.database_manager:
@@ -178,10 +250,12 @@ class DataForgeMainWindow:
             self.stacked_widget.addWidget(self.workspace_manager)
         if self.image_library_manager:
             self.stacked_widget.addWidget(self.image_library_manager)
-
-        # Set resources_manager (icon sidebar) in left panel - always visible
         if self.resources_manager:
-            self.window.set_left_panel_widget(self.resources_manager)
+            self.stacked_widget.addWidget(self.resources_manager)
+
+        # Set icon_sidebar in left panel - always visible for resource navigation
+        if self.icon_sidebar:
+            self.window.set_left_panel_widget(self.icon_sidebar)
             self.window.left_panel.show()
 
         # Initially show database manager
@@ -239,9 +313,9 @@ class DataForgeMainWindow:
                 resource_views = ["database", "rootfolders", "queries", "jobs", "scripts", "images"]
                 if frame_name in resource_views:
                     # Show sidebar and sync selection
-                    if self.resources_manager:
+                    if self.icon_sidebar:
                         self.window.left_panel.show()
-                        self.resources_manager.update_selection(frame_name)
+                        self.icon_sidebar.update_selection(frame_name)
                 else:
                     # Hide sidebar for non-resource contexts (Settings, Help, Workspaces)
                     self.window.left_panel.hide()
@@ -281,9 +355,19 @@ class DataForgeMainWindow:
         })
 
     def _new_connection(self):
-        """Handle new connection action."""
-        # TODO: Implement new connection dialog
-        print("New connection - to be implemented")
+        """Handle new connection action - open connection selector dialog."""
+        from ..dialogs.connection_dialogs import ConnectionSelectorDialog
+
+        dialog = ConnectionSelectorDialog(parent=self.window)
+
+        # Connect signal to refresh database manager when connection is created
+        def on_connection_created():
+            if self.database_manager:
+                self.database_manager.refresh()
+                self.window.status_bar.set_message(tr("status_connection_created"))
+
+        dialog.connection_created.connect(on_connection_created)
+        dialog.exec()
 
     def _import_data(self):
         """Handle import data action."""
