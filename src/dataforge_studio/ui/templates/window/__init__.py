@@ -12,7 +12,7 @@ Main Components:
 - StatusBar: Bottom status bar for messages
 
 Example usage:
-    from window_template import TemplateWindow
+    from dataforge_studio.ui.templates.window import TemplateWindow
     from PySide6.QtWidgets import QApplication
 
     app = QApplication([])

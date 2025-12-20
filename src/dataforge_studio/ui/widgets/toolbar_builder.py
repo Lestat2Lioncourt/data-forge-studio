@@ -186,7 +186,7 @@ class ToolbarBuilder:
         Get path to icon file.
 
         Searches in multiple locations:
-        1. window_template/icons/
+        1. templates/window/icons/
         2. ui/icons/ (if created later)
 
         Args:
@@ -195,9 +195,9 @@ class ToolbarBuilder:
         Returns:
             Path to icon or None if not found
         """
-        # Try window_template icons first
+        # Try templates/window icons first
         try:
-            from ..window_template import get_icon_path
+            from ..templates.window import get_icon_path
             path = get_icon_path(icon_name)
             if path:
                 return Path(path)

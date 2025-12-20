@@ -7,7 +7,7 @@ from typing import Optional
 from PySide6.QtWidgets import QWidget, QStackedWidget
 from PySide6.QtCore import Slot
 
-from ..window_template import create_window
+from ..templates.window import create_window
 from .theme_bridge import ThemeBridge
 from .i18n_bridge import I18nBridge, tr
 from ...config.user_preferences import UserPreferences

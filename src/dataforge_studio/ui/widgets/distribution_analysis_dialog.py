@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QPushButton, QLabel, QTabWi
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from .custom_datagridview import CustomDataGridView
-from ..window_template.title_bar import TitleBar
+from ..templates.window.title_bar import TitleBar
 from ..core.theme_bridge import ThemeBridge
 import logging
 

@@ -6,7 +6,7 @@ Fusion of window-template theme system and DataForge Studio theme management
 import json
 from pathlib import Path
 from typing import List, Callable, Dict
-from ..window_template.theme_manager import ThemeManager as BaseThemeManager
+from ..templates.window.theme_manager import ThemeManager as BaseThemeManager
 from .theme_image_generator import generate_dropdown_arrow, generate_branch_images
 
 # Path to custom themes

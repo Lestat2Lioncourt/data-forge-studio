@@ -5,12 +5,13 @@ Connection Selector Dialog - Choose database type for new connection
 from typing import Optional, Type
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QWidget, QGridLayout, QFrame, QSizePolicy
+    QWidget, QGridLayout, QFrame
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor
 
 from .base_connection_dialog import BaseConnectionDialog
+from ...templates.dialog import SelectorDialog
 from ...core.theme_bridge import ThemeBridge
 from ....utils.image_loader import get_icon
 
@@ -176,38 +177,42 @@ class DatabaseTypeCard(QFrame):
         super().mousePressEvent(event)
 
 
-class ConnectionSelectorDialog(QDialog):
+class ConnectionSelectorDialog(SelectorDialog):
     """
     Dialog to select database type for new connection.
 
     Shows a grid of database type cards. When user selects one,
     opens the corresponding connection dialog.
+
+    Inherits from SelectorDialog for consistent styling with custom title bar.
     """
 
     connection_created = Signal()  # Emitted when a new connection is saved
 
     def __init__(self, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-
-        self.setWindowTitle("New Connection")
-        self.setMinimumSize(500, 400)
+        super().__init__(
+            title="New Connection",
+            parent=parent,
+            width=550,
+            height=420
+        )
 
         self._selected_type: Optional[dict] = None
-        self._setup_ui()
-        self._apply_style()
+        self._setup_content()
 
-        # Register for theme changes
+        # Register for theme changes (for cards)
         theme_bridge = ThemeBridge.get_instance()
         theme_bridge.register_observer(self._on_theme_changed)
 
-    def _setup_ui(self):
-        """Setup the dialog UI."""
-        layout = QVBoxLayout(self)
+    def _setup_content(self):
+        """Setup the dialog content inside self.content_widget."""
+        layout = QVBoxLayout(self.content_widget)
+        layout.setContentsMargins(20, 15, 20, 15)
         layout.setSpacing(16)
 
         # Header
         header_label = QLabel("Select Database Type")
-        header_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        header_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header_label)
 
@@ -221,7 +226,7 @@ class ConnectionSelectorDialog(QDialog):
         grid_container = QWidget()
         grid_layout = QGridLayout(grid_container)
         grid_layout.setSpacing(12)
-        grid_layout.setContentsMargins(20, 20, 20, 20)
+        grid_layout.setContentsMargins(10, 10, 10, 10)
 
         # Create cards for each database type
         row, col = 0, 0
@@ -239,33 +244,9 @@ class ConnectionSelectorDialog(QDialog):
 
         layout.addWidget(grid_container, stretch=1)
 
-        # Cancel button
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_btn)
-
-        layout.addLayout(button_layout)
-
-    def _apply_style(self):
-        """Apply themed style."""
-        theme_bridge = ThemeBridge.get_instance()
-        colors = theme_bridge.get_theme_colors()
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {colors.get("window_bg", "#1e1e1e")};
-            }}
-            QLabel {{
-                color: {colors.get("foreground", "#ffffff")};
-            }}
-        """)
-
     def _on_theme_changed(self, colors: dict):
-        """Handle theme change."""
-        self._apply_style()
+        """Handle theme change - refresh dialog styling."""
+        self._apply_theme()
 
     def _on_card_clicked(self, db_type: dict):
         """Handle database type card click."""

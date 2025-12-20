@@ -343,6 +343,12 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "tooltip_bg": menubar_bg,
         "tooltip_fg": menubar_fg,
         "tooltip_border": accent,
+
+        # Selector Dialog (simplified title bar for selection dialogs)
+        "selector_titlebar_bg": topbar_bg,
+        "selector_titlebar_fg": topbar_fg,
+        "selector_border_color": data_border,
+        "selector_close_btn_hover": "#e81123",  # Red for close button hover
     }
 
     return colors

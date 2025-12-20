@@ -2,11 +2,11 @@
 About Dialog - Shows application information and support options
 """
 
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QWidget, QGroupBox, QGridLayout)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPixmap, QDesktopServices, QColor
-from ..window_template.title_bar import TitleBar
+from PySide6.QtGui import QFont, QDesktopServices
+from ..templates.dialog import SelectorDialog
 from ..core.theme_bridge import ThemeBridge
 from ...utils.image_loader import get_pixmap
 import logging
@@ -14,8 +14,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class AboutDialog(QDialog):
-    """About dialog showing app information and donation options"""
+class AboutDialog(SelectorDialog):
+    """About dialog showing app information and donation options.
+
+    Inherits from SelectorDialog for consistent styling with custom title bar.
+    """
 
     # Configuration URLs - To be updated before publication
     DONATION_URLS = {
@@ -27,70 +30,18 @@ class AboutDialog(QDialog):
     }
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(
+            title="About DataForge Studio",
+            parent=parent,
+            width=600,
+            height=700
+        )
 
-        # Set frameless window
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
-        self.resize(600, 700)
+        self._setup_content()
 
-        # Allow window to be deleted when closed
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-
-        # Apply theme colors
-        theme_bridge = ThemeBridge.get_instance()
-        colors = theme_bridge.get_theme_colors()
-        window_bg = colors.get('window_bg', '#1e1e1e')
-        border_color = colors.get('border_color', '#3d3d3d')
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {window_bg};
-                border: 1px solid {border_color};
-            }}
-        """)
-
-        self._setup_ui()
-
-    def _setup_ui(self):
-        """Setup UI components"""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Custom title bar
-        self.title_bar = TitleBar("About DataForge Studio")
-        self.title_bar.close_clicked.connect(self.close)
-        self.title_bar.minimize_clicked.connect(self.showMinimized)
-        # No maximize for About dialog
-        self.title_bar.maximize_btn.hide()
-        layout.addWidget(self.title_bar)
-
-        # Apply theme to title bar
-        theme_bridge = ThemeBridge.get_instance()
-        colors = theme_bridge.get_theme_colors()
-        title_bar_bg = colors.get('main_menu_bar_bg', '#2b2b2b')
-        title_bar_fg = colors.get('main_menu_bar_fg', '#ffffff')
-        self.title_bar.setStyleSheet(f"""
-            QWidget {{
-                background-color: {title_bar_bg};
-                color: {title_bar_fg};
-            }}
-            QPushButton {{
-                background-color: transparent;
-                border: none;
-                color: {title_bar_fg};
-            }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.1);
-            }}
-            QPushButton#closeButton:hover {{
-                background-color: #e81123;
-            }}
-        """)
-
-        # Content widget
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
+    def _setup_content(self):
+        """Setup the dialog content inside self.content_widget."""
+        content_layout = QVBoxLayout(self.content_widget)
         content_layout.setContentsMargins(30, 20, 30, 20)
         content_layout.setSpacing(15)
 
@@ -141,9 +92,6 @@ class AboutDialog(QDialog):
         close_layout.addStretch()
         content_layout.addLayout(close_layout)
 
-        # Add content widget to main layout
-        layout.addWidget(content_widget)
-
     def _create_header(self, layout: QVBoxLayout):
         """Create header with logo, name, and version"""
         header_layout = QHBoxLayout()
@@ -188,7 +136,7 @@ class AboutDialog(QDialog):
 
     def _create_features(self, layout: QVBoxLayout):
         """Create features list"""
-        features_group = QGroupBox("Fonctionnalités")
+        features_group = QGroupBox("Fonctionnalites")
         features_group.setStyleSheet("""
             QGroupBox {
                 color: #ffffff;
@@ -210,17 +158,17 @@ class AboutDialog(QDialog):
         features_layout.setSpacing(8)
 
         features = [
-            "• Support multi-bases (SQL Server, MySQL, Postgres, SQLite)",
-            "• Mise en forme automatique des requêtes avec 4 styles",
-            "• Éditeur de requêtes avec analyses de distribution",
-            "• Navigateur de fichiers + affichage multiformat (csv, json, ...)",
-            "• Distribution de fichier d'une racine dans leur dossier Dataset",
-            "• Scripts d'importation de fichiers dans des tables avec gestion du polymorphisme",
-            "• Définition de jobs pour séquencer des scripts ou d'autres jobs",
-            "• Orchestrateur de jobs multi-plateformes",
-            "• Gestionnaire de requêtes enregistrées",
-            "• Plusieurs thèmes + éditeur de thèmes",
-            "• Multilingue + éditeur pour nouvelle traduction"
+            "  Support multi-bases (SQL Server, MySQL, Postgres, SQLite)",
+            "  Mise en forme automatique des requetes avec 4 styles",
+            "  Editeur de requetes avec analyses de distribution",
+            "  Navigateur de fichiers + affichage multiformat (csv, json, ...)",
+            "  Distribution de fichier d'une racine dans leur dossier Dataset",
+            "  Scripts d'importation de fichiers dans des tables avec gestion du polymorphisme",
+            "  Definition de jobs pour sequencer des scripts ou d'autres jobs",
+            "  Orchestrateur de jobs multi-plateformes",
+            "  Gestionnaire de requetes enregistrees",
+            "  Plusieurs themes + editeur de themes",
+            "  Multilingue + editeur pour nouvelle traduction"
         ]
 
         for feature in features:
@@ -237,7 +185,7 @@ class AboutDialog(QDialog):
         github_layout = QHBoxLayout()
         github_layout.setSpacing(10)
 
-        github_icon = QLabel("🔗")
+        github_icon = QLabel("link")
         github_icon.setStyleSheet("font-size: 16pt;")
         github_layout.addWidget(github_icon)
 
@@ -274,7 +222,7 @@ class AboutDialog(QDialog):
         support_layout.setSpacing(10)
 
         # Info text
-        info_label = QLabel("Les donations volontaires soutiennent le développement du projet ❤️")
+        info_label = QLabel("Les donations volontaires soutiennent le developpement du projet")
         info_label.setStyleSheet("color: #c0c0c0; padding: 5px 10px;")
         info_label.setWordWrap(True)
         info_font = QFont("Arial", 9)
@@ -287,7 +235,7 @@ class AboutDialog(QDialog):
 
         # GitHub Sponsors
         github_btn = self._create_donation_button(
-            "💜 GitHub Sponsors",
+            "GitHub Sponsors",
             "#ea4aaa",
             self.DONATION_URLS["github_sponsors"]
         )
@@ -295,7 +243,7 @@ class AboutDialog(QDialog):
 
         # Ko-fi
         kofi_btn = self._create_donation_button(
-            "☕ Ko-fi",
+            "Ko-fi",
             "#ff5e5b",
             self.DONATION_URLS["ko_fi"]
         )
@@ -303,7 +251,7 @@ class AboutDialog(QDialog):
 
         # Buy Me a Coffee
         bmc_btn = self._create_donation_button(
-            "☕ Buy Me a Coffee",
+            "Buy Me a Coffee",
             "#ffdd00",
             self.DONATION_URLS["buy_me_coffee"],
             text_color="#000000"
@@ -312,7 +260,7 @@ class AboutDialog(QDialog):
 
         # PayPal
         paypal_btn = self._create_donation_button(
-            "💰 PayPal",
+            "PayPal",
             "#0070ba",
             self.DONATION_URLS["paypal"]
         )
@@ -320,7 +268,7 @@ class AboutDialog(QDialog):
 
         # Liberapay
         liberapay_btn = self._create_donation_button(
-            "💛 Liberapay",
+            "Liberapay",
             "#f6c915",
             self.DONATION_URLS["liberapay"],
             text_color="#000000"
@@ -381,7 +329,7 @@ class AboutDialog(QDialog):
 
     def _create_footer(self, layout: QVBoxLayout):
         """Create copyright footer"""
-        footer_label = QLabel("© 2024-2025 - MIT License")
+        footer_label = QLabel("2024-2025 - MIT License")
         footer_label.setStyleSheet("color: #808080; padding: 15px 0 5px 0;")
         footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer_font = QFont("Arial", 9)

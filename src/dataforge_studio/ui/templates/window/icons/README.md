@@ -25,7 +25,7 @@ Les icônes sont automatiquement chargées via `resources.get_icon_path()`.
 
 Exemple :
 ```python
-from window_template.resources import get_icon_path
+from dataforge_studio.ui.templates.window.resources import get_icon_path
 
 icon_path = get_icon_path("close.png")
 if icon_path:
