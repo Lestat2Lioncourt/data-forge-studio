@@ -1,9 +1,16 @@
 """
 DataForge Studio - Multi-database management tool
-Version 0.50.0 - PySide6 Edition
+PySide6 Edition
 """
 
-__version__ = "0.50.0"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("data-forge-studio")
+except PackageNotFoundError:
+    # Package not installed, fallback to reading pyproject.toml directly
+    __version__ = "0.5.1"  # Fallback version
+
 __author__ = "Lestat2Lioncourt"
 
 from .main import main

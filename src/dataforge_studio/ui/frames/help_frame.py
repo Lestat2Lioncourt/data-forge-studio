@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit
 from PySide6.QtCore import Qt
 
 from ..core.i18n_bridge import tr
+from ... import __version__
 
 
 class HelpFrame(QWidget):
@@ -31,19 +32,19 @@ class HelpFrame(QWidget):
 
     def _get_help_content(self) -> str:
         """Generate help content HTML."""
-        return """
-        <h1>DataForge Studio v0.50</h1>
+        return f"""
+        <h1>DataForge Studio v{__version__}</h1>
 
         <h2>Welcome to DataForge Studio</h2>
         <p>DataForge Studio is a multi-database management tool with a modern PySide6 interface.</p>
 
-        <h2>What's New in v0.50</h2>
+        <h2>Features</h2>
         <ul>
-            <li><strong>Complete UI Overhaul</strong>: Migrated from TKinter to PySide6</li>
-            <li><strong>Modern Frameless Window</strong>: Custom title bar, menu bar, and status bar</li>
-            <li><strong>Improved Architecture</strong>: Reduced code by ~60% through refactoring</li>
-            <li><strong>Reusable Components</strong>: New widget library for consistent UI</li>
-            <li><strong>Better Performance</strong>: Faster rendering and responsiveness</li>
+            <li><strong>Multi-database support</strong>: SQL Server, SQLite, PostgreSQL, MySQL, Access</li>
+            <li><strong>Modern UI</strong>: PySide6 interface with custom themes</li>
+            <li><strong>Data Explorer</strong>: Browse and preview CSV, JSON, Excel files</li>
+            <li><strong>Query Manager</strong>: Save and organize SQL queries</li>
+            <li><strong>Script Runner</strong>: Execute Python scripts</li>
         </ul>
 
         <h2>Navigation</h2>
@@ -80,7 +81,7 @@ class HelpFrame(QWidget):
         </table>
 
         <h2>About</h2>
-        <p><strong>Version:</strong> 0.50.0<br>
+        <p><strong>Version:</strong> {__version__}<br>
         <strong>License:</strong> MIT<br>
         <strong>Author:</strong> Lestat2Lioncourt</p>
 

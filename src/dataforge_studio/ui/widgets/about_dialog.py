@@ -9,6 +9,7 @@ from PySide6.QtGui import QFont, QDesktopServices
 from ..templates.dialog import SelectorDialog
 from ..core.theme_bridge import ThemeBridge
 from ...utils.image_loader import get_pixmap
+from ... import __version__
 import logging
 
 logger = logging.getLogger(__name__)
@@ -115,7 +116,7 @@ class AboutDialog(SelectorDialog):
         name_label.setStyleSheet("color: #ffffff;")
         text_layout.addWidget(name_label)
 
-        version_label = QLabel("Version 0.50.0")
+        version_label = QLabel(f"Version {__version__}")
         version_font = QFont("Arial", 12)
         version_label.setFont(version_font)
         version_label.setStyleSheet("color: #808080;")
