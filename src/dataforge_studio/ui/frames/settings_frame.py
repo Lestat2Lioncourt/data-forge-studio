@@ -23,6 +23,7 @@ from ..widgets.color_property_row import ColorPropertyRow
 from ..widgets.palette_widget import PaletteWidget
 from ..core.theme_bridge import ThemeBridge
 from ..core.i18n_bridge import I18nBridge, tr
+from ...config.i18n import i18n_manager
 from ...config.user_preferences import UserPreferences
 from .quick_theme_frame import QuickThemeFrame
 
@@ -568,8 +569,8 @@ class SettingsFrame(BaseManagerView):
                 logger.warning(f"Could not load language file {lang_file}: {e}")
 
         if not translations:
-            # Get from i18n bridge built-in
-            translations = dict(self.i18n_bridge._i18n.TRANSLATIONS.get(lang_code, {}))
+            # Get from i18n manager built-in (core translations)
+            translations = dict(i18n_manager._core.get(lang_code, {}))
 
         self._current_lang_data = translations
         self._is_lang_modified = False
