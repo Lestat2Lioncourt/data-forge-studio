@@ -1,15 +1,15 @@
-# DataForge Studio v0.50 🚀
+# DataForge Studio v0.5.0 🚀
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.10+-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.50.0-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-orange.svg)](CHANGELOG.md)
 
 **Multi-database management tool with modern PySide6 interface**
 
 ![DataForge Studio](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)
 
-## ✨ What's New in v0.50
+## ✨ What's New in v0.5.0
 
 ### 🎨 Complete UI Overhaul
 - **Migrated from TKinter to PySide6** - Modern, professional Qt-based interface
@@ -39,7 +39,7 @@
 data-forge-studio/
 ├── APP_SOURCE/                # v0.3.0 TKinter version (archived)
 │
-├── src/dataforge_studio/      # v0.50 PySide6 version
+├── src/dataforge_studio/      # v0.5.0 PySide6 version
 │   ├── ui/                    # User Interface
 │   │   ├── window_template/   # Frameless window base
 │   │   ├── core/              # Main window, themes, i18n
@@ -89,25 +89,72 @@ data-forge-studio/
 - **Python 3.10 or higher**
 - **uv** (recommended) or pip for package management
 
-### Quick Start with UV (Recommended)
+### 🪟 Windows
 
-```bash
+```powershell
+# Install uv (if not already installed)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
 # Clone the repository
-git clone https://github.com/yourusername/data-forge-studio.git
+git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
 cd data-forge-studio
 
-# Install dependencies
+# Install dependencies and run
 uv sync
+uv run python run.py
+```
 
-# Run the application
-uv run run.py
+### 🍎 MacOS
+
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone the repository
+git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
+cd data-forge-studio
+
+# Install dependencies and run
+uv sync
+uv run python run.py
+```
+
+#### SQL Server on MacOS (optional)
+```bash
+brew install unixodbc
+brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
+brew install msodbcsql18
+```
+
+### 🐧 Linux (Ubuntu/Debian)
+
+```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone the repository
+git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
+cd data-forge-studio
+
+# Install dependencies and run
+uv sync
+uv run python run.py
+```
+
+#### SQL Server on Linux (optional)
+```bash
+# Ubuntu/Debian
+curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+sudo apt-get update
+sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
 ```
 
 ### Alternative: Standard pip installation
 
 ```bash
 # Clone and navigate
-git clone https://github.com/yourusername/data-forge-studio.git
+git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
 cd data-forge-studio
 
 # Create virtual environment
@@ -120,6 +167,14 @@ pip install -e .
 # Run the application
 python run.py
 ```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| PySide6 import error | `uv pip install --force-reinstall PySide6` |
+| ODBC driver not found | Install msodbcsql18 (see platform instructions above) |
+| Apple Silicon (M1/M2/M3) | Ensure arm64 packages: `uv sync --reinstall` |
 
 ## 💻 Usage
 
@@ -252,7 +307,7 @@ Contributions are welcome! Please:
 
 ```bash
 # Clone and install development dependencies
-git clone https://github.com/yourusername/data-forge-studio.git
+git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
 cd data-forge-studio
 uv sync --dev
 
@@ -268,7 +323,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **DataForge Studio Development Team**
 - Original TKinter version: v0.1.0 - v0.3.0
-- PySide6 Migration: v0.50.0
+- PySide6 Migration: v0.4.0+
 
 ## 🙏 Acknowledgments
 
@@ -280,7 +335,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📜 Changelog
 
-### v0.50.0 (2025-12-11) - Major Release
+### v0.5.0 (2025-12-21) - Theme & UI Improvements
+- Theme opacity system (`Selected_Opacity`, `Hover_Opacity`)
+- IconSidebar theme integration with transparency
+- Pin button visibility fix (tinted based on theme)
+- ImageLibraryManager now uses PinnablePanel
+- Splash screen timing fix
+- Log/Text viewer theming
+- Quick Theme Frame: IconSidebar colors
+
+### v0.4.0 (2025-12-11) - Major Release
 - Complete UI migration from TKinter to PySide6
 - Integrated frameless window template
 - 60% code reduction through refactoring
