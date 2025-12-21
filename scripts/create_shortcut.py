@@ -1,10 +1,13 @@
 """
 Create Desktop Shortcut for DataForge Studio
-This script creates a Windows desktop shortcut with icon
+Cross-platform script: Windows, MacOS, Linux
 """
 
 import os
 import sys
+import stat
+import shutil
+import subprocess
 from pathlib import Path
 
 # Force UTF-8 encoding for Windows console
@@ -14,230 +17,396 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 
-def convert_png_to_ico(png_path: Path, ico_path: Path):
+def get_project_root() -> Path:
+    """Get the project root directory"""
+    return Path(__file__).parent.parent
+
+
+def convert_png_to_ico(png_path: Path, ico_path: Path) -> bool:
     """Convert PNG to ICO format for Windows shortcuts"""
     try:
         from PIL import Image
 
-        # Open PNG image
         img = Image.open(png_path)
 
-        # Convert RGBA to RGB if necessary
         if img.mode == 'RGBA':
-            # Create white background
             background = Image.new('RGB', img.size, (255, 255, 255))
-            background.paste(img, mask=img.split()[3])  # Use alpha channel as mask
+            background.paste(img, mask=img.split()[3])
             img = background
 
-        # Save as ICO with multiple sizes (for different display contexts)
         img.save(ico_path, format='ICO', sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-        print(f"✓ Icon converted: {ico_path}")
+        print(f"  [OK] Icon converted: {ico_path}")
         return True
     except ImportError:
-        print("✗ Error: Pillow is required to convert PNG to ICO")
-        print("  Install with: uv pip install pillow")
+        print("  [!] Pillow required for PNG to ICO conversion")
+        print("      Install with: uv pip install pillow")
         return False
     except Exception as e:
-        print(f"✗ Error converting PNG to ICO: {e}")
+        print(f"  [X] Error converting PNG to ICO: {e}")
         return False
 
 
-def create_windows_shortcut(target_path: Path, shortcut_name: str, icon_path: Path = None, description: str = ""):
-    """Create a Windows shortcut (.lnk) on the desktop"""
+def convert_png_to_icns(png_path: Path, icns_path: Path) -> bool:
+    """Convert PNG to ICNS format for MacOS"""
     try:
-        import win32com.client
+        # Create iconset directory
+        iconset_path = icns_path.parent / "DataForgeStudio.iconset"
+        iconset_path.mkdir(exist_ok=True)
 
-        # Get desktop path
-        desktop = Path.home() / "Desktop"
-        shortcut_path = desktop / f"{shortcut_name}.lnk"
+        from PIL import Image
+        img = Image.open(png_path)
 
-        # Delete existing shortcut if it exists
-        if shortcut_path.exists():
-            shortcut_path.unlink()
-            print(f"  Removed existing shortcut: {shortcut_path}")
+        # MacOS iconset requires specific sizes
+        sizes = [16, 32, 64, 128, 256, 512]
+        for size in sizes:
+            resized = img.resize((size, size), Image.Resampling.LANCZOS)
+            resized.save(iconset_path / f"icon_{size}x{size}.png")
+            # Retina versions
+            if size <= 256:
+                resized_2x = img.resize((size * 2, size * 2), Image.Resampling.LANCZOS)
+                resized_2x.save(iconset_path / f"icon_{size}x{size}@2x.png")
 
-        # Create shortcut
-        shell = win32com.client.Dispatch("WScript.Shell")
-        shortcut = shell.CreateShortCut(str(shortcut_path))
+        # Convert iconset to icns using iconutil
+        result = subprocess.run(
+            ["iconutil", "-c", "icns", str(iconset_path), "-o", str(icns_path)],
+            capture_output=True, text=True
+        )
 
-        # Use cmd.exe to run the batch file (more reliable)
-        shortcut.TargetPath = "cmd.exe"
-        shortcut.Arguments = f'/c "{target_path}"'
-        shortcut.WorkingDirectory = str(target_path.parent)
-        shortcut.Description = description
+        # Cleanup iconset
+        shutil.rmtree(iconset_path)
 
-        if icon_path and icon_path.exists():
-            shortcut.IconLocation = str(icon_path)
+        if result.returncode == 0:
+            print(f"  [OK] ICNS icon created: {icns_path}")
+            return True
+        else:
+            print(f"  [X] iconutil failed: {result.stderr}")
+            return False
 
-        shortcut.save()
-        print(f"✓ Shortcut created: {shortcut_path}")
-        return True
     except ImportError:
-        print("✗ Error: pywin32 is required to create shortcuts")
-        print("  Install with: uv pip install pywin32")
+        print("  [!] Pillow required for icon conversion")
+        print("      Install with: uv pip install pillow")
+        return False
+    except FileNotFoundError:
+        print("  [!] iconutil not found (MacOS command line tools required)")
         return False
     except Exception as e:
-        print(f"✗ Error creating shortcut: {e}")
+        print(f"  [X] Error creating ICNS: {e}")
         return False
 
 
-def main():
-    """Main function to create shortcut with icon"""
-    print("=" * 60)
-    print("DataForge Studio - Desktop Shortcut Creator")
-    print("=" * 60)
-    print()
+# =============================================================================
+# WINDOWS
+# =============================================================================
 
-    # Get project root
-    project_root = Path(__file__).parent
+def create_windows_shortcut() -> bool:
+    """Create Windows desktop shortcut with icon"""
+    print("\n[Windows] Creating desktop shortcut...")
 
-    # Paths
+    project_root = get_project_root()
     ico_icon = project_root / "src" / "dataforge_studio" / "ui" / "assets" / "images" / "DataForge Studio.ico"
     png_icon = project_root / "src" / "dataforge_studio" / "ui" / "assets" / "images" / "DataForge Studio.png"
     run_script = project_root / "run.py"
 
-    # Check if run.py exists
     if not run_script.exists():
-        print(f"✗ Error: run.py not found at {run_script}")
-        return 1
+        print(f"  [X] run.py not found at {run_script}")
+        return False
 
-    # Step 1: Check for icon files
-    print("Step 1: Checking for icon files...")
+    # Check/create icon
     if ico_icon.exists():
         icon_to_use = ico_icon
-        print(f"✓ Using ICO icon: {ico_icon}")
+        print(f"  [OK] Using ICO icon: {ico_icon.name}")
     elif png_icon.exists():
-        print(f"⚠️  ICO not found, converting PNG to ICO...")
+        print("  [>] Converting PNG to ICO...")
         if convert_png_to_ico(png_icon, ico_icon):
             icon_to_use = ico_icon
         else:
-            print("\nℹ️  Icon conversion failed, using PNG...")
-            icon_to_use = png_icon
+            icon_to_use = None
     else:
-        print(f"✗ Error: No icon found at {ico_icon} or {png_icon}")
-        return 1
+        print(f"  [!] No icon found")
+        icon_to_use = None
 
-    print()
+    # Get pythonw.exe (no console)
+    venv_pythonw = project_root / ".venv" / "Scripts" / "pythonw.exe"
+    if not venv_pythonw.exists():
+        print(f"  [X] pythonw.exe not found. Run 'uv sync' first.")
+        return False
 
-    # Step 2: Create shortcut
-    print("Step 2: Creating desktop shortcut...")
+    # Find desktop
+    try:
+        import win32com.client
+        shell = win32com.client.Dispatch("WScript.Shell")
+        desktop = Path(shell.SpecialFolders("Desktop"))
+    except:
+        desktop = Path.home() / "Desktop"
+        if not desktop.exists():
+            desktop = Path.home() / "Bureau"  # French
 
-    # Get Python executable in virtual environment
+    if not desktop.exists():
+        print(f"  [X] Desktop folder not found")
+        return False
+
+    print(f"  [>] Desktop: {desktop}")
+
+    # Create shortcut
+    shortcut_path = desktop / "DataForge Studio.lnk"
+    if shortcut_path.exists():
+        shortcut_path.unlink()
+
+    try:
+        import win32com.client
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortCut(str(shortcut_path))
+        shortcut.TargetPath = str(venv_pythonw)
+        shortcut.Arguments = f'"{run_script}"'
+        shortcut.WorkingDirectory = str(project_root)
+        shortcut.Description = "DataForge Studio - Multi-database management tool"
+
+        if icon_to_use and icon_to_use.exists():
+            shortcut.IconLocation = str(icon_to_use)
+
+        shortcut.save()
+        print(f"  [OK] Shortcut created: {shortcut_path.name}")
+        return True
+
+    except ImportError:
+        print("  [X] pywin32 required. Install with: uv pip install pywin32")
+        return False
+    except Exception as e:
+        print(f"  [X] Error: {e}")
+        return False
+
+
+# =============================================================================
+# MACOS
+# =============================================================================
+
+def create_macos_app() -> bool:
+    """Create MacOS .app bundle"""
+    print("\n[MacOS] Creating application bundle...")
+
+    project_root = get_project_root()
+    png_icon = project_root / "src" / "dataforge_studio" / "ui" / "assets" / "images" / "DataForge Studio.png"
+    run_script = project_root / "run.py"
+
+    if not run_script.exists():
+        print(f"  [X] run.py not found at {run_script}")
+        return False
+
+    # Create .app bundle structure
+    app_name = "DataForge Studio.app"
+    desktop = Path.home() / "Desktop"
+    if not desktop.exists():
+        desktop = Path.home() / "Bureau"  # French
+
+    app_path = desktop / app_name
+    contents_path = app_path / "Contents"
+    macos_path = contents_path / "MacOS"
+    resources_path = contents_path / "Resources"
+
+    # Remove existing
+    if app_path.exists():
+        shutil.rmtree(app_path)
+        print(f"  [>] Removed existing: {app_name}")
+
+    # Create directories
+    macos_path.mkdir(parents=True)
+    resources_path.mkdir(parents=True)
+
+    # Create launcher script
+    launcher_script = macos_path / "DataForgeStudio"
+
+    # Find Python in venv
+    venv_python = project_root / ".venv" / "bin" / "python"
+    if not venv_python.exists():
+        # Try to use uv run
+        launcher_content = f'''#!/bin/bash
+cd "{project_root}"
+exec uv run python run.py "$@"
+'''
+    else:
+        launcher_content = f'''#!/bin/bash
+cd "{project_root}"
+exec "{venv_python}" run.py "$@"
+'''
+
+    launcher_script.write_text(launcher_content)
+    launcher_script.chmod(launcher_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    print(f"  [OK] Launcher script created")
+
+    # Create Info.plist
+    info_plist = contents_path / "Info.plist"
+    plist_content = '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>DataForge Studio</string>
+    <key>CFBundleDisplayName</key>
+    <string>DataForge Studio</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.dataforgestudio.app</string>
+    <key>CFBundleVersion</key>
+    <string>0.5.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.5.0</string>
+    <key>CFBundleExecutable</key>
+    <string>DataForgeStudio</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+'''
+    info_plist.write_text(plist_content)
+    print(f"  [OK] Info.plist created")
+
+    # Create icon
+    if png_icon.exists():
+        icns_path = resources_path / "AppIcon.icns"
+        if not convert_png_to_icns(png_icon, icns_path):
+            # Fallback: just copy PNG
+            shutil.copy(png_icon, resources_path / "AppIcon.png")
+            print(f"  [!] Using PNG icon (ICNS conversion failed)")
+    else:
+        print(f"  [!] No icon found")
+
+    print(f"  [OK] App bundle created: {app_path}")
+    print(f"\n  You can now:")
+    print(f"    - Double-click '{app_name}' on your Desktop")
+    print(f"    - Drag it to Applications folder")
+    print(f"    - Drag it to Dock for quick access")
+
+    return True
+
+
+# =============================================================================
+# LINUX
+# =============================================================================
+
+def create_linux_desktop_entry() -> bool:
+    """Create Linux .desktop file"""
+    print("\n[Linux] Creating desktop entry...")
+
+    project_root = get_project_root()
+    png_icon = project_root / "src" / "dataforge_studio" / "ui" / "assets" / "images" / "DataForge Studio.png"
+    run_script = project_root / "run.py"
+
+    if not run_script.exists():
+        print(f"  [X] run.py not found at {run_script}")
+        return False
+
+    # Paths
+    applications_dir = Path.home() / ".local" / "share" / "applications"
+    icons_dir = Path.home() / ".local" / "share" / "icons" / "hicolor" / "256x256" / "apps"
+    desktop_dir = Path.home() / "Desktop"
+    if not desktop_dir.exists():
+        desktop_dir = Path.home() / "Bureau"  # French
+
+    # Create directories
+    applications_dir.mkdir(parents=True, exist_ok=True)
+    icons_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy icon
+    icon_dest = icons_dir / "dataforge-studio.png"
+    if png_icon.exists():
+        shutil.copy(png_icon, icon_dest)
+        print(f"  [OK] Icon installed: {icon_dest}")
+    else:
+        print(f"  [!] No icon found")
+
+    # Find Python
+    venv_python = project_root / ".venv" / "bin" / "python"
+    if venv_python.exists():
+        exec_command = f'"{venv_python}" "{run_script}"'
+    else:
+        exec_command = f'uv run python "{run_script}"'
+
+    # Create .desktop file
+    desktop_content = f'''[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DataForge Studio
+Comment=Multi-database management tool
+Exec={exec_command}
+Icon=dataforge-studio
+Path={project_root}
+Terminal=false
+Categories=Development;Database;
+StartupWMClass=dataforge-studio
+'''
+
+    # Install to applications
+    desktop_file = applications_dir / "dataforge-studio.desktop"
+    desktop_file.write_text(desktop_content)
+    desktop_file.chmod(desktop_file.stat().st_mode | stat.S_IXUSR)
+    print(f"  [OK] Desktop entry installed: {desktop_file}")
+
+    # Also create on Desktop if it exists
+    if desktop_dir.exists():
+        desktop_shortcut = desktop_dir / "DataForge Studio.desktop"
+        desktop_shortcut.write_text(desktop_content)
+        desktop_shortcut.chmod(desktop_shortcut.stat().st_mode | stat.S_IXUSR)
+        print(f"  [OK] Desktop shortcut created: {desktop_shortcut}")
+
+    # Update desktop database
+    try:
+        subprocess.run(
+            ["update-desktop-database", str(applications_dir)],
+            capture_output=True, check=False
+        )
+    except FileNotFoundError:
+        pass
+
+    print(f"\n  You can now:")
+    print(f"    - Find 'DataForge Studio' in your application menu")
+    print(f"    - Double-click the shortcut on your Desktop")
+
+    return True
+
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+def main():
+    """Main function - detect platform and create shortcut"""
+    print("=" * 60)
+    print("DataForge Studio - Desktop Shortcut Creator")
+    print("=" * 60)
+
+    project_root = get_project_root()
+    print(f"\nProject root: {project_root}")
+    print(f"Platform: {sys.platform}")
+
+    success = False
+
     if sys.platform == "win32":
-        python_exe = Path(sys.executable)
+        success = create_windows_shortcut()
 
-        # Create a batch file to launch the app WITHOUT console window
-        # Using pythonw.exe instead of python.exe to hide console
-        batch_file = project_root / "DataForgeStudio.bat"
-        venv_pythonw = project_root / ".venv" / "Scripts" / "pythonw.exe"
+    elif sys.platform == "darwin":
+        success = create_macos_app()
 
-        if not venv_pythonw.exists():
-            print(f"✗ Error: pythonw.exe not found at {venv_pythonw}")
-            print("  Please run 'uv sync' first to create the virtual environment")
-            return 1
+    elif sys.platform.startswith("linux"):
+        success = create_linux_desktop_entry()
 
-        with open(batch_file, 'w') as f:
-            f.write('@echo off\n')
-            f.write(f'cd /d "{project_root}"\n')
-            # Use pythonw.exe to avoid console window
-            f.write(f'"{venv_pythonw}" run.py\n')
-
-        print(f"✓ Batch launcher created (no console): {batch_file}")
-
-        # Create shortcut to batch file
-        # Try different desktop locations (Windows can have different paths)
-        # Priority: user's personal desktop first, then public
-        import os
-
-        # Try to get desktop via Windows Shell (most reliable)
-        try:
-            import win32com.client
-            shell = win32com.client.Dispatch("WScript.Shell")
-            actual_desktop = Path(shell.SpecialFolders("Desktop"))
-        except:
-            actual_desktop = None
-
-        # Fallback to manual search if shell method fails
-        if not actual_desktop or not actual_desktop.exists():
-            desktop_paths = [
-                Path.home() / "Desktop",
-                Path.home() / "Bureau",  # French Windows
-                Path(os.environ.get('USERPROFILE', '')) / "Desktop",
-                Path(os.environ.get('USERPROFILE', '')) / "Bureau",
-                # Public desktop last (requires admin rights)
-                Path(os.environ.get('PUBLIC', '')) / "Desktop"
-            ]
-
-            # Find the actual desktop path
-            for dp in desktop_paths:
-                if dp.exists():
-                    actual_desktop = dp
-                    break
-
-        if not actual_desktop:
-            print(f"✗ Error: Could not find desktop folder")
-            print(f"  Tried: {[str(p) for p in desktop_paths]}")
-            return 1
-
-        print(f"  Desktop location: {actual_desktop}")
-
-        # Create shortcut using simplified name first
-        shortcut_path = actual_desktop / "DataForgeStudio.lnk"
-
-        # Remove if exists
-        if shortcut_path.exists():
-            shortcut_path.unlink()
-            print(f"  Removed existing shortcut")
-
-        # Create manually using win32com
-        # Point DIRECTLY to pythonw.exe (no cmd.exe, no batch file)
-        try:
-            import win32com.client
-            shell = win32com.client.Dispatch("WScript.Shell")
-            shortcut = shell.CreateShortCut(str(shortcut_path))
-
-            # Direct launch with pythonw.exe (no console window at all)
-            shortcut.TargetPath = str(venv_pythonw)
-            shortcut.Arguments = f'"{run_script}"'
-            shortcut.WorkingDirectory = str(project_root)
-            shortcut.Description = "DataForge Studio - Multi-database management tool"
-
-            if icon_to_use.exists():
-                shortcut.IconLocation = str(icon_to_use)
-
-            shortcut.save()
-            print(f"✓ Shortcut created (direct pythonw, no console): {shortcut_path}")
-            success = True
-        except Exception as e:
-            print(f"✗ Error creating shortcut: {e}")
-            success = False
     else:
-        print("✗ This script currently only supports Windows")
+        print(f"\n[X] Unsupported platform: {sys.platform}")
         return 1
 
     print()
-
+    print("=" * 60)
     if success:
-        print("=" * 60)
-        print("✓ SUCCESS!")
-        print("=" * 60)
-        print()
-        print("Desktop shortcut created with icon!")
-        print()
-        print("You can now:")
-        print("  1. Double-click the 'DataForge Studio' shortcut on your desktop")
-        print("  2. Pin it to Start Menu or Taskbar for quick access")
-        print()
-        return 0
+        print("[OK] SUCCESS!")
     else:
-        print()
-        print("=" * 60)
-        print("✗ FAILED")
-        print("=" * 60)
-        print()
-        print("Shortcut creation failed. Please check the errors above.")
-        print()
-        return 1
+        print("[X] FAILED - Check errors above")
+    print("=" * 60)
+
+    return 0 if success else 1
 
 
 if __name__ == "__main__":

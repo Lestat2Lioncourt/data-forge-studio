@@ -168,6 +168,19 @@ pip install -e .
 python run.py
 ```
 
+### Create Desktop Shortcut (Optional)
+
+After installation, create a desktop shortcut with icon:
+
+```bash
+uv run python scripts/create_shortcut.py
+```
+
+This works on all platforms:
+- **Windows**: Creates `.lnk` shortcut with icon
+- **MacOS**: Creates `.app` bundle (drag to Dock)
+- **Linux**: Creates `.desktop` entry in app menu
+
 ### Troubleshooting
 
 | Issue | Solution |
@@ -175,6 +188,7 @@ python run.py
 | PySide6 import error | `uv pip install --force-reinstall PySide6` |
 | ODBC driver not found | Install msodbcsql18 (see platform instructions above) |
 | Apple Silicon (M1/M2/M3) | Ensure arm64 packages: `uv sync --reinstall` |
+| MacOS icon not showing | Install Pillow: `uv pip install pillow` |
 
 ## 💻 Usage
 
