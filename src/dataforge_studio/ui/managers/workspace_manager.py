@@ -413,14 +413,22 @@ class WorkspaceManager(QWidget):
         if not data:
             return
 
-        if data["type"] == "workspace":
+        item_type = data.get("type", "")
+
+        if item_type == "workspace":
             self._show_workspace_details(data["workspace_obj"])
-        elif data["type"] == "database":
-            self._show_database_details(data["resource_obj"])
-        elif data["type"] == "query":
+        elif item_type == "database":
+            self._show_database_details(data)
+        elif item_type == "query":
             self._show_query_details(data["resource_obj"])
-        elif data["type"] == "rootfolder":
-            self._show_rootfolder_details(data["resource_obj"])
+        elif item_type == "query_category":
+            self._show_category_details(data)
+        elif item_type == "rootfolder":
+            self._show_rootfolder_details(data)
+        elif item_type == "folder":
+            self._show_folder_details(data)
+        elif item_type == "file":
+            self._show_file_details(data)
 
     def _show_workspace_details(self, workspace: Workspace):
         """Show workspace details in the details panel"""
@@ -441,10 +449,20 @@ class WorkspaceManager(QWidget):
         except Exception as e:
             logger.error(f"Error showing workspace details: {e}")
 
-    def _show_database_details(self, db):
+    def _show_database_details(self, data: dict):
         """Show database details"""
-        self.details_form_builder.set_value("name", db.name)
-        self.details_form_builder.set_value("type", f"Database ({db.db_type})")
+        db = data.get("resource_obj")
+        database_name = data.get("database_name", "")
+
+        if database_name:
+            # Specific database
+            self.details_form_builder.set_value("name", database_name)
+            self.details_form_builder.set_value("type", f"Database on {db.name}")
+        else:
+            # Server
+            self.details_form_builder.set_value("name", db.name)
+            self.details_form_builder.set_value("type", f"Server ({db.db_type})")
+
         self.details_form_builder.set_value("description", db.description or "")
         self.details_form_builder.set_value("created", "")
         self.details_form_builder.set_value("updated", "")
@@ -457,11 +475,51 @@ class WorkspaceManager(QWidget):
         self.details_form_builder.set_value("created", "")
         self.details_form_builder.set_value("updated", "")
 
-    def _show_rootfolder_details(self, rootfolder):
+    def _show_rootfolder_details(self, data: dict):
         """Show rootfolder details"""
-        self.details_form_builder.set_value("name", rootfolder.name or rootfolder.path)
-        self.details_form_builder.set_value("type", "RootFolder")
-        self.details_form_builder.set_value("description", rootfolder.description or "")
+        rootfolder = data.get("resource_obj")
+        subfolder_path = data.get("subfolder_path", "")
+        full_path = data.get("full_path", "")
+
+        if subfolder_path:
+            # Subfolder attached
+            self.details_form_builder.set_value("name", Path(subfolder_path).name)
+            self.details_form_builder.set_value("type", "Subfolder")
+        else:
+            # Root folder
+            self.details_form_builder.set_value("name", rootfolder.name or rootfolder.path)
+            self.details_form_builder.set_value("type", "RootFolder")
+
+        self.details_form_builder.set_value("description", full_path or rootfolder.path)
+        self.details_form_builder.set_value("created", "")
+        self.details_form_builder.set_value("updated", "")
+
+    def _show_folder_details(self, data: dict):
+        """Show folder details"""
+        folder_path = data.get("path", "")
+        self.details_form_builder.set_value("name", Path(folder_path).name if folder_path else "")
+        self.details_form_builder.set_value("type", "Folder")
+        self.details_form_builder.set_value("description", folder_path)
+        self.details_form_builder.set_value("created", "")
+        self.details_form_builder.set_value("updated", "")
+
+    def _show_file_details(self, data: dict):
+        """Show file details"""
+        file_path = data.get("path", "")
+        path_obj = Path(file_path) if file_path else None
+
+        self.details_form_builder.set_value("name", path_obj.name if path_obj else "")
+        self.details_form_builder.set_value("type", f"File ({path_obj.suffix})" if path_obj else "File")
+        self.details_form_builder.set_value("description", file_path)
+        self.details_form_builder.set_value("created", "")
+        self.details_form_builder.set_value("updated", "")
+
+    def _show_category_details(self, data: dict):
+        """Show query category details"""
+        cat_name = data.get("name", "")
+        self.details_form_builder.set_value("name", cat_name)
+        self.details_form_builder.set_value("type", "Query Category")
+        self.details_form_builder.set_value("description", "")
         self.details_form_builder.set_value("created", "")
         self.details_form_builder.set_value("updated", "")
 

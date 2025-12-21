@@ -82,7 +82,7 @@ class WorkspaceMenuBuilder:
 
         # Set icon if available
         if self.icon_name:
-            from ..widgets.toolbar_builder import get_icon
+            from ...utils.image_loader import get_icon
             icon = get_icon(self.icon_name, size=16) or get_icon("folder", size=16)
             if icon:
                 menu.setIcon(icon)
