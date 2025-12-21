@@ -1,5 +1,5 @@
 """
-Main Window - DataForge Studio v0.50
+Main Window - DataForge Studio
 Main application window using window-template
 """
 
@@ -18,7 +18,7 @@ class DataForgeMainWindow:
 
     def __init__(self):
         # Create window using factory from window-template
-        self.wrapper = create_window("DataForge Studio v0.50", easy_resize=True)
+        self.wrapper = create_window("DataForge Studio", easy_resize=True)
         self.window = self.wrapper.window
 
         # Initialize managers
