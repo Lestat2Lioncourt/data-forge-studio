@@ -25,6 +25,7 @@ from .models import (
     ImageRootfolder,
     SavedImage,
 )
+from .models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
 
 
 class ConfigDatabase:
@@ -934,6 +935,39 @@ class ConfigDatabase:
 
         return [DatabaseConnection(**dict(row)) for row in rows]
 
+    def get_workspace_databases_with_context(self, workspace_id: str) -> List[WorkspaceDatabase]:
+        """
+        Get all databases in a workspace WITH their database_name context.
+
+        Returns WorkspaceDatabase objects that include:
+        - The DatabaseConnection object (server config)
+        - The database_name (empty string if whole server, specific name if single DB)
+
+        This is the preferred method for WorkspaceManager to get complete information.
+        """
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT dc.*, pd.database_name
+            FROM database_connections dc
+            INNER JOIN project_databases pd ON dc.id = pd.database_id
+            WHERE pd.project_id = ?
+            ORDER BY dc.name, pd.database_name
+        """, (workspace_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            database_name = row_dict.pop('database_name', '') or ''
+            connection = DatabaseConnection(**row_dict)
+            result.append(WorkspaceDatabase(connection=connection, database_name=database_name))
+
+        return result
+
     def get_workspace_database_entries(self, workspace_id: str) -> List[Tuple[str, str, str]]:
         """
         Get all database entries in a workspace with details.
@@ -1161,6 +1195,39 @@ class ConfigDatabase:
     def get_workspace_file_roots(self, workspace_id: str) -> List[FileRoot]:
         """Get all file roots in a workspace (alias for get_project_file_roots)"""
         return self.get_project_file_roots(workspace_id)
+
+    def get_workspace_file_roots_with_context(self, workspace_id: str) -> List[WorkspaceFileRoot]:
+        """
+        Get all file roots in a workspace WITH their subfolder context.
+
+        Returns WorkspaceFileRoot objects that include:
+        - The FileRoot object
+        - The subfolder_path (empty string if root, relative path if subfolder)
+
+        This is the preferred method for WorkspaceManager to get complete information.
+        """
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT fr.*, pfr.subfolder_path
+            FROM file_roots fr
+            INNER JOIN project_file_roots pfr ON fr.id = pfr.file_root_id
+            WHERE pfr.project_id = ?
+            ORDER BY pfr.subfolder_path, fr.path
+        """, (workspace_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            subfolder_path = row_dict.pop('subfolder_path', '') or ''
+            file_root = FileRoot(**row_dict)
+            result.append(WorkspaceFileRoot(file_root=file_root, subfolder_path=subfolder_path))
+
+        return result
 
     def get_workspace_file_root_ids(self, workspace_id: str) -> List[str]:
         """Get all file root IDs in a workspace"""

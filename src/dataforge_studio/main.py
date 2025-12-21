@@ -158,6 +158,13 @@ def main():
         image_library_manager=image_library_manager
     )
 
+    # Connect WorkspaceManager to managers for subtree loading
+    if workspace_manager:
+        workspace_manager.set_managers(
+            database_manager=database_manager,
+            rootfolder_manager=rootfolder_manager
+        )
+
     # Connect plugin signals
     plugin_manager.connect_all_signals()
 
