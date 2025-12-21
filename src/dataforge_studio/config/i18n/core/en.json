@@ -577,5 +577,7 @@
     "update_available_text": "A new version ({version}) is available!",
     "update_check_title": "Check for Updates",
     "no_update_available": "You are running the latest version.",
-    "open_github": "View on GitHub"
+    "open_github": "View on GitHub",
+    "update_on_quit": "Update on Quit",
+    "remind_later": "Remind Later"
 }

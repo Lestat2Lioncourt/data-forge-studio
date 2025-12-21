@@ -42,6 +42,7 @@ class DataForgeMainWindow:
         self.stacked_widget = None
         self._current_view = None  # Track current view
         self._current_workspace_id: Optional[str] = None  # Active workspace filter
+        self._pending_update = False  # Flag for update on quit
 
         # Setup UI
         self._setup_menu_bar()
@@ -366,7 +367,7 @@ class DataForgeMainWindow:
     def _check_updates(self):
         """Check for updates from GitHub."""
         from ...utils.update_checker import get_update_checker
-        from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox, QPushButton
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
 
@@ -386,14 +387,18 @@ class DataForgeMainWindow:
                 notes = notes[:500] + "..."
             msg.setDetailedText(notes)
 
-            msg.setStandardButtons(
-                QMessageBox.StandardButton.Open |
-                QMessageBox.StandardButton.Close
-            )
-            msg.button(QMessageBox.StandardButton.Open).setText(tr("open_github"))
-            msg.button(QMessageBox.StandardButton.Close).setText(tr("close"))
+            # Add custom buttons
+            btn_update_quit = msg.addButton(tr("update_on_quit"), QMessageBox.ButtonRole.AcceptRole)
+            btn_open = msg.addButton(tr("open_github"), QMessageBox.ButtonRole.ActionRole)
+            btn_later = msg.addButton(tr("remind_later"), QMessageBox.ButtonRole.RejectRole)
 
-            if msg.exec() == QMessageBox.StandardButton.Open:
+            msg.exec()
+
+            clicked = msg.clickedButton()
+            if clicked == btn_update_quit:
+                self._pending_update = True
+                self.window.status_bar.set_message(tr("status_update_on_quit"))
+            elif clicked == btn_open:
                 QDesktopServices.openUrl(QUrl(url))
             else:
                 checker.dismiss_update()
@@ -604,9 +609,51 @@ class DataForgeMainWindow:
         cleanup_thread = threading.Thread(target=async_cleanup, daemon=True)
         cleanup_thread.start()
 
+        # Run update if pending
+        if self._pending_update:
+            self._run_update_on_quit()
+
         # Call original close event immediately - don't wait for cleanup
         if self._original_close_event:
             self._original_close_event(event)
+
+    def _run_update_on_quit(self):
+        """Run update commands in a new terminal window."""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        # Get project root directory
+        project_root = Path(__file__).parent.parent.parent.parent.parent
+
+        # Build update commands
+        if sys.platform == 'win32':
+            # Windows: open new cmd window with update commands
+            cmd = f'start cmd /k "cd /d {project_root} && echo Updating DataForge Studio... && git pull && uv sync && echo. && echo Update complete! Press any key to close. && pause"'
+            subprocess.Popen(cmd, shell=True)
+        elif sys.platform == 'darwin':
+            # macOS: open new Terminal window
+            script = f'''
+            tell application "Terminal"
+                do script "cd '{project_root}' && echo 'Updating DataForge Studio...' && git pull && uv sync && echo '' && echo 'Update complete!'"
+                activate
+            end tell
+            '''
+            subprocess.Popen(['osascript', '-e', script])
+        else:
+            # Linux: try common terminal emulators
+            commands = f"cd '{project_root}' && echo 'Updating DataForge Studio...' && git pull && uv sync && echo '' && echo 'Update complete! Press Enter to close.' && read"
+            terminals = [
+                ['gnome-terminal', '--', 'bash', '-c', commands],
+                ['xterm', '-e', f'bash -c "{commands}"'],
+                ['konsole', '-e', f'bash -c "{commands}"'],
+            ]
+            for term_cmd in terminals:
+                try:
+                    subprocess.Popen(term_cmd)
+                    break
+                except FileNotFoundError:
+                    continue
 
     def _on_execute_saved_query(self, saved_query):
         """
