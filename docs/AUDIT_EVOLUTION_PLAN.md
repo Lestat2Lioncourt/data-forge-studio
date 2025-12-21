@@ -35,8 +35,8 @@
 ## 1. STATISTIQUES ACTUELLES
 
 ```
-Fichiers Python (src/):     148
-Lignes de code:             ~4,600 (core app)
+Fichiers Python (src/):     147 (-1 code mort)
+Lignes de code:             ~3,940 (core app, -662 lignes)
 Fichiers de test:           6 (83 tests)
 Documentation (markdown):   24+ fichiers
 Themes disponibles:         8+
@@ -60,20 +60,16 @@ Langues supportees:         3 (EN, FR, ES)
 - connection_pool.py: 4 occurrences
 - database_manager.py: 4 occurrences
 
-### B. TODOs dans le code (10 actifs)
+### B. TODOs dans le code (4 actifs)
 
 | Fichier | Description |
 |---------|-------------|
 | main_window.py:356 | Implement theme dialog |
 | main_window.py:430 | Select specific resource in manager |
-| data_explorer.py:355 | Load actual CSV file |
-| data_explorer.py:394 | Load actual text file |
-| data_explorer.py:430 | Open dialog to create new project |
-| data_explorer.py:442 | Open dialog to add file root |
-| data_explorer.py:457 | Delete from database |
-| data_explorer.py:473 | Open in file explorer |
 | connection_selector_dialog.py:70 | MongoDB not implemented |
 | connection_selector_dialog.py:78 | PostgreSQL not implemented |
+
+**Note**: DataExplorer supprimé (code mort, redondant avec RootFolderManager)
 
 ### C. Fichiers morts/backup
 ✅ **RESOLU** - APP_SOURCE/ supprime
@@ -170,9 +166,10 @@ _AppConfig/languages/
 
 ## 6. PLAN D'EVOLUTION v4 - PROCHAINES ETAPES
 
-### PHASE 1: FONCTIONNALITES DATA EXPLORER ✅ MAJORITAIREMENT COMPLETE
+### PHASE 1: FONCTIONNALITES ROOTFOLDER ✅ COMPLETE
 
-DataExplorer utilise maintenant `data_loader.py` et `file_reader.py` existants.
+RootFolderManager gere toutes les fonctionnalites de navigation fichiers.
+DataExplorer supprime (code mort redondant).
 
 **1.1 Implementation chargement fichiers** ✅ COMPLETE
 - [x] Charger fichiers CSV avec detection encodage/separateur (`csv_to_dataframe`)
@@ -182,10 +179,10 @@ DataExplorer utilise maintenant `data_loader.py` et `file_reader.py` existants.
 - [x] Ouvrir dans explorateur systeme (Windows/Mac/Linux)
 - [x] Avertissement pour gros fichiers (> 100k lignes)
 
-**1.2 Dialogs projet/racine** (Partiellement)
-- [ ] Dialog creation nouveau projet
-- [x] Dialog ajout file root (connecte a `EditRootFolderDialog`)
-- [ ] Suppression depuis base de donnees
+**1.2 Gestion RootFolders** ✅ COMPLETE
+- [x] Dialog ajout file root (`EditRootFolderDialog`)
+- [x] Suppression depuis base de donnees (`_remove_rootfolder`)
+- [x] Nettoyage code mort (DataExplorer supprime, -662 lignes)
 
 ### PHASE 2: CONNECTEURS BASE DE DONNEES MANQUANTS (Priorite MOYENNE)
 
@@ -275,7 +272,7 @@ except OSError as e:
 |----------|--------|-------|
 | Bare except | 1 | 0 |
 | except Exception | 69 | <30 |
-| TODOs actifs | 10 | <5 |
+| TODOs actifs | 4 | <5 ✅ |
 | Couverture tests | ~40% | 60% |
 | Documentation | 24 fichiers | +3 guides |
 
