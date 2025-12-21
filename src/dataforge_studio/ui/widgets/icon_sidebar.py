@@ -19,6 +19,7 @@ class IconSidebar(QWidget):
     Vertical icon sidebar for quick navigation between managers.
 
     Emits manager_selected signal when an icon is clicked.
+    Uses theme colors for selection/hover states with transparency.
     """
 
     # Signal emitted when a manager icon is clicked
@@ -35,7 +36,51 @@ class IconSidebar(QWidget):
         self._current_selection = None
         self._buttons = {}
         self._assets_path = Path(__file__).parent.parent / "assets" / "images"
+        self._theme_colors = self._load_theme_colors()
         self._setup_ui()
+        self._register_theme_observer()
+
+    def _load_theme_colors(self) -> dict:
+        """Load theme colors for IconSidebar."""
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            theme = ThemeBridge.get_instance()
+            colors = theme.get_theme_colors()
+            return {
+                "bg": colors.get("iconsidebar_bg", "#252525"),
+                "selected_bg": colors.get("iconsidebar_selected_bg", "rgba(100, 150, 255, 0.3)"),
+                "hover_bg": colors.get("iconsidebar_hover_bg", "rgba(255, 255, 255, 0.15)"),
+                "pressed_bg": colors.get("iconsidebar_pressed_bg", "rgba(255, 255, 255, 0.25)"),
+            }
+        except Exception:
+            # Fallback colors
+            return {
+                "bg": "#252525",
+                "selected_bg": "rgba(100, 150, 255, 0.3)",
+                "hover_bg": "rgba(255, 255, 255, 0.15)",
+                "pressed_bg": "rgba(255, 255, 255, 0.25)",
+            }
+
+    def _register_theme_observer(self):
+        """Register as theme observer to update colors on theme change."""
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            theme = ThemeBridge.get_instance()
+            theme.register_observer(self._on_theme_changed)
+        except Exception:
+            pass
+
+    def _on_theme_changed(self, theme_colors: dict):
+        """Handle theme change - update colors."""
+        self._theme_colors = {
+            "bg": theme_colors.get("iconsidebar_bg", "#252525"),
+            "selected_bg": theme_colors.get("iconsidebar_selected_bg", "rgba(100, 150, 255, 0.3)"),
+            "hover_bg": theme_colors.get("iconsidebar_hover_bg", "rgba(255, 255, 255, 0.15)"),
+            "pressed_bg": theme_colors.get("iconsidebar_pressed_bg", "rgba(255, 255, 255, 0.25)"),
+        }
+        # Re-apply styles to all buttons
+        for mid, btn in self._buttons.items():
+            btn.setStyleSheet(self._get_button_style(selected=(mid == self._current_selection)))
 
     def _setup_ui(self):
         """Setup the icon sidebar UI."""
@@ -80,33 +125,39 @@ class IconSidebar(QWidget):
         self.update_selection("database")
 
     def _get_button_style(self, selected: bool = False) -> str:
-        """Get button stylesheet based on selection state."""
+        """Get button stylesheet based on selection state using theme colors."""
+        selected_bg = self._theme_colors.get("selected_bg", "rgba(100, 150, 255, 0.3)")
+        hover_bg = self._theme_colors.get("hover_bg", "rgba(255, 255, 255, 0.15)")
+        pressed_bg = self._theme_colors.get("pressed_bg", "rgba(255, 255, 255, 0.25)")
+
         if selected:
-            return """
-                QPushButton {
+            # Selected state: use selected color with slightly more opacity on hover
+            return f"""
+                QPushButton {{
                     border: none;
                     border-radius: 6px;
-                    background-color: rgba(100, 150, 255, 0.3);
+                    background-color: {selected_bg};
                     padding: 4px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(100, 150, 255, 0.4);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {selected_bg};
+                }}
             """
         else:
-            return """
-                QPushButton {
+            # Normal state: transparent, show hover/pressed colors
+            return f"""
+                QPushButton {{
                     border: none;
                     border-radius: 6px;
                     background-color: transparent;
                     padding: 4px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.1);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255, 255, 255, 0.2);
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {hover_bg};
+                }}
+                QPushButton:pressed {{
+                    background-color: {pressed_bg};
+                }}
             """
 
     def _on_button_clicked(self, manager_id: str):

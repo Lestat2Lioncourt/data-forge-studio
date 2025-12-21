@@ -33,6 +33,26 @@ def _darken_color(hex_color: str, percent: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _hex_to_rgba(hex_color: str, opacity_percent: int) -> str:
+    """
+    Convert a hex color to rgba format with specified opacity.
+
+    Args:
+        hex_color: Hex color string (e.g., "#6496FF")
+        opacity_percent: Opacity as percentage (0-100)
+
+    Returns:
+        RGBA string (e.g., "rgba(100, 150, 255, 0.3)")
+    """
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    alpha = opacity_percent / 100.0
+
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
     """
     Expand a minimal palette (~20 colors) into full theme colors (90+ properties).
@@ -51,6 +71,10 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         Full colors dict compatible with existing theme system
     """
     is_dark = palette.get("is_dark", True)
+
+    # Get global opacity settings (0-100, default 30% for selected, 15% for hover)
+    selected_opacity = palette.get("Selected_Opacity", 30)
+    hover_opacity = palette.get("Hover_Opacity", 15)
 
     # Extract palette colors
     topbar_bg = palette["TopBar_BG"]
@@ -172,8 +196,41 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
     sectionheader_fg = palette.get("SectionHeader_FG", frame_fg)
     sectionheader_hover_bg = palette.get("SectionHeader_Hover_BG", hover_bg)
 
+    # Get IconSidebar colors (optional, with defaults)
+    # Default to a nice blue (#6496FF) that looks good with transparency
+    iconsidebar_bg = palette.get("IconSidebar_BG", frame_bg)
+    iconsidebar_selected_color = palette.get("IconSidebar_Selected", "#6496FF")
+    iconsidebar_hover_color = palette.get("IconSidebar_Hover", "#ffffff")
+    # Apply opacity to generate rgba values
+    iconsidebar_selected_bg = _hex_to_rgba(iconsidebar_selected_color, selected_opacity)
+    iconsidebar_hover_bg = _hex_to_rgba(iconsidebar_hover_color, hover_opacity)
+    iconsidebar_pressed_bg = _hex_to_rgba(iconsidebar_hover_color, hover_opacity + 10)
+
+    # ========== Apply global opacity to selection/hover colors ==========
+    # These rgba versions are used for transparent overlays
+
+    # MenuBar with opacity
+    menubar_hover_bg_rgba = _hex_to_rgba(accent, hover_opacity + 10)
+    menubar_selected_bg_rgba = _hex_to_rgba(accent, selected_opacity)
+
+    # Dropdown menus with opacity
+    dd_menu_hover_bg_rgba = _hex_to_rgba(accent, hover_opacity + 10)
+    dd_menu_selected_bg_rgba = _hex_to_rgba(accent, selected_opacity)
+
+    # Tree/Grid selection with opacity
+    tree_selected_bg_rgba = _hex_to_rgba(selected_bg, selected_opacity + 20)
+    tree_hover_bg_rgba = _hex_to_rgba(accent, hover_opacity)
+    grid_selected_bg_rgba = _hex_to_rgba(selected_bg, selected_opacity + 20)
+    grid_hover_bg_rgba = _hex_to_rgba(accent, hover_opacity)
+
+    # Tabs with opacity
+    tab_hover_bg_rgba = _hex_to_rgba(accent, hover_opacity)
+
     # Build full colors dict
     colors = {
+        # Theme mode indicator
+        "is_dark": is_dark,
+
         # Base palette
         "window_bg": window_bg,
         "panel_bg": frame_bg,
@@ -208,20 +265,20 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "button_pressed_bg": button_pressed_bg,
         "button_border": button_border,
 
-        # Menus (window-template)
+        # Menus (window-template) - using rgba for transparency effect
         "main_menu_bar_bg": topbar_bg,
         "main_menu_bar_fg": topbar_fg,
         "feature_menu_bar_bg": menubar_bg,
         "feature_menu_bar_fg": menubar_fg,
-        "feature_menu_bar_hover_bg": menubar_hover_bg,
+        "feature_menu_bar_hover_bg": menubar_hover_bg_rgba,
         "feature_menu_bar_hover_fg": menubar_hover_fg,
-        "feature_menu_bar_selected_bg": menubar_selected_bg,
+        "feature_menu_bar_selected_bg": menubar_selected_bg_rgba,
         "feature_menu_bar_selected_fg": menubar_selected_fg,
         "dd_menu_bg": dd_menu_bg,
         "dd_menu_fg": dd_menu_fg,
-        "dd_menu_hover_bg": dd_menu_hover_bg,
+        "dd_menu_hover_bg": dd_menu_hover_bg_rgba,
         "dd_menu_hover_fg": dd_menu_hover_fg,
-        "dd_menu_selected_bg": dd_menu_selected_bg,
+        "dd_menu_selected_bg": dd_menu_selected_bg_rgba,
         "dd_menu_selected_fg": dd_menu_selected_fg,
         "dd_menu_separator": data_border,
 
@@ -229,12 +286,12 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "status_bar_bg": statusbar_bg,
         "status_bar_fg": statusbar_fg,
 
-        # Tree
+        # Tree - using rgba for transparency effect on selection/hover
         "tree_bg": tree_bg,
         "tree_fg": tree_fg,
-        "tree_selected_bg": selected_bg,
+        "tree_selected_bg": tree_selected_bg_rgba,
         "tree_selected_fg": selected_fg,
-        "tree_hover_bg": hover_bg,
+        "tree_hover_bg": tree_hover_bg_rgba,
         "tree_heading_bg": tree_header_bg,
         "tree_heading_fg": tree_header_fg,
         "tree_line1_bg": tree_line1_bg,
@@ -250,15 +307,15 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "splitter_bg": splitter_bg,
         "splitter_hover_bg": splitter_hover_bg,
 
-        # Grid
+        # Grid - using rgba for transparency effect on selection/hover
         "grid_bg": data_bg,
         "grid_fg": data_fg,
         "grid_gridline": data_border,
         "grid_header_bg": grid_header_bg,
         "grid_header_fg": grid_header_fg,
-        "grid_selected_bg": selected_bg,
+        "grid_selected_bg": grid_selected_bg_rgba,
         "grid_selected_fg": selected_fg,
-        "grid_hover_bg": hover_bg,
+        "grid_hover_bg": grid_hover_bg_rgba,
         "grid_line1_bg": grid_line1_bg,
         "grid_line1_fg": grid_line1_fg,
         "grid_line2_bg": grid_line2_bg,
@@ -308,12 +365,12 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "sql_operator": data_fg,
         "sql_identifier": info_fg,
 
-        # Tabs / Onglets
+        # Tabs / Onglets - using rgba for hover transparency
         "tab_bg": tab_bg,
         "tab_fg": tab_fg,
         "tab_selected_bg": tab_selected_bg,
         "tab_selected_fg": tab_selected_fg,
-        "tab_hover_bg": tab_hover_bg,
+        "tab_hover_bg": tab_hover_bg_rgba,
 
         # Scrollbars
         "scrollbar_bg": window_bg,
@@ -349,6 +406,16 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "selector_titlebar_fg": topbar_fg,
         "selector_border_color": data_border,
         "selector_close_btn_hover": "#e81123",  # Red for close button hover
+
+        # IconSidebar (left panel with manager icons)
+        "iconsidebar_bg": iconsidebar_bg,
+        "iconsidebar_selected_bg": iconsidebar_selected_bg,
+        "iconsidebar_hover_bg": iconsidebar_hover_bg,
+        "iconsidebar_pressed_bg": iconsidebar_pressed_bg,
+
+        # Global opacity settings (for reference/debugging)
+        "selected_opacity": selected_opacity,
+        "hover_opacity": hover_opacity,
     }
 
     return colors

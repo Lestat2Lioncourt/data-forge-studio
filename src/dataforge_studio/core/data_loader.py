@@ -77,25 +77,37 @@ class DataLoadResult:
         return self.row_count > LARGE_DATASET_THRESHOLD
 
 
-def _detect_encoding(file_path: Path, sample_size: int = 10000) -> str:
+def _detect_encoding(file_path: Path, sample_size: int = 100000) -> str:
     """
     Detect file encoding by trying common encodings.
 
     Args:
         file_path: Path to the file
-        sample_size: Number of bytes to sample
+        sample_size: Number of bytes to sample (default 100KB for better detection)
 
     Returns:
         Detected encoding name
     """
-    encodings_to_try = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
-
     with open(file_path, 'rb') as f:
-        sample = f.read(sample_size)
+        raw = f.read(sample_size)
 
-    for encoding in encodings_to_try:
+    # Check for BOM markers first
+    if raw.startswith(b'\xef\xbb\xbf'):
+        return 'utf-8-sig'
+    if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+        return 'utf-16'
+
+    # Try UTF-8 first (most common)
+    try:
+        raw.decode('utf-8')
+        return 'utf-8'
+    except UnicodeDecodeError:
+        pass
+
+    # Try Windows encodings (common for French/European data)
+    for encoding in ['cp1252', 'iso-8859-1', 'latin-1']:
         try:
-            sample.decode(encoding)
+            raw.decode(encoding)
             return encoding
         except (UnicodeDecodeError, LookupError):
             continue

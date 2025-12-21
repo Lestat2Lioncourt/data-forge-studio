@@ -106,19 +106,19 @@ def generate_branch_images(color: str, output_dir: Path) -> dict:
     end_path = output_dir / "branch-end.png"
     img.save(end_path)
 
-    # branch-closed.png - Right arrow (►) for collapsed items - LARGER
+    # branch-closed.png - Right arrow (►) for collapsed items - smaller
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    # Bigger triangle pointing right
-    draw.polygon([(4, 3), (16, 10), (4, 17)], fill=color)
+    # Smaller triangle pointing right (centered)
+    draw.polygon([(7, 6), (13, 10), (7, 14)], fill=color)
     closed_path = output_dir / "branch-closed.png"
     img.save(closed_path)
 
-    # branch-open.png - Down arrow (▼) for expanded items - LARGER
+    # branch-open.png - Down arrow (▼) for expanded items - smaller
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    # Bigger triangle pointing down
-    draw.polygon([(3, 4), (17, 4), (10, 16)], fill=color)
+    # Smaller triangle pointing down (centered)
+    draw.polygon([(6, 7), (14, 7), (10, 13)], fill=color)
     open_path = output_dir / "branch-open.png"
     img.save(open_path)
 

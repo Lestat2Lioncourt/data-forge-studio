@@ -199,18 +199,37 @@ class QuickThemeFrame(QWidget):
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
-        # === Base Theme Selection ===
-        base_group = QGroupBox("Thème de base")
-        base_layout = QHBoxLayout(base_group)
+        # === Load Existing or Base Theme ===
+        theme_group = QGroupBox("Thème")
+        theme_layout = QVBoxLayout(theme_group)
+
+        # Saved themes combo
+        saved_layout = QHBoxLayout()
+        saved_label = QLabel("Charger:")
+        saved_label.setFixedWidth(60)
+        saved_layout.addWidget(saved_label)
+
+        self.saved_combo = QComboBox()
+        self.saved_combo.addItem("(Nouveau thème)", None)
+        self._populate_saved_themes()
+        self.saved_combo.currentIndexChanged.connect(self._on_saved_theme_selected)
+        saved_layout.addWidget(self.saved_combo)
+        theme_layout.addLayout(saved_layout)
+
+        # Base theme combo
+        base_layout = QHBoxLayout()
+        base_label = QLabel("Base:")
+        base_label.setFixedWidth(60)
+        base_layout.addWidget(base_label)
 
         self.base_combo = QComboBox()
         for theme_id, theme_name in BASE_THEMES.items():
             self.base_combo.addItem(theme_name, theme_id)
         self.base_combo.currentIndexChanged.connect(self._on_base_changed)
         base_layout.addWidget(self.base_combo)
-        base_layout.addStretch()
+        theme_layout.addLayout(base_layout)
 
-        layout.addWidget(base_group)
+        layout.addWidget(theme_group)
 
         # === Color Overrides (with scroll area for small windows) ===
         colors_group = QGroupBox("Couleurs à personnaliser (optionnel)")
@@ -291,8 +310,37 @@ class QuickThemeFrame(QWidget):
     def _on_base_changed(self, index: int):
         """Handle base theme change."""
         self._base_theme = self.base_combo.currentData()
+        self._overrides.clear()
+        self._saved_theme_id = None
         self._load_base_palette()
         self._update_preview()
+
+    def _populate_saved_themes(self):
+        """Populate the saved themes combo with patch themes."""
+        # Clear existing items except first
+        while self.saved_combo.count() > 1:
+            self.saved_combo.removeItem(1)
+
+        # Scan for patch themes
+        if CUSTOM_THEMES_PATH.exists():
+            for f in sorted(CUSTOM_THEMES_PATH.glob("*.json")):
+                try:
+                    with open(f, 'r', encoding='utf-8') as file:
+                        data = json.load(file)
+                        if data.get("type") == "patch":
+                            name = data.get("name", f.stem)
+                            self.saved_combo.addItem(name, f.stem)
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+    def _on_saved_theme_selected(self, index: int):
+        """Handle saved theme selection."""
+        theme_id = self.saved_combo.currentData()
+        if theme_id:
+            self.load_patch_theme(theme_id)
+        else:
+            # New theme selected - reset
+            self._reset_all()
 
     def _on_color_changed(self, key: str, color: str):
         """Handle color override change."""
@@ -355,6 +403,9 @@ class QuickThemeFrame(QWidget):
         for user_key, palette_key, _ in QUICK_COLORS:
             if user_key in self._overrides:
                 palette[palette_key] = self._overrides[user_key]
+                # Accent also affects Selected_BG for selection colors
+                if user_key == "Accent":
+                    palette["Selected_BG"] = self._overrides[user_key]
 
         return palette
 
@@ -420,6 +471,14 @@ class QuickThemeFrame(QWidget):
 
             # Apply the saved theme and save preference
             self._apply_saved_theme(theme_id)
+
+            # Refresh saved themes list and select the new theme
+            self._populate_saved_themes()
+            idx = self.saved_combo.findData(theme_id)
+            if idx >= 0:
+                self.saved_combo.blockSignals(True)
+                self.saved_combo.setCurrentIndex(idx)
+                self.saved_combo.blockSignals(False)
 
             DialogHelper.info(
                 f"Thème '{name}' sauvegardé et appliqué!",
@@ -514,6 +573,10 @@ class QuickThemeFrame(QWidget):
         # Generate effective palette
         palette = self._get_effective_palette()
 
+        if not palette:
+            DialogHelper.warning("Palette vide - impossible d'appliquer", parent=self)
+            return
+
         # Create temporary theme ID
         temp_id = "_quick_preview"
 
@@ -539,7 +602,8 @@ class QuickThemeFrame(QWidget):
                 theme_colors = self.theme_bridge.get_theme_colors(temp_id)
                 self.theme_bridge._notify_observers(theme_colors)
 
-                self.theme_applied.emit(temp_id)
+                # DO NOT emit signal for temporary preview to avoid theme reload
+                # self.theme_applied.emit(temp_id)
 
         except Exception as e:
             DialogHelper.error(f"Erreur d'application: {e}", parent=self)

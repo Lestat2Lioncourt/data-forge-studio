@@ -339,7 +339,16 @@
       "Tab_FG": "#b0b0b0",
       "Tab_Selected_BG": "#2d2d2d",
       "Tab_Selected_FG": "#ffffff",
-      "Tab_Hover_BG": "#383838"
+      "Tab_Hover_BG": "#383838",
+
+      "_comment_opacity": "========== OPACITY (%) ==========",
+      "Selected_Opacity": 30,
+      "Hover_Opacity": 15,
+
+      "_comment_iconsidebar": "========== ICON SIDEBAR ==========",
+      "IconSidebar_BG": "#252525",
+      "IconSidebar_Selected": "#6496FF",
+      "IconSidebar_Hover": "#ffffff"
     }
   },
 
@@ -383,7 +392,16 @@
       "Tab_FG": "#606060",
       "Tab_Selected_BG": "#ffffff",
       "Tab_Selected_FG": "#1a1a1a",
-      "Tab_Hover_BG": "#e8e8e8"
+      "Tab_Hover_BG": "#e8e8e8",
+
+      "_comment_opacity": "========== OPACITY (%) ==========",
+      "Selected_Opacity": 35,
+      "Hover_Opacity": 20,
+
+      "_comment_iconsidebar": "========== ICON SIDEBAR ==========",
+      "IconSidebar_BG": "#f5f5f5",
+      "IconSidebar_Selected": "#0078d7",
+      "IconSidebar_Hover": "#000000"
     }
   }
 }

@@ -28,6 +28,7 @@ from ..core.i18n_bridge import tr
 from ..widgets.dialog_helper import DialogHelper
 from ..widgets.scan_progress_dialog import ScanProgressDialog
 from ..widgets.image_fullscreen_dialog import ImageFullscreenDialog
+from ..widgets.pinnable_panel import PinnablePanel
 from ...database.config_db import (
     get_config_db, ImageRootfolder, SavedImage
 )
@@ -77,9 +78,16 @@ class ImageLibraryManager(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(self.splitter)
 
-        # Left panel: Tree + Search
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
+        # Left panel: PinnablePanel with Tree + Search
+        self.left_panel = PinnablePanel(
+            title="Images",
+            icon_name="images.png"
+        )
+        self.left_panel.set_normal_width(280)
+
+        # Content container for the pinnable panel
+        left_content = QWidget()
+        left_layout = QVBoxLayout(left_content)
         left_layout.setContentsMargins(5, 5, 5, 5)
 
         # Search section
@@ -100,7 +108,8 @@ class ImageLibraryManager(QWidget):
         self.tree.setExpandsOnDoubleClick(False)
         left_layout.addWidget(self.tree)
 
-        self.splitter.addWidget(left_panel)
+        self.left_panel.set_content(left_content)
+        self.splitter.addWidget(self.left_panel)
 
         # Right panel: Preview + Details
         right_panel = QWidget()

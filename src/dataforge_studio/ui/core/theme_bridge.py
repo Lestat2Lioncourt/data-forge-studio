@@ -101,6 +101,9 @@ class ThemeBridge(BaseThemeManager):
         # Apply overrides
         for key, value in overrides.items():
             base_palette[key] = value
+            # Accent also affects Selected_BG for selection colors
+            if key == "Accent":
+                base_palette["Selected_BG"] = value
 
         # Return as minimal theme
         return {

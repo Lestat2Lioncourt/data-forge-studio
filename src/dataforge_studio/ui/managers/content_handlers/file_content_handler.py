@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QStackedWidget, QTextEdit, QLabel, QMessageBox
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QTextCharFormat, QFont
+import re
 
 from ...widgets.custom_datagridview import CustomDataGridView
 from ...widgets.form_builder import FormBuilder
@@ -119,8 +121,12 @@ class FileContentHandler:
             elif ext == ".json":
                 self._load_json_file(file_path)
 
+            # Log files (with themed coloring)
+            elif ext == ".log":
+                self._load_log_file(file_path)
+
             # Text files (py, sql, txt, md, etc.)
-            elif ext in (".txt", ".py", ".sql", ".md", ".log", ".ini",
+            elif ext in (".txt", ".py", ".sql", ".md", ".ini",
                         ".cfg", ".xml", ".html", ".css", ".js"):
                 self._load_text_file(file_path)
 
@@ -291,6 +297,84 @@ class FileContentHandler:
         self.file_text_viewer.setPlainText(content)
         self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
         self._update_file_details(file_path)
+
+    def _load_log_file(self, file_path: Path):
+        """Load log file with themed coloring based on log levels."""
+        encoding = self._detect_encoding(file_path)
+        self._detected_encoding = encoding
+        self._detected_separator = None
+        self._detected_delimiter = None
+
+        with open(file_path, 'r', encoding=encoding) as f:
+            lines = f.readlines()
+
+        # Get theme colors for log levels
+        log_colors = self._get_log_colors()
+
+        # Clear and prepare text viewer
+        self.file_text_viewer.clear()
+        self.file_text_viewer.setFont(QFont("Consolas", 10))
+
+        # Pattern to detect log level in a line
+        # Matches: [INFO], [WARNING], INFO:, WARNING -, etc.
+        level_pattern = re.compile(
+            r'\b(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|SUCCESS|FATAL)\b',
+            re.IGNORECASE
+        )
+
+        # Process each line with appropriate color
+        cursor = self.file_text_viewer.textCursor()
+        for line in lines:
+            # Detect log level
+            match = level_pattern.search(line)
+            if match:
+                level = match.group(1).upper()
+                # Normalize WARN -> WARNING, FATAL -> CRITICAL
+                if level == "WARN":
+                    level = "WARNING"
+                elif level == "FATAL":
+                    level = "CRITICAL"
+                color = log_colors.get(level, log_colors.get("INFO"))
+            else:
+                # Default color for lines without level
+                color = log_colors.get("INFO")
+
+            # Create format with color
+            fmt = QTextCharFormat()
+            fmt.setForeground(color)
+
+            # Insert line with color
+            cursor.movePosition(cursor.MoveOperation.End)
+            cursor.insertText(line, fmt)
+
+        self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
+        self._update_file_details(file_path)
+
+    def _get_log_colors(self) -> dict:
+        """Get themed colors for log levels."""
+        try:
+            from ...core.theme_bridge import ThemeBridge
+            theme = ThemeBridge.get_instance()
+            theme_colors = theme.get_theme_colors()
+
+            return {
+                "DEBUG": QColor(theme_colors.get("log_debug_fg", "#888888")),
+                "INFO": QColor(theme_colors.get("log_info_fg", "#ffffff")),
+                "WARNING": QColor(theme_colors.get("log_warning_fg", "#ffa500")),
+                "ERROR": QColor(theme_colors.get("log_error_fg", "#ff4444")),
+                "CRITICAL": QColor(theme_colors.get("log_error_fg", "#ff4444")),
+                "SUCCESS": QColor(theme_colors.get("log_success_fg", "#4ade80")),
+            }
+        except Exception:
+            # Fallback colors
+            return {
+                "DEBUG": QColor("#888888"),
+                "INFO": QColor("#ffffff"),
+                "WARNING": QColor("#ffa500"),
+                "ERROR": QColor("#ff4444"),
+                "CRITICAL": QColor("#ff4444"),
+                "SUCCESS": QColor("#4ade80"),
+            }
 
     def _update_file_details(self, file_path: Path):
         """Update the details panel with file info including encoding."""

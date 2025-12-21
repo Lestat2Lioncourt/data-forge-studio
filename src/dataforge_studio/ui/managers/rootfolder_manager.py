@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                                QTreeWidget, QTreeWidgetItem, QLabel, QMenu,
                                QFileDialog, QInputDialog)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtGui import QIcon, QAction, QColor, QTextCharFormat, QFont
+import re
 
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.dialog_helper import DialogHelper
@@ -184,17 +185,11 @@ class RootFolderManager(QWidget):
         self.content_viewer = CustomDataGridView()
         self.content_stack.addWidget(self.content_viewer)
 
-        # Text view (for raw JSON, raw text)
+        # Text view (for raw JSON, raw text, log files)
         self.text_viewer = QTextEdit()
         self.text_viewer.setReadOnly(True)
-        self.text_viewer.setStyleSheet("""
-            QTextEdit {
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 10pt;
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-            }
-        """)
+        # Note: Styling will be applied dynamically based on theme
+        # when displaying log files via _apply_text_viewer_theme()
         self.content_stack.addWidget(self.text_viewer)
 
         right_layout.addWidget(self.content_stack, stretch=4)
@@ -477,9 +472,16 @@ class RootFolderManager(QWidget):
             elif extension in ['.xlsx', '.xls']:
                 self.view_mode_combo.setVisible(False)
                 self._display_excel(file_path)
+            elif extension == '.log':
+                self.view_mode_combo.setVisible(False)
+                self._display_log_file(file_path)
+            elif extension in ['.txt', '.py', '.sql', '.md', '.ini', '.cfg', '.xml', '.html', '.css', '.js']:
+                self.view_mode_combo.setVisible(False)
+                self._display_text_file(content)
             else:
                 self.view_mode_combo.setVisible(False)
-                DialogHelper.info(f"File type {extension} not yet supported for preview")
+                # Try as text for unknown types
+                self._display_text_file(content)
 
         except Exception as e:
             logger.error(f"Error opening file: {e}")
@@ -650,6 +652,130 @@ class RootFolderManager(QWidget):
             self.content_viewer.set_dataframe(df)
         else:
             self.content_viewer.clear()
+
+    def _display_text_file(self, content: str):
+        """Display text file content in text viewer."""
+        self._apply_text_viewer_theme()
+        self.text_viewer.setFont(QFont("Consolas", 10))
+        self.text_viewer.setPlainText(content)
+        self.content_stack.setCurrentWidget(self.text_viewer)
+
+    def _display_log_file(self, file_path: Path):
+        """Display log file with themed coloring based on log levels."""
+        # Read file with proper encoding
+        content = read_file_content(file_path)
+        if content is None:
+            self.text_viewer.setPlainText("(Cannot read file)")
+            self.content_stack.setCurrentWidget(self.text_viewer)
+            return
+
+        lines = content.splitlines(keepends=True)
+
+        # Get theme colors for log levels and apply theme to text viewer
+        log_colors = self._get_log_colors()
+        self._apply_text_viewer_theme()
+
+        # Clear and prepare text viewer
+        self.text_viewer.clear()
+        self.text_viewer.setFont(QFont("Consolas", 10))
+
+        # Pattern to detect log level in a line
+        level_pattern = re.compile(
+            r'\b(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|SUCCESS|FATAL)\b',
+            re.IGNORECASE
+        )
+
+        # Process each line with appropriate color
+        cursor = self.text_viewer.textCursor()
+        for line in lines:
+            # Detect log level
+            match = level_pattern.search(line)
+            if match:
+                level = match.group(1).upper()
+                # Normalize WARN -> WARNING, FATAL -> CRITICAL
+                if level == "WARN":
+                    level = "WARNING"
+                elif level == "FATAL":
+                    level = "CRITICAL"
+                color = log_colors.get(level, log_colors.get("INFO"))
+            else:
+                # Default color for lines without level
+                color = log_colors.get("INFO")
+
+            # Create format with color
+            fmt = QTextCharFormat()
+            fmt.setForeground(color)
+
+            # Insert line with color
+            cursor.movePosition(cursor.MoveOperation.End)
+            cursor.insertText(line, fmt)
+
+        self.content_stack.setCurrentWidget(self.text_viewer)
+
+    def _apply_text_viewer_theme(self):
+        """Apply theme colors to the text viewer background."""
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            theme = ThemeBridge.get_instance()
+            theme_colors = theme.get_theme_colors()
+
+            log_bg = theme_colors.get("log_bg", theme_colors.get("editor_bg", "#1e1e1e"))
+            log_fg = theme_colors.get("log_fg", theme_colors.get("editor_fg", "#d4d4d4"))
+
+            self.text_viewer.setStyleSheet(f"""
+                QTextEdit {{
+                    font-family: 'Consolas', 'Courier New', monospace;
+                    font-size: 10pt;
+                    background-color: {log_bg};
+                    color: {log_fg};
+                }}
+            """)
+        except Exception as e:
+            logger.error(f"Error applying text viewer theme: {e}")
+            # Fallback to default dark colors
+            self.text_viewer.setStyleSheet("""
+                QTextEdit {
+                    font-family: 'Consolas', 'Courier New', monospace;
+                    font-size: 10pt;
+                    background-color: #1e1e1e;
+                    color: #d4d4d4;
+                }
+            """)
+
+    def _get_log_colors(self) -> dict:
+        """Get themed colors for log levels."""
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            theme = ThemeBridge.get_instance()
+            theme_colors = theme.get_theme_colors()
+
+            # Log current theme for debugging
+            current = getattr(theme, 'current_theme', 'unknown')
+            logger.debug(f"Loading log colors from theme: {current}")
+            logger.debug(f"log_info_fg={theme_colors.get('log_info_fg')}, "
+                        f"log_warning_fg={theme_colors.get('log_warning_fg')}, "
+                        f"log_error_fg={theme_colors.get('log_error_fg')}")
+
+            return {
+                "DEBUG": QColor(theme_colors.get("log_debug_fg", "#888888")),
+                "INFO": QColor(theme_colors.get("log_info_fg", "#ffffff")),
+                "WARNING": QColor(theme_colors.get("log_warning_fg", "#ffa500")),
+                "ERROR": QColor(theme_colors.get("log_error_fg", "#ff4444")),
+                "CRITICAL": QColor(theme_colors.get("log_error_fg", "#ff4444")),
+                "SUCCESS": QColor(theme_colors.get("log_success_fg", "#4ade80")),
+            }
+        except Exception as e:
+            # Log the error for debugging
+            logger.error(f"Error loading log colors from theme: {e}", exc_info=True)
+            # Fallback colors
+            return {
+                "DEBUG": QColor("#888888"),
+                "INFO": QColor("#ffffff"),
+                "WARNING": QColor("#ffa500"),
+                "ERROR": QColor("#ff4444"),
+                "CRITICAL": QColor("#ff4444"),
+                "SUCCESS": QColor("#4ade80"),
+            }
 
     def _handle_large_dataset_warning(self, row_count: int) -> bool:
         """

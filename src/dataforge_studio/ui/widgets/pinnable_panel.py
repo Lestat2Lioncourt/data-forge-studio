@@ -83,27 +83,50 @@ class PinnablePanelHeader(QFrame):
         self.pin_toggled.emit(self._is_pinned)
 
     def _update_pin_icon(self):
-        """Update pin button icon based on state."""
-        from PySide6.QtGui import QTransform, QPixmap
+        """Update pin button icon based on state and theme."""
+        from PySide6.QtGui import QTransform, QPixmap, QIcon, QPainter, QColor
 
         pin_icon = get_icon("pin", size=16)
         if pin_icon and not pin_icon.isNull():
-            if self._is_pinned:
-                # Normal icon when pinned
-                self._pin_btn.setIcon(pin_icon)
-            else:
+            pixmap = pin_icon.pixmap(16, 16)
+
+            # Tint icon to match header text color for consistent visibility
+            theme_bridge = ThemeBridge.get_instance()
+            colors = theme_bridge.get_theme_colors()
+            tint_color = QColor(colors.get("sectionheader_fg", "#ffffff"))
+
+            pixmap = self._tint_pixmap(pixmap, tint_color)
+
+            if not self._is_pinned:
                 # Rotate icon 45° when unpinned to indicate auto-hide mode
-                pixmap = pin_icon.pixmap(16, 16)
                 transform = QTransform().rotate(45)
-                rotated_pixmap = pixmap.transformed(transform)
-                from PySide6.QtGui import QIcon
-                self._pin_btn.setIcon(QIcon(rotated_pixmap))
+                pixmap = pixmap.transformed(transform)
+
+            self._pin_btn.setIcon(QIcon(pixmap))
             self._pin_btn.setIconSize(QSize(16, 16))
 
         if self._is_pinned:
             self._pin_btn.setToolTip("Désépingler (auto-masquer)")
         else:
             self._pin_btn.setToolTip("Épingler (toujours visible)")
+
+    def _tint_pixmap(self, pixmap, color: QColor):
+        """Tint a pixmap with a color while preserving alpha."""
+        from PySide6.QtGui import QPainter, QPixmap
+        from PySide6.QtCore import Qt
+
+        # Create a copy
+        tinted = QPixmap(pixmap.size())
+        tinted.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(tinted)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.drawPixmap(0, 0, pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(tinted.rect(), color)
+        painter.end()
+
+        return tinted
 
     def _apply_style(self):
         """Apply themed style."""
@@ -114,7 +137,6 @@ class PinnablePanelHeader(QFrame):
         fg = colors.get("sectionheader_fg", "#ffffff")
         border = colors.get("border_color", "#3d3d3d")
         hover_bg = colors.get("sectionheader_hover_bg", "#4a4a4a")
-        selected_bg = colors.get("selected_bg", "#0078d7")
 
         self.setStyleSheet(f"""
             PinnablePanelHeader {{
@@ -138,6 +160,7 @@ class PinnablePanelHeader(QFrame):
 
     def _on_theme_changed(self, colors: dict):
         self._apply_style()
+        self._update_pin_icon()  # Update icon tint for new theme
 
     def is_pinned(self) -> bool:
         return self._is_pinned

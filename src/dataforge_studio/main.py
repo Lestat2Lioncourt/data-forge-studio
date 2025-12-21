@@ -182,10 +182,15 @@ def main():
     splash.update_progress("Pret!", 100)
 
     # Ensure splash is visible for at least 4 seconds
+    # Use processEvents loop instead of time.sleep to allow UI updates
     elapsed = time.time() - splash_start_time
     min_splash_time = 4.0
     if elapsed < min_splash_time:
-        time.sleep(min_splash_time - elapsed)
+        remaining = min_splash_time - elapsed
+        end_time = time.time() + remaining
+        while time.time() < end_time:
+            app.processEvents()
+            time.sleep(0.05)  # Small sleep to avoid CPU spinning
 
     main_window.show()
     splash.finish(main_window.wrapper)
