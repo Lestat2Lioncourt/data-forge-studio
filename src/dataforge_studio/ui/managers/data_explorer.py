@@ -3,9 +3,13 @@ Data Explorer - Explorer for projects, files, and databases
 Provides hierarchical navigation and file visualization
 """
 
+import subprocess
+import sys
+import json
+import logging
 from typing import List, Optional, Any
 from pathlib import Path
-from PySide6.QtWidgets import QWidget, QStackedWidget, QTextEdit
+from PySide6.QtWidgets import QWidget, QStackedWidget, QTextEdit, QMessageBox
 from PySide6.QtCore import Qt
 
 from .base_manager_view import BaseManagerView
@@ -13,9 +17,20 @@ from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.form_builder import FormBuilder
 from ..widgets.custom_datagridview import CustomDataGridView
 from ..widgets.dialog_helper import DialogHelper
+from ..widgets.edit_dialogs import EditRootFolderDialog
 from ..utils.ui_helper import UIHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db
+from ...database.models.file_root import FileRoot
+from ...core.data_loader import (
+    csv_to_dataframe,
+    json_to_dataframe,
+    excel_to_dataframe,
+    LARGE_DATASET_THRESHOLD
+)
+from ...utils.file_reader import read_file_content
+
+logger = logging.getLogger(__name__)
 
 
 class DataExplorer(BaseManagerView):
@@ -339,91 +354,183 @@ class DataExplorer(BaseManagerView):
                 self.viewer_stack.setCurrentWidget(self.empty_viewer)
             elif item_type == "CSV":
                 self._display_csv(path)
-            elif item_type in ["JSON", "TXT"]:
+            elif item_type == "JSON":
+                self._display_json(path)
+            elif item_type in ["XLSX", "XLS"]:
+                self._display_excel(path)
+            elif item_type in ["TXT", "MD", "PY", "SQL", "JS", "HTML", "CSS",
+                               "XML", "INI", "CFG", "LOG", "SH", "BAT", "YML", "YAML"]:
                 self._display_text(path)
             else:
-                # Other file types - show empty viewer for now
-                self.viewer_stack.setCurrentWidget(self.empty_viewer)
+                # Try to display as text for unknown types
+                try:
+                    self._display_text(path)
+                except Exception:
+                    self.viewer_stack.setCurrentWidget(self.empty_viewer)
 
     def _display_csv(self, file_path: str):
         """
-        Display CSV file in grid viewer.
+        Display CSV file in grid viewer with automatic encoding/separator detection.
 
         Args:
             file_path: Path to CSV file
         """
-        # TODO: Load actual CSV file
-        # For now, show placeholder data
-        self.csv_viewer.set_columns(["ID", "Name", "Email", "Created"])
-        sample_data = [
-            ["1", "John Doe", "john@example.com", "2025-01-01"],
-            ["2", "Jane Smith", "jane@example.com", "2025-01-02"],
-            ["3", "Bob Johnson", "bob@example.com", "2025-01-03"]
-        ]
-        self.csv_viewer.set_data(sample_data)
-        self.viewer_stack.setCurrentWidget(self.csv_viewer)
+        result = csv_to_dataframe(
+            file_path,
+            on_large_dataset=self._handle_large_dataset_warning
+        )
 
-        # Real implementation:
-        # try:
-        #     import pandas as pd
-        #     df = pd.read_csv(file_path)
-        #
-        #     # Set columns
-        #     self.csv_viewer.set_columns(df.columns.tolist())
-        #
-        #     # Set data (convert to list of lists)
-        #     data = df.values.tolist()
-        #     self.csv_viewer.set_data(data)
-        #
-        #     self.viewer_stack.setCurrentWidget(self.csv_viewer)
-        # except Exception as e:
-        #     DialogHelper.error(
-        #         tr("error_loading_csv"),
-        #         tr("error_title"),
-        #         self,
-        #         details=str(e)
-        #     )
+        if not result.success:
+            if result.error:
+                self.text_viewer.setPlainText(f"Error loading CSV: {result.error}")
+                self.viewer_stack.setCurrentWidget(self.text_viewer)
+            return
+
+        df = result.dataframe
+        if df is not None and not df.empty:
+            # Use set_dataframe if available, otherwise set columns and data
+            if hasattr(self.csv_viewer, 'set_dataframe'):
+                self.csv_viewer.set_dataframe(df)
+            else:
+                self.csv_viewer.set_columns(df.columns.tolist())
+                self.csv_viewer.set_data(df.values.tolist())
+
+            self.viewer_stack.setCurrentWidget(self.csv_viewer)
+
+            # Log detected format
+            encoding = result.source_info.get('encoding', 'unknown')
+            separator = result.source_info.get('separator', ',')
+            logger.info(f"CSV loaded: {result.row_count} rows, encoding={encoding}, sep='{separator}'")
+        else:
+            self.text_viewer.setPlainText(tr("empty_csv_file"))
+            self.viewer_stack.setCurrentWidget(self.text_viewer)
+
+    def _handle_large_dataset_warning(self, row_count: int) -> bool:
+        """
+        Handle warning for large datasets.
+
+        Args:
+            row_count: Number of rows detected
+
+        Returns:
+            True to proceed with loading, False to cancel
+        """
+        row_count_fmt = f"{row_count:,}"
+        threshold_fmt = f"{LARGE_DATASET_THRESHOLD:,}"
+
+        result = QMessageBox.warning(
+            self,
+            tr("large_dataset_warning"),
+            tr("large_dataset_message").format(
+                rows=row_count_fmt,
+                threshold=threshold_fmt
+            ) if tr("large_dataset_message") != "large_dataset_message" else
+            f"This file contains {row_count_fmt} rows.\n\n"
+            f"Loading more than {threshold_fmt} rows may be slow.\n"
+            f"Do you want to continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        return result == QMessageBox.StandardButton.Yes
 
     def _display_text(self, file_path: str):
         """
-        Display text file (JSON, TXT) in text viewer.
+        Display text file in text viewer with automatic encoding detection.
 
         Args:
             file_path: Path to text file
         """
-        # TODO: Load actual text file
-        # For now, show placeholder text
-        if "json" in file_path.lower():
-            placeholder_text = '{\n  "setting1": "value1",\n  "setting2": "value2",\n  "nested": {\n    "key": "value"\n  }\n}'
-        else:
-            placeholder_text = "Sample text file content.\n\nThis is a placeholder for the actual file content."
+        content = read_file_content(Path(file_path))
 
-        self.text_viewer.setPlainText(placeholder_text)
+        if content is None:
+            self.text_viewer.setPlainText(tr("error_reading_file"))
+            self.viewer_stack.setCurrentWidget(self.text_viewer)
+            return
+
+        self.text_viewer.setPlainText(content)
         self.viewer_stack.setCurrentWidget(self.text_viewer)
 
-        # Real implementation:
-        # try:
-        #     with open(file_path, 'r', encoding='utf-8') as f:
-        #         content = f.read()
-        #
-        #     # Pretty print JSON
-        #     if file_path.lower().endswith('.json'):
-        #         import json
-        #         try:
-        #             parsed = json.loads(content)
-        #             content = json.dumps(parsed, indent=2)
-        #         except:
-        #             pass  # If JSON parsing fails, show as-is
-        #
-        #     self.text_viewer.setPlainText(content)
-        #     self.viewer_stack.setCurrentWidget(self.text_viewer)
-        # except Exception as e:
-        #     DialogHelper.error(
-        #         tr("error_loading_file"),
-        #         tr("error_title"),
-        #         self,
-        #         details=str(e)
-        #     )
+    def _display_json(self, file_path: str):
+        """
+        Display JSON file - as table if array of objects, otherwise as formatted text.
+
+        Args:
+            file_path: Path to JSON file
+        """
+        # First, try loading as tabular data (array of objects/rows)
+        result = json_to_dataframe(
+            file_path,
+            on_large_dataset=self._handle_large_dataset_warning
+        )
+
+        # If successfully loaded as table with multiple rows, show in grid
+        if result.success and result.dataframe is not None and len(result.dataframe) > 1:
+            df = result.dataframe
+            if hasattr(self.csv_viewer, 'set_dataframe'):
+                self.csv_viewer.set_dataframe(df)
+            else:
+                self.csv_viewer.set_columns(df.columns.tolist())
+                self.csv_viewer.set_data(df.values.tolist())
+
+            self.viewer_stack.setCurrentWidget(self.csv_viewer)
+            logger.info(f"JSON loaded as table: {result.row_count} rows")
+            return
+
+        # Fallback: display as formatted JSON text
+        content = read_file_content(Path(file_path))
+        if content is None:
+            self.text_viewer.setPlainText(tr("error_reading_file"))
+            self.viewer_stack.setCurrentWidget(self.text_viewer)
+            return
+
+        try:
+            data = json.loads(content)
+            formatted = json.dumps(data, indent=2, ensure_ascii=False)
+            self.text_viewer.setPlainText(formatted)
+        except json.JSONDecodeError:
+            # If JSON parsing fails, show as-is
+            self.text_viewer.setPlainText(content)
+
+        self.viewer_stack.setCurrentWidget(self.text_viewer)
+
+    def _display_excel(self, file_path: str):
+        """
+        Display Excel file in grid viewer.
+
+        Args:
+            file_path: Path to Excel file (.xlsx, .xls)
+        """
+        result = excel_to_dataframe(
+            file_path,
+            on_large_dataset=self._handle_large_dataset_warning
+        )
+
+        if not result.success:
+            error_msg = str(result.error) if result.error else tr("error_loading_excel")
+            if "openpyxl" in error_msg.lower() or "xlrd" in error_msg.lower():
+                self.text_viewer.setPlainText(
+                    "Module openpyxl not installed.\n"
+                    "Install with: pip install openpyxl"
+                )
+            else:
+                self.text_viewer.setPlainText(f"Error: {error_msg}")
+            self.viewer_stack.setCurrentWidget(self.text_viewer)
+            return
+
+        df = result.dataframe
+        if df is not None and not df.empty:
+            if hasattr(self.csv_viewer, 'set_dataframe'):
+                self.csv_viewer.set_dataframe(df)
+            else:
+                self.csv_viewer.set_columns(df.columns.tolist())
+                self.csv_viewer.set_data(df.values.tolist())
+
+            self.viewer_stack.setCurrentWidget(self.csv_viewer)
+            sheets = result.source_info.get('available_sheets', [])
+            logger.info(f"Excel loaded: {result.row_count} rows, sheets={sheets}")
+        else:
+            self.text_viewer.setPlainText(tr("empty_excel_file"))
+            self.viewer_stack.setCurrentWidget(self.text_viewer)
 
     def _add_project(self):
         """Add a new project."""
@@ -436,11 +543,55 @@ class DataExplorer(BaseManagerView):
 
     def _add_file_root(self):
         """Add a new file root to selected project."""
-        if not self._check_item_selected(tr("select_project_first"), tr("add_file_root_title")):
-            return
+        # Get selected project (if any)
+        selected_project_id = None
+        if self._current_item:
+            item_data = self._wrap_item()
+            if item_data:
+                obj_data = item_data.get("obj")
+                if obj_data and hasattr(obj_data, "type") and obj_data.type == "Project":
+                    selected_project_id = obj_data.id
 
-        # TODO: Open dialog to add file root
-        DialogHelper.info(tr("feature_coming_soon"), tr("add_file_root_title"), self)
+        # Open dialog to add file root
+        dialog = EditRootFolderDialog(self)
+        if dialog.exec():
+            name, description, path = dialog.get_values()
+
+            if not path:
+                DialogHelper.warning(
+                    tr("path_required"),
+                    tr("add_file_root_title"),
+                    self
+                )
+                return
+
+            # Create FileRoot object
+            try:
+                import uuid
+                config_db = get_config_db()
+                file_root = FileRoot(
+                    id=str(uuid.uuid4()),
+                    path=path,
+                    name=name or Path(path).name,
+                    description=description
+                )
+                config_db._save_file_root(file_root)
+
+                DialogHelper.info(
+                    tr("file_root_added"),
+                    tr("add_file_root_title"),
+                    self
+                )
+                self.refresh()
+
+            except Exception as e:
+                logger.error(f"Error adding file root: {e}")
+                DialogHelper.error(
+                    tr("error_adding_file_root"),
+                    tr("error_title"),
+                    self,
+                    details=str(e)
+                )
 
     def _delete_item(self):
         """Delete selected item."""
@@ -460,7 +611,7 @@ class DataExplorer(BaseManagerView):
             DialogHelper.info(tr("item_deleted"), tr("delete_item_title"), self)
 
     def _open_location(self):
-        """Open file location in file explorer."""
+        """Open file location in system file explorer."""
         if not self._check_item_selected(tr("select_item_first"), tr("open_location_title")):
             return
 
@@ -470,5 +621,40 @@ class DataExplorer(BaseManagerView):
             DialogHelper.warning(tr("no_path_for_item"), tr("open_location_title"), self)
             return
 
-        # TODO: Open in file explorer
-        DialogHelper.info(tr("feature_coming_soon"), tr("open_location_title"), self)
+        file_path = Path(path)
+        if not file_path.exists():
+            DialogHelper.warning(
+                tr("path_not_found"),
+                tr("open_location_title"),
+                self
+            )
+            return
+
+        try:
+            if sys.platform == 'win32':
+                # Windows: open explorer and select the file
+                if file_path.is_file():
+                    subprocess.run(['explorer', '/select,', str(file_path)], check=False)
+                else:
+                    subprocess.run(['explorer', str(file_path)], check=False)
+            elif sys.platform == 'darwin':
+                # macOS: open Finder and select the file
+                if file_path.is_file():
+                    subprocess.run(['open', '-R', str(file_path)], check=False)
+                else:
+                    subprocess.run(['open', str(file_path)], check=False)
+            else:
+                # Linux: open file manager (xdg-open opens the parent folder)
+                folder = file_path.parent if file_path.is_file() else file_path
+                subprocess.run(['xdg-open', str(folder)], check=False)
+
+            logger.info(f"Opened location: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Error opening location: {e}")
+            DialogHelper.error(
+                tr("error_opening_location"),
+                tr("error_title"),
+                self,
+                details=str(e)
+            )

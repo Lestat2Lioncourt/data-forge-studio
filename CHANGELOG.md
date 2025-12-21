@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2025-12-21
+
+### Added
+- **DataExplorer file loading**: Full implementation using existing `data_loader.py`
+  - CSV files with automatic encoding and separator detection
+  - JSON files with row-keyed object detection (`{"id1": {...}, "id2": {...}}` → table)
+  - Excel files (.xlsx, .xls) support
+  - Text files with encoding detection
+  - Large dataset warning (> 100k rows)
+- **Open in file explorer**: Cross-platform support (Windows/Mac/Linux)
+- **Add File Root dialog**: Connected to existing `EditRootFolderDialog`
+- **New translation keys**: 20+ keys added to EN and FR language files
+
+### Improved
+- **JSON row-keyed detection**: Objects with dict values are now correctly displayed as tables
+  - Adds `_id` column with original keys for traceability
+  - Detects common keys across sub-objects
+
+### Fixed
+- DataExplorer no longer shows placeholder data - uses real file content
+
+## [0.5.0] - 2025-12-21
+
+### Added
+- Theme opacity system (Selected_Opacity, Hover_Opacity)
+- IconSidebar theming integration
+- Splash screen with 4-second minimum display
+- Automatic update check on startup (24h cooldown)
+
+### Changed
+- Major UI refactoring from TKinter to PySide6
+- 60% code reduction through intelligent patterns
+
 ## [0.4.0] - 2025-12-10
 
 ### Fixed

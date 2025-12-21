@@ -314,13 +314,61 @@ def json_to_dataframe(
         elif isinstance(data, dict):
             result.source_info['structure'] = 'object'
 
-            # Try to normalize nested JSON
-            try:
-                df = pd.json_normalize(data)
-            except Exception:
-                # Fallback: treat as single record or columns
-                df = pd.DataFrame([data] if not any(isinstance(v, list) for v in data.values())
-                                  else data)
+            # Check for row-keyed structure: {"row1": {...}, "row2": {...}}
+            # All values must be dicts with similar keys
+            if len(data) >= 2 and all(isinstance(v, dict) for v in data.values()):
+                # Collect all keys from sub-dicts to check similarity
+                all_keys = [set(v.keys()) for v in data.values()]
+                # Check if there's significant overlap (at least 50% common keys)
+                if all_keys:
+                    common_keys = all_keys[0]
+                    for keys in all_keys[1:]:
+                        common_keys = common_keys & keys
+
+                    # If sub-dicts share at least one common key, treat as row-keyed
+                    if len(common_keys) > 0:
+                        result.source_info['structure'] = 'row_keyed'
+                        # Convert to list of records, adding the key as '_id' column
+                        records = []
+                        for key, value in data.items():
+                            record = {'_id': key, **value}
+                            records.append(record)
+                        df = pd.DataFrame(records)
+
+                        row_count = len(df)
+                        if row_count > LARGE_DATASET_THRESHOLD and not skip_large_warning:
+                            result.warning_level = LoadWarningLevel.WARNING
+                            result.warning_message = (
+                                f"Large dataset detected: {row_count:,} rows "
+                                f"(threshold: {LARGE_DATASET_THRESHOLD:,})."
+                            )
+                            if on_large_dataset is not None:
+                                proceed = on_large_dataset(row_count)
+                                if not proceed:
+                                    result.warning_message = "Loading cancelled by user."
+                                    result.warning_level = LoadWarningLevel.INFO
+                                    return result
+
+                        if nrows is not None:
+                            df = df.head(nrows)
+                            result.is_truncated = row_count > nrows
+
+                        result.dataframe = df
+                        result.row_count = len(df)
+                        result.column_count = len(df.columns)
+                        logger.info(f"Loaded JSON (row-keyed): {path.name} ({result.row_count} rows)")
+                        return result
+
+            # Check for columns-oriented: {"col1": [...], "col2": [...]}
+            if all(isinstance(v, list) for v in data.values()):
+                result.source_info['structure'] = 'columns'
+                df = pd.DataFrame(data)
+            else:
+                # Fallback: try json_normalize for nested objects, or single record
+                try:
+                    df = pd.json_normalize(data)
+                except Exception:
+                    df = pd.DataFrame([data])
         else:
             raise ValueError(f"Unsupported JSON structure: {type(data)}")
 

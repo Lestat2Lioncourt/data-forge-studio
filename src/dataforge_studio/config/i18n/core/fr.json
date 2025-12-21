@@ -356,7 +356,18 @@
     "query_save_db_constraint": "Échec de l'enregistrement (contrainte de base de données).",
 
     "large_dataset_warning": "Avertissement : Jeu de données volumineux",
+    "large_dataset_message": "Ce fichier contient {rows} lignes.\n\nCharger plus de {threshold} lignes peut être lent.\nVoulez-vous continuer ?",
     "large_query_warning": "Avertissement : Résultat de requête volumineux",
+
+    "empty_csv_file": "(Fichier CSV vide)",
+    "empty_excel_file": "(Fichier Excel vide)",
+    "error_reading_file": "Erreur de lecture du fichier",
+    "error_loading_excel": "Erreur de chargement du fichier Excel",
+    "path_required": "Veuillez spécifier un chemin pour le dossier racine.",
+    "file_root_added": "Dossier racine ajouté avec succès.",
+    "error_adding_file_root": "Erreur lors de l'ajout du dossier racine.",
+    "path_not_found": "Le chemin spécifié n'existe pas.",
+    "error_opening_location": "Erreur lors de l'ouverture de l'emplacement.",
 
     "image_viewer": "Visionneuse d'images",
     "image_add_folder": "➕ Ajouter un dossier d'images",

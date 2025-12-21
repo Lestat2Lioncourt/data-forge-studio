@@ -356,7 +356,18 @@
     "query_save_db_constraint": "Failed to save query (database constraint).",
 
     "large_dataset_warning": "Large Dataset Warning",
+    "large_dataset_message": "This file contains {rows} rows.\n\nLoading more than {threshold} rows may be slow.\nDo you want to continue?",
     "large_query_warning": "Large Query Result Warning",
+
+    "empty_csv_file": "(Empty CSV file)",
+    "empty_excel_file": "(Empty Excel file)",
+    "error_reading_file": "Error reading file",
+    "error_loading_excel": "Error loading Excel file",
+    "path_required": "Please specify a path for the file root.",
+    "file_root_added": "File root added successfully.",
+    "error_adding_file_root": "Error adding file root.",
+    "path_not_found": "The specified path does not exist.",
+    "error_opening_location": "Error opening file location.",
 
     "image_viewer": "Image Viewer",
     "image_add_folder": "➕ Add Image Folder",
