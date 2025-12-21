@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2025-12-21
+
+### Added
+- **Update on Quit feature**: When an update is available, users can choose to update automatically when closing the app
+  - Opens terminal window with `git pull && uv sync` commands
+  - Cross-platform support (Windows cmd, macOS Terminal, Linux terminals)
+- **Git safe.directory handling**: Automatically fixes "dubious ownership" error on Windows drives
+
+### Fixed
+- **Dynamic version display**: About dialog and Help page now use version from `pyproject.toml` instead of hardcoded value
+- **Update dialog**: Now has three buttons (Update on Quit, View on GitHub, Remind Later) instead of two
+
 ## [0.5.1] - 2025-12-21
 
 ### Added

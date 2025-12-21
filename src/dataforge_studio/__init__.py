@@ -9,7 +9,7 @@ try:
     __version__ = version("data-forge-studio")
 except PackageNotFoundError:
     # Package not installed, fallback to reading pyproject.toml directly
-    __version__ = "0.5.1"  # Fallback version
+    __version__ = "0.5.2"  # Fallback version
 
 __author__ = "Lestat2Lioncourt"
 
