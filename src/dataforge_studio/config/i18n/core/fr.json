@@ -560,5 +560,11 @@
     "conn_trust_cert": "Faire confiance au certificat serveur",
     "conn_select_file": "Sélectionner le fichier de base de données",
     "conn_file_filter_access": "Base de données Access (*.mdb *.accdb)",
-    "conn_file_filter_sqlite": "Base de données SQLite (*.db *.sqlite *.sqlite3)"
+    "conn_file_filter_sqlite": "Base de données SQLite (*.db *.sqlite *.sqlite3)",
+
+    "update_available_title": "Mise à jour disponible",
+    "update_available_text": "Une nouvelle version ({version}) est disponible !",
+    "update_check_title": "Vérifier les mises à jour",
+    "no_update_available": "Vous utilisez la dernière version.",
+    "open_github": "Voir sur GitHub"
 }

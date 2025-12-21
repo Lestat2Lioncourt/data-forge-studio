@@ -364,9 +364,46 @@ class DataForgeMainWindow:
         about_dialog.show()
 
     def _check_updates(self):
-        """Check for updates."""
-        # TODO: Implement update checker
-        print("Check updates - to be implemented")
+        """Check for updates from GitHub."""
+        from ...utils.update_checker import get_update_checker
+        from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        checker = get_update_checker()
+        result = checker.check_for_update()
+
+        if result:
+            version, url, notes = result
+            # Update available
+            msg = QMessageBox(self.window)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle(tr("update_available_title"))
+            msg.setText(tr("update_available_text").format(version=version))
+
+            # Truncate notes if too long
+            if len(notes) > 500:
+                notes = notes[:500] + "..."
+            msg.setDetailedText(notes)
+
+            msg.setStandardButtons(
+                QMessageBox.StandardButton.Open |
+                QMessageBox.StandardButton.Close
+            )
+            msg.button(QMessageBox.StandardButton.Open).setText(tr("open_github"))
+            msg.button(QMessageBox.StandardButton.Close).setText(tr("close"))
+
+            if msg.exec() == QMessageBox.StandardButton.Open:
+                QDesktopServices.openUrl(QUrl(url))
+            else:
+                checker.dismiss_update()
+        else:
+            # No update or error
+            msg = QMessageBox(self.window)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle(tr("update_check_title"))
+            msg.setText(tr("no_update_available"))
+            msg.exec()
 
     @Slot(str, str)
     def _on_open_resource(self, resource_type: str, resource_id: str):
