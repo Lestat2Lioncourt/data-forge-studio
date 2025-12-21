@@ -22,7 +22,7 @@ def main():
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("DataForge Studio")
-    app.setApplicationVersion("0.50.0")
+    app.setApplicationVersion("0.5.0")
     app.setOrganizationName("DataForge")
 
     # Set application icon (for taskbar and window)
@@ -195,8 +195,36 @@ def main():
     main_window.show()
     splash.finish(main_window.wrapper)
 
+    # Check for updates after a short delay (non-blocking)
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(2000, lambda: _check_updates_on_startup(main_window))
+
     # Start event loop
     sys.exit(app.exec())
+
+
+def _check_updates_on_startup(main_window):
+    """Check for updates on startup (respects 24h cooldown)."""
+    try:
+        from .utils.update_checker import get_update_checker
+
+        checker = get_update_checker()
+
+        # Only check if not in cooldown period
+        if not checker.should_check():
+            return
+
+        result = checker.check_for_update()
+
+        if result:
+            version, url, notes = result
+            # Show status bar notification
+            if hasattr(main_window, 'window') and hasattr(main_window.window, 'status_bar'):
+                main_window.window.status_bar.set_message(
+                    f"🔔 v{version} disponible - Aide → Vérifier les Mises à Jour"
+                )
+    except Exception as e:
+        print(f"[UpdateChecker] Startup check failed: {e}")
 
 
 if __name__ == "__main__":
