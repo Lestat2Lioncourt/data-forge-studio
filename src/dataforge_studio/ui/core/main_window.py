@@ -625,24 +625,28 @@ class DataForgeMainWindow:
 
         # Get project root directory
         project_root = Path(__file__).parent.parent.parent.parent.parent
+        project_root_str = str(project_root).replace('\\', '/')
+
+        # Git safe.directory command (fixes "dubious ownership" error on Windows)
+        safe_dir_cmd = f'git config --global --add safe.directory "{project_root_str}"'
 
         # Build update commands
         if sys.platform == 'win32':
             # Windows: open new cmd window with update commands
-            cmd = f'start cmd /k "cd /d {project_root} && echo Updating DataForge Studio... && git pull && uv sync && echo. && echo Update complete! Press any key to close. && pause"'
+            cmd = f'start cmd /k "cd /d {project_root} && echo Updating DataForge Studio... && {safe_dir_cmd} && git pull && uv sync && echo. && echo Update complete! Press any key to close. && pause"'
             subprocess.Popen(cmd, shell=True)
         elif sys.platform == 'darwin':
             # macOS: open new Terminal window
             script = f'''
             tell application "Terminal"
-                do script "cd '{project_root}' && echo 'Updating DataForge Studio...' && git pull && uv sync && echo '' && echo 'Update complete!'"
+                do script "cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && git pull && uv sync && echo '' && echo 'Update complete!'"
                 activate
             end tell
             '''
             subprocess.Popen(['osascript', '-e', script])
         else:
             # Linux: try common terminal emulators
-            commands = f"cd '{project_root}' && echo 'Updating DataForge Studio...' && git pull && uv sync && echo '' && echo 'Update complete! Press Enter to close.' && read"
+            commands = f"cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && git pull && uv sync && echo '' && echo 'Update complete! Press Enter to close.' && read"
             terminals = [
                 ['gnome-terminal', '--', 'bash', '-c', commands],
                 ['xterm', '-e', f'bash -c "{commands}"'],

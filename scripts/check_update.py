@@ -109,8 +109,15 @@ def main():
         print(f"  Release page: {url}")
         print()
         print("  To update, run:")
+        print()
+        # Get project root for safe.directory
+        project_root = Path(__file__).parent.parent
+        safe_dir = str(project_root).replace('\\', '/')
+        print(f'    git config --global --add safe.directory "{safe_dir}"')
         print("    git pull")
         print("    uv sync")
+        print()
+        print("  (The first command fixes 'dubious ownership' errors on Windows)")
         print()
         return 1  # Exit code 1 = update available
     else:
