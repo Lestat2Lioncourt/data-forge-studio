@@ -181,6 +181,21 @@ This works on all platforms:
 - **MacOS**: Creates `.app` bundle (drag to Dock)
 - **Linux**: Creates `.desktop` entry in app menu
 
+### Check for Updates
+
+Check if a new version is available:
+
+```bash
+uv run python scripts/check_update.py
+```
+
+To update to the latest version:
+
+```bash
+git pull
+uv sync
+```
+
 ### Troubleshooting
 
 | Issue | Solution |
