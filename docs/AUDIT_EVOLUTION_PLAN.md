@@ -40,7 +40,7 @@ Lignes de code:             ~3,940 (core app, -662 lignes)
 Fichiers de test:           6 (83 tests)
 Documentation (markdown):   24+ fichiers
 Themes disponibles:         8+
-Langues supportees:         3 (EN, FR, ES)
+Langues supportees:         2 (EN, FR)
 ```
 
 ---

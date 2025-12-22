@@ -1,11 +1,15 @@
 """
 Query Tab - Single SQL query editor tab for DatabaseManager
+
+Supports multiple SQL statements with results in separate tabs (SSMS-style).
 """
 
-from typing import Optional, Union, Tuple
+from dataclasses import dataclass, field
+from typing import Optional, Union, Tuple, List, Any
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                                QPushButton, QLabel, QSplitter, QComboBox,
-                               QTableWidgetItem, QApplication, QDialog)
+                               QTableWidgetItem, QApplication, QDialog,
+                               QTabWidget)
 from PySide6.QtCore import Qt, Signal, QObject, QEvent, QTimer
 from PySide6.QtGui import QFont, QKeyEvent
 import pyodbc
@@ -20,6 +24,7 @@ from ...database.config_db import DatabaseConnection
 from ...utils.sql_highlighter import SQLHighlighter
 from ...utils.schema_cache import SchemaCache
 from ...utils.sql_formatter import format_sql
+from ...utils.sql_splitter import split_sql_statements, SQLStatement
 from .query_loader import BackgroundRowLoader
 
 # DataFrame-Pivot pattern: use shared threshold
@@ -29,6 +34,20 @@ import logging
 import time
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ResultTabState:
+    """State for a single results tab in multi-statement execution."""
+    grid: CustomDataGridView
+    statement_index: int = 0
+    cursor: Optional[Any] = None
+    background_loader: Optional[BackgroundRowLoader] = None
+    total_rows_fetched: int = 0
+    total_rows_expected: Optional[int] = None
+    has_more_rows: bool = False
+    is_loading: bool = False
+    columns: List[str] = field(default_factory=list)
 
 
 class QueryTab(QWidget):
@@ -42,22 +61,35 @@ class QueryTab(QWidget):
     def cleanup(self):
         """Stop background tasks and cleanup resources"""
         try:
-            # Stop background loader if running
+            # Stop all result tab loaders
+            result_tabs = getattr(self, '_result_tabs', [])
+            for tab_state in result_tabs:
+                loader = tab_state.background_loader
+                if loader is not None:
+                    try:
+                        loader.batch_loaded.disconnect()
+                        loader.loading_complete.disconnect()
+                        loader.loading_error.disconnect()
+                    except (RuntimeError, TypeError):
+                        pass
+                    if loader.isRunning():
+                        loader.stop()
+                        if not loader.wait(20):
+                            loader.terminate()
+
+            # Also handle legacy single loader if exists
             loader = getattr(self, '_background_loader', None)
             if loader is not None:
-                # Disconnect signals first to prevent callbacks during shutdown
                 try:
                     loader.batch_loaded.disconnect()
                     loader.loading_complete.disconnect()
                     loader.loading_error.disconnect()
                 except (RuntimeError, TypeError):
-                    pass  # Signals may not be connected
-
+                    pass
                 if loader.isRunning():
                     loader.stop()
-                    # Quick wait, then force terminate - don't block shutdown
-                    if not loader.wait(20):  # Wait max 20ms
-                        loader.terminate()  # Force terminate immediately
+                    if not loader.wait(20):
+                        loader.terminate()
                 self._background_loader = None
         except (RuntimeError, AttributeError):
             # Object may be partially destroyed during shutdown
@@ -140,11 +172,18 @@ class QueryTab(QWidget):
 
         toolbar.addSpacing(20)
 
-        # Execute button
-        self.execute_btn = QPushButton(tr("query_execute_f5"))
-        self.execute_btn.clicked.connect(self._execute_query)
-        self.execute_btn.setShortcut("F5")
-        toolbar.addWidget(self.execute_btn)
+        # Execute buttons: Query (parallel) and Script (sequential)
+        self.query_btn = QPushButton(tr("query_execute_query"))
+        self.query_btn.setToolTip(tr("query_execute_query_tooltip"))
+        self.query_btn.clicked.connect(self._execute_as_query)
+        self.query_btn.setShortcut("F5")
+        toolbar.addWidget(self.query_btn)
+
+        self.script_btn = QPushButton(tr("query_execute_script"))
+        self.script_btn.setToolTip(tr("query_execute_script_tooltip"))
+        self.script_btn.clicked.connect(self._execute_as_script)
+        self.script_btn.setShortcut("F6")
+        toolbar.addWidget(self.script_btn)
 
         self.clear_btn = QPushButton(tr("btn_clear"))
         self.clear_btn.clicked.connect(self._clear_query)
@@ -221,7 +260,7 @@ class QueryTab(QWidget):
 
         # Stop loading button (visible during background loading)
         self.stop_loading_btn = QPushButton(tr("query_stop"))
-        self.stop_loading_btn.clicked.connect(self._stop_background_loading)
+        self.stop_loading_btn.clicked.connect(self._stop_all_background_loading)
         self.stop_loading_btn.setVisible(False)
         result_bar.addWidget(self.stop_loading_btn)
 
@@ -233,9 +272,23 @@ class QueryTab(QWidget):
 
         results_layout.addLayout(result_bar)
 
-        # Results grid
-        self.results_grid = CustomDataGridView(show_toolbar=True)
-        results_layout.addWidget(self.results_grid)
+        # QTabWidget for multiple result sets (SSMS-style)
+        self.results_tab_widget = QTabWidget()
+        self.results_tab_widget.setTabsClosable(False)
+        self.results_tab_widget.setDocumentMode(True)
+        results_layout.addWidget(self.results_tab_widget)
+
+        # Messages tab (always present, last tab)
+        self._messages_text = QTextEdit()
+        self._messages_text.setReadOnly(True)
+        self._messages_text.setFont(QFont("Consolas", 9))
+        self.results_tab_widget.addTab(self._messages_text, tr("query_messages_tab"))
+
+        # Track result tab states
+        self._result_tabs: List[ResultTabState] = []
+
+        # Legacy compatibility: results_grid points to first result tab's grid (or None)
+        self.results_grid = None
 
         splitter.addWidget(results_widget)
 
@@ -244,8 +297,12 @@ class QueryTab(QWidget):
 
         layout.addWidget(splitter)
 
-    def _execute_query(self):
-        """Execute the SQL query with hybrid loading (immediate + background)"""
+    def _execute_as_query(self):
+        """Execute as independent queries (parallel mode with separate connections).
+
+        Each SELECT statement runs in its own connection, allowing parallel
+        background loading. Best for independent queries.
+        """
         query = self.sql_editor.toPlainText().strip()
 
         if not query:
@@ -256,108 +313,451 @@ class QueryTab(QWidget):
             DialogHelper.error(tr("query_no_connection"), parent=self)
             return
 
-        # Stop any existing background loading
-        self._stop_background_loading()
+        # Clear previous results
+        self._clear_result_tabs()
 
         # Save original query
         self.original_query = query
-
-        # Reset batch loading state
-        self.total_rows_fetched = 0
-        self.total_rows_expected = None
-        self.has_more_rows = False
-        self._cursor = None
-        self._is_loading = False
         self._loading_start_time = time.time()
         self.load_more_btn.setVisible(False)
         self.stop_loading_btn.setVisible(False)
 
-        try:
-            # Show loading state
-            self.result_info_label.setText(tr("query_counting_rows"))
-            self.result_info_label.setStyleSheet("color: orange;")
-            QApplication.processEvents()
+        # Split into statements
+        statements = split_sql_statements(query, self.db_type)
 
-            # Try to get total row count first (for SELECT queries)
-            self.total_rows_expected = self._get_query_row_count(query)
+        if not statements:
+            DialogHelper.warning(tr("no_query_to_execute"), parent=self)
+            return
 
-            # Check for large dataset and warn user
-            if self.total_rows_expected and self.total_rows_expected > LARGE_DATASET_THRESHOLD:
-                if not self._handle_large_dataset_warning(self.total_rows_expected):
-                    self.result_info_label.setText(tr("query_cancelled"))
-                    self.result_info_label.setStyleSheet("color: gray;")
-                    return
+        # Show initial status
+        stmt_count = len(statements)
+        self.result_info_label.setText(tr("query_executing_statements", count=stmt_count))
+        self.result_info_label.setStyleSheet("color: orange;")
+        QApplication.processEvents()
 
-            # Show executing state
-            self.result_info_label.setText(tr("query_executing"))
-            QApplication.processEvents()
+        # Execute each statement with its own connection for SELECT queries
+        select_count = 0
+        error_occurred = False
 
-            cursor = self.connection.cursor()
-            cursor.execute(query)
+        for i, stmt in enumerate(statements):
+            if error_occurred:
+                break
 
-            if cursor.description:
-                # SELECT query - hybrid loading
-                columns = [column[0] for column in cursor.description]
-                self.current_columns = columns
+            try:
+                self._append_message(f"-- [Query] Executing statement {i+1}/{stmt_count}...")
+                QApplication.processEvents()
 
-                # Fetch first batch synchronously for immediate display
-                rows = cursor.fetchmany(self.batch_size)
-                self.total_rows_fetched = len(rows)
+                if stmt.is_select:
+                    # SELECT: Create a new connection for parallel loading
+                    select_count += 1
+                    tab_name = self._generate_result_tab_name(stmt.text, select_count)
+                    tab_state = self._create_result_tab(i, tab_name)
 
-                # Convert to list of lists for CustomDataGridView
-                data = [[cell for cell in row] for row in rows]
-
-                # Load first batch into grid
-                self.results_grid.set_columns(columns)
-                # Set context for distribution analysis
-                db_name = self.current_database or (self.db_connection.name if self.db_connection else None)
-                self.results_grid.set_context(db_name=db_name, table_name="Query")
-                self._load_data_optimized(data)
-
-                # Check if there are more rows
-                if len(rows) == self.batch_size:
-                    # Start background loading for remaining rows
-                    self._cursor = cursor
-                    self.has_more_rows = True
-                    self._start_background_loading(cursor)
-                else:
-                    # All data loaded
-                    self.has_more_rows = False
-                    duration = self._get_duration_str()
-                    if self.total_rows_expected:
-                        self.result_info_label.setText(
-                            f"✓ {self.total_rows_fetched:,}/{self.total_rows_expected:,} row(s) (100%) in {duration}"
-                        )
+                    # Create a separate connection for this query
+                    new_conn = self._create_parallel_connection()
+                    if new_conn:
+                        cursor = new_conn.cursor()
+                        cursor.execute(stmt.text)
+                        tab_state.cursor = cursor
+                        # Store connection reference for cleanup
+                        tab_state.grid.setProperty("_parallel_connection", new_conn)
+                        self._execute_select_statement(tab_state, cursor, stmt, is_multi_statement=False)
                     else:
-                        self.result_info_label.setText(
-                            f"✓ {self.total_rows_fetched:,} row(s) returned in {duration}"
-                        )
-                    self.result_info_label.setStyleSheet("color: green;")
+                        # Fallback to main connection (synchronous)
+                        cursor = self.connection.cursor()
+                        cursor.execute(stmt.text)
+                        self._execute_select_statement(tab_state, cursor, stmt, is_multi_statement=True)
 
-                logger.info(f"Query executed: {self.total_rows_fetched} rows loaded initially")
+                    if select_count == 1:
+                        self.results_tab_widget.setCurrentIndex(0)
+                        self.results_grid = tab_state.grid
+                else:
+                    # Non-SELECT: use main connection
+                    cursor = self.connection.cursor()
+                    cursor.execute(stmt.text)
+                    rows_affected = cursor.rowcount
+                    self.connection.commit()
+                    self._append_message(f"  → {rows_affected} row(s) affected")
 
-            else:
-                # INSERT/UPDATE/DELETE query
-                rows_affected = cursor.rowcount
-                self.connection.commit()
+            except Exception as e:
+                error_occurred = True
+                self._append_message(f"Error in statement {i+1}: {str(e)}", is_error=True)
+                logger.error(f"Query execution error: {e}")
+                messages_tab_index = self.results_tab_widget.count() - 1
+                self.results_tab_widget.setCurrentIndex(messages_tab_index)
+                if self._is_connection_error(e):
+                    self._handle_connection_error(e)
 
-                self.results_grid.clear()
-                self.result_info_label.setText(f"✓ Query executed. {rows_affected} row(s) affected")
-                self.result_info_label.setStyleSheet("color: green;")
-                logger.info(f"Query executed: {rows_affected} rows affected")
+        # Final status
+        self._finalize_execution(stmt_count, select_count, error_occurred)
 
+    def _execute_as_script(self):
+        """Execute as a script (sequential mode on same connection).
+
+        All statements run sequentially on the same connection, preserving
+        session state (temp tables, variables, transactions). Best for scripts.
+        """
+        query = self.sql_editor.toPlainText().strip()
+
+        if not query:
+            DialogHelper.warning(tr("no_query_to_execute"), parent=self)
+            return
+
+        if not self.connection:
+            DialogHelper.error(tr("query_no_connection"), parent=self)
+            return
+
+        # Clear previous results
+        self._clear_result_tabs()
+
+        # Save original query
+        self.original_query = query
+        self._loading_start_time = time.time()
+        self.load_more_btn.setVisible(False)
+        self.stop_loading_btn.setVisible(False)
+
+        # Split into statements
+        statements = split_sql_statements(query, self.db_type)
+
+        if not statements:
+            DialogHelper.warning(tr("no_query_to_execute"), parent=self)
+            return
+
+        # Show initial status
+        stmt_count = len(statements)
+        self.result_info_label.setText(tr("query_executing_statements", count=stmt_count))
+        self.result_info_label.setStyleSheet("color: orange;")
+        QApplication.processEvents()
+
+        # Execute each statement sequentially on same connection
+        select_count = 0
+        error_occurred = False
+
+        for i, stmt in enumerate(statements):
+            if error_occurred:
+                break
+
+            try:
+                self._append_message(f"-- [Script] Executing statement {i+1}/{stmt_count}...")
+                QApplication.processEvents()
+
+                cursor = self.connection.cursor()
+                cursor.execute(stmt.text)
+
+                if cursor.description:
+                    # SELECT query - create result tab
+                    select_count += 1
+                    tab_name = self._generate_result_tab_name(stmt.text, select_count)
+                    tab_state = self._create_result_tab(i, tab_name)
+
+                    # Always use synchronous loading in script mode
+                    self._execute_select_statement(tab_state, cursor, stmt, is_multi_statement=True)
+
+                    if select_count == 1:
+                        self.results_tab_widget.setCurrentIndex(0)
+                        self.results_grid = tab_state.grid
+                else:
+                    # Non-SELECT statement
+                    rows_affected = cursor.rowcount
+                    self.connection.commit()
+                    self._append_message(f"  → {rows_affected} row(s) affected")
+
+            except Exception as e:
+                error_occurred = True
+                self._append_message(f"Error in statement {i+1} (line {stmt.line_start}): {str(e)}", is_error=True)
+                logger.error(f"Script execution error: {e}")
+                messages_tab_index = self.results_tab_widget.count() - 1
+                self.results_tab_widget.setCurrentIndex(messages_tab_index)
+                if self._is_connection_error(e):
+                    self._handle_connection_error(e)
+
+        # Final status
+        self._finalize_execution(stmt_count, select_count, error_occurred)
+
+    def _create_parallel_connection(self):
+        """Create a new connection for parallel query execution."""
+        try:
+            if self.db_type == "sqlite":
+                # SQLite: create new connection to same database
+                conn_str = self.db_connection.connection_string
+                if conn_str.startswith("sqlite:///"):
+                    db_path = conn_str[10:]
+                    return sqlite3.connect(db_path)
+            elif self.db_type == "sqlserver":
+                # SQL Server: create new pyodbc connection
+                from ...utils.credential_manager import CredentialManager
+                conn_str = self.db_connection.connection_string
+                if "trusted_connection=yes" not in conn_str.lower():
+                    username, password = CredentialManager.get_credentials(self.db_connection.id)
+                    if username and password:
+                        if "uid=" not in conn_str.lower():
+                            if not conn_str.endswith(";"):
+                                conn_str += ";"
+                            conn_str += f"UID={username};PWD={password};"
+                return pyodbc.connect(conn_str, timeout=5)
+            # Add other database types as needed
         except Exception as e:
-            self.result_info_label.setText(f"✗ Error: {str(e)}")
-            self.result_info_label.setStyleSheet("color: red;")
-            self.load_more_btn.setVisible(False)
-            self.stop_loading_btn.setVisible(False)
+            logger.warning(f"Could not create parallel connection: {e}")
+        return None
 
-            # Check if this is a connection error (VPN dropped, server unreachable)
-            if self._is_connection_error(e):
-                self._handle_connection_error(e)
+    def _finalize_execution(self, stmt_count: int, select_count: int, error_occurred: bool):
+        """Finalize execution and update status."""
+        duration = self._get_duration_str()
+        if error_occurred:
+            self.result_info_label.setText(f"✗ Error after {duration}")
+            self.result_info_label.setStyleSheet("color: red;")
+        else:
+            self.result_info_label.setText(
+                tr("query_completed_summary",
+                   statements=stmt_count,
+                   results=select_count,
+                   duration=duration)
+            )
+            self.result_info_label.setStyleSheet("color: green;")
+            self._append_message(f"\n-- Completed: {stmt_count} statement(s), {select_count} result set(s) in {duration}")
+
+        self._update_loading_buttons()
+
+    def _execute_select_statement(self, tab_state: ResultTabState, cursor, stmt: SQLStatement,
+                                     is_multi_statement: bool = False):
+        """Execute a SELECT statement and load results into its tab.
+
+        Args:
+            tab_state: The result tab state
+            cursor: Database cursor with results
+            stmt: The SQL statement
+            is_multi_statement: If True, fetch all rows synchronously (no background loading)
+                               to avoid "connection busy" errors with SQL Server
+        """
+        columns = [column[0] for column in cursor.description]
+        tab_state.columns = columns
+
+        # Setup grid
+        tab_state.grid.set_columns(columns)
+        db_name = self.current_database or (self.db_connection.name if self.db_connection else None)
+        tab_state.grid.set_context(db_name=db_name, table_name=f"Query {tab_state.statement_index + 1}")
+
+        if is_multi_statement:
+            # Multi-statement mode: fetch ALL rows synchronously to free the connection
+            # This is required because SQL Server doesn't support multiple active result sets
+            # by default (MARS disabled)
+            self._append_message(f"  → Loading results...")
+            QApplication.processEvents()
+
+            all_rows = cursor.fetchall()
+            tab_state.total_rows_fetched = len(all_rows)
+
+            # Convert to list of lists
+            data = [[cell for cell in row] for row in all_rows]
+            self._load_data_to_grid(tab_state.grid, data)
+
+            self._append_message(f"  → {tab_state.total_rows_fetched:,} row(s) returned")
+        else:
+            # Single statement mode: use batch loading for better UX with large datasets
+            rows = cursor.fetchmany(self.batch_size)
+            tab_state.total_rows_fetched = len(rows)
+
+            # Load first batch
+            data = [[cell for cell in row] for row in rows]
+            self._load_data_to_grid(tab_state.grid, data)
+
+            # Check for more rows
+            if len(rows) == self.batch_size:
+                tab_state.cursor = cursor
+                tab_state.has_more_rows = True
+                self._start_background_loading_for_tab(tab_state)
+                self._append_message(f"  → Loading results (first {tab_state.total_rows_fetched} rows)...")
             else:
-                DialogHelper.error(tr("query_execution_failed"), parent=self, details=str(e))
-            logger.error(f"Query execution error: {e}")
+                self._append_message(f"  → {tab_state.total_rows_fetched} row(s) returned")
+
+    # =========================================================================
+    # Result Tab Management
+    # =========================================================================
+
+    def _clear_result_tabs(self):
+        """Clear all result tabs except Messages."""
+        # Stop any running loaders
+        for tab_state in self._result_tabs:
+            if tab_state.background_loader and tab_state.background_loader.isRunning():
+                tab_state.background_loader.stop()
+                tab_state.background_loader.wait(100)
+
+        # Remove all tabs except Messages (last tab)
+        while self.results_tab_widget.count() > 1:
+            widget = self.results_tab_widget.widget(0)
+            self.results_tab_widget.removeTab(0)
+            widget.deleteLater()
+
+        self._result_tabs.clear()
+        self._messages_text.clear()
+        self.results_grid = None
+
+    def _create_result_tab(self, statement_index: int, tab_name: str = None) -> ResultTabState:
+        """Create a new results tab with its own grid."""
+        if tab_name is None:
+            tab_name = tr("query_results_tab", index=len(self._result_tabs) + 1)
+
+        grid = CustomDataGridView(show_toolbar=True)
+
+        tab_state = ResultTabState(
+            grid=grid,
+            statement_index=statement_index
+        )
+
+        # Insert before Messages tab (which is always last)
+        insert_index = self.results_tab_widget.count() - 1
+        self.results_tab_widget.insertTab(insert_index, grid, tab_name)
+
+        self._result_tabs.append(tab_state)
+        return tab_state
+
+    def _append_message(self, message: str, is_error: bool = False):
+        """Append a message to the Messages tab."""
+        if is_error:
+            self._messages_text.append(f'<span style="color: #e74c3c;">{message}</span>')
+        else:
+            self._messages_text.append(message)
+
+    def _generate_result_tab_name(self, sql_text: str, index: int) -> str:
+        """Generate a name for a result tab."""
+        return f"Query({index})"
+
+    def _load_data_to_grid(self, grid: CustomDataGridView, data: list):
+        """Load data into a specific grid with optimizations."""
+        table = grid.table
+        table.setUpdatesEnabled(False)
+        table.setSortingEnabled(False)
+        try:
+            grid.set_data(data)
+        finally:
+            table.setUpdatesEnabled(True)
+
+    # =========================================================================
+    # Per-Tab Background Loading
+    # =========================================================================
+
+    def _start_background_loading_for_tab(self, tab_state: ResultTabState):
+        """Start background loading for a specific results tab."""
+        tab_state.is_loading = True
+
+        # Create loader for this tab
+        loader = BackgroundRowLoader(tab_state.cursor, self.batch_size)
+        tab_state.background_loader = loader
+
+        # Connect signals with tab_state context using closures
+        loader.batch_loaded.connect(
+            lambda data, ts=tab_state: self._on_tab_batch_loaded(ts, data)
+        )
+        loader.loading_complete.connect(
+            lambda status, ts=tab_state: self._on_tab_loading_complete(ts)
+        )
+        loader.loading_error.connect(
+            lambda error, ts=tab_state: self._on_tab_loading_error(ts, error)
+        )
+
+        loader.start()
+        self._update_loading_buttons()
+
+    def _on_tab_batch_loaded(self, tab_state: ResultTabState, data: list):
+        """Handle batch loaded for a specific tab."""
+        if not data:
+            return
+
+        tab_state.total_rows_fetched += len(data)
+
+        # Append to grid
+        table = tab_state.grid.table
+        table.setUpdatesEnabled(False)
+        try:
+            current_row = table.rowCount()
+            table.setRowCount(current_row + len(data))
+
+            for row_idx, row_data in enumerate(data):
+                for col_idx, cell in enumerate(row_data):
+                    item = QTableWidgetItem(str(cell) if cell is not None else "")
+                    table.setItem(current_row + row_idx, col_idx, item)
+
+            tab_state.grid.data.extend(data)
+        finally:
+            table.setUpdatesEnabled(True)
+
+        self._update_overall_status()
+
+    def _on_tab_loading_complete(self, tab_state: ResultTabState):
+        """Handle loading complete for a specific tab."""
+        tab_state.is_loading = False
+        tab_state.has_more_rows = False
+        tab_state.background_loader = None
+
+        self._append_message(
+            f"  → Statement {tab_state.statement_index + 1}: {tab_state.total_rows_fetched:,} row(s) loaded"
+        )
+
+        self._update_overall_status()
+        self._update_loading_buttons()
+
+    def _on_tab_loading_error(self, tab_state: ResultTabState, error_msg: str):
+        """Handle loading error for a specific tab."""
+        tab_state.is_loading = False
+        tab_state.background_loader = None
+
+        self._append_message(
+            f"Error loading results for statement {tab_state.statement_index + 1}: {error_msg}",
+            is_error=True
+        )
+
+        self._update_overall_status()
+        self._update_loading_buttons()
+
+    def _stop_all_background_loading(self):
+        """Stop all background loading across all tabs."""
+        for tab_state in self._result_tabs:
+            if tab_state.background_loader and tab_state.background_loader.isRunning():
+                tab_state.background_loader.stop()
+                tab_state.background_loader.wait(500)
+                tab_state.is_loading = False
+
+        # Also stop legacy loader if exists
+        if self._background_loader and self._background_loader.isRunning():
+            self._background_loader.stop()
+            self._background_loader.wait(500)
+
+        self._update_loading_buttons()
+
+        duration = self._get_duration_str()
+        total_rows = sum(ts.total_rows_fetched for ts in self._result_tabs)
+        self.result_info_label.setText(f"⏸ {total_rows:,} row(s) loaded in {duration} - Stopped")
+        self.result_info_label.setStyleSheet("color: orange;")
+
+    def _update_loading_buttons(self):
+        """Update visibility of loading control buttons."""
+        loading_count = sum(1 for ts in self._result_tabs if ts.is_loading)
+        self.stop_loading_btn.setVisible(loading_count > 0)
+        # Load more button not used in multi-tab mode for now
+        self.load_more_btn.setVisible(False)
+
+    def _update_overall_status(self):
+        """Update the overall status label based on all tabs."""
+        loading_count = sum(1 for ts in self._result_tabs if ts.is_loading)
+
+        if loading_count > 0:
+            total_rows = sum(ts.total_rows_fetched for ts in self._result_tabs)
+            duration = self._get_duration_str()
+            self.result_info_label.setText(
+                f"⏳ Loading... {total_rows:,} row(s) in {duration} ({loading_count} result set(s) in progress)"
+            )
+            self.result_info_label.setStyleSheet("color: #3498db;")
+        else:
+            duration = self._get_duration_str()
+            total_rows = sum(ts.total_rows_fetched for ts in self._result_tabs)
+            stmt_count = len(self._result_tabs)
+            self.result_info_label.setText(
+                tr("query_completed_summary",
+                   statements=stmt_count,
+                   results=stmt_count,
+                   duration=duration) + f" ({total_rows:,} rows)"
+            )
+            self.result_info_label.setStyleSheet("color: green;")
 
     def _get_query_row_count(self, query: str) -> Optional[int]:
         """
@@ -1154,7 +1554,7 @@ class QueryTab(QWidget):
                 )
 
                 if result == QMessageBox.StandardButton.Yes:
-                    self._execute_query()
+                    self._execute_as_query()
             else:
                 self.result_info_label.setText(tr("reconnect_failed"))
                 self.result_info_label.setStyleSheet("color: red;")
