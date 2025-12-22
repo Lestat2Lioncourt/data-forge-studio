@@ -44,14 +44,14 @@ class CredentialsWidget(QWidget):
         # Username field
         self.username_edit = QLineEdit()
         self.username_edit.setPlaceholderText("Enter username")
-        self.username_edit.textChanged.connect(self.credentials_changed.emit)
+        self.username_edit.textChanged.connect(lambda _: self.credentials_changed.emit())
         form_layout.addRow("Username:", self.username_edit)
 
         # Password field
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_edit.setPlaceholderText("Enter password")
-        self.password_edit.textChanged.connect(self.credentials_changed.emit)
+        self.password_edit.textChanged.connect(lambda _: self.credentials_changed.emit())
         form_layout.addRow("Password:", self.password_edit)
 
         layout.addLayout(form_layout)
