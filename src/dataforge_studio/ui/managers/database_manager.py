@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                                QTabWidget, QPushButton, QTreeWidget, QTreeWidgetItem,
                                QLabel, QMenu, QApplication, QInputDialog)
-from PySide6.QtCore import Qt, QPoint, Signal, QTimer
+from PySide6.QtCore import Qt, QPoint, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction, QCursor
 import uuid
 
@@ -31,6 +31,137 @@ from ...utils.network_utils import check_server_reachable
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class DatabaseConnectionWorker(QThread):
+    """
+    Worker thread for database connection operations.
+
+    Runs connection and schema loading in background to avoid UI freezing.
+    """
+
+    # Signals
+    connection_success = Signal(object, object)  # connection, schema
+    connection_error = Signal(str)  # error message
+    status_update = Signal(str)  # status message for UI
+
+    def __init__(self, db_conn: DatabaseConnection, parent=None):
+        super().__init__(parent)
+        self.db_conn = db_conn
+        self._cancelled = False
+
+    def run(self):
+        """Execute connection in background thread."""
+        try:
+            # Check server reachability for remote databases
+            if self.db_conn.db_type not in ("sqlite", "access"):
+                self.status_update.emit(f"Vérification de {self.db_conn.name}...")
+
+                reachable, vpn_message = check_server_reachable(
+                    self.db_conn.connection_string,
+                    db_type=self.db_conn.db_type,
+                    timeout=3
+                )
+
+                if not reachable:
+                    self.connection_error.emit(
+                        f"Serveur non accessible : {self.db_conn.name}\n\nVérifiez que le VPN est actif."
+                    )
+                    return
+
+            if self._cancelled:
+                return
+
+            self.status_update.emit(f"Connexion à {self.db_conn.name}...")
+
+            # Create connection
+            connection = self._create_connection()
+            if connection is None:
+                return
+
+            if self._cancelled:
+                return
+
+            self.status_update.emit(f"Chargement du schéma {self.db_conn.name}...")
+
+            # Load schema
+            loader = SchemaLoaderFactory.create(
+                self.db_conn.db_type, connection, self.db_conn.id, self.db_conn.name
+            )
+
+            if loader:
+                schema = loader.load_schema()
+                self.connection_success.emit(connection, schema)
+            else:
+                self.connection_error.emit(f"Type de base non supporté : {self.db_conn.db_type}")
+
+        except Exception as e:
+            logger.error(f"Connection error: {e}")
+            self.connection_error.emit(str(e))
+
+    def _create_connection(self):
+        """Create database connection based on type."""
+        try:
+            if self.db_conn.db_type == "sqlite":
+                conn_str = self.db_conn.connection_string
+                if conn_str.startswith("sqlite:///"):
+                    db_path = conn_str.replace("sqlite:///", "")
+                elif "Database=" in conn_str:
+                    match = re.search(r'Database=([^;]+)', conn_str)
+                    db_path = match.group(1) if match else conn_str
+                else:
+                    db_path = conn_str
+
+                if not Path(db_path).exists():
+                    self.connection_error.emit(f"Fichier introuvable : {db_path}")
+                    return None
+
+                return sqlite3.connect(db_path)
+
+            elif self.db_conn.db_type == "sqlserver":
+                conn_str = self.db_conn.connection_string
+
+                # Check if NOT using Windows Authentication
+                if "trusted_connection=yes" not in conn_str.lower():
+                    username, password = CredentialManager.get_credentials(self.db_conn.id)
+                    if username and password:
+                        if "uid=" not in conn_str.lower() and "user id=" not in conn_str.lower():
+                            if not conn_str.endswith(";"):
+                                conn_str += ";"
+                            conn_str += f"UID={username};PWD={password};"
+
+                # Set a timeout for SQL Server connections
+                if "timeout" not in conn_str.lower() and "connection timeout" not in conn_str.lower():
+                    conn_str += ";Connection Timeout=5"
+
+                return pyodbc.connect(conn_str, timeout=5)
+
+            elif self.db_conn.db_type == "access":
+                conn_str = self.db_conn.connection_string
+
+                # Extract file path from connection string
+                db_path = None
+                if "Dbq=" in conn_str:
+                    match = re.search(r'Dbq=([^;]+)', conn_str, re.IGNORECASE)
+                    db_path = match.group(1) if match else None
+
+                if not db_path or not Path(db_path).exists():
+                    self.connection_error.emit(f"Fichier Access introuvable")
+                    return None
+
+                return pyodbc.connect(conn_str)
+
+            else:
+                self.connection_error.emit(f"Type non supporté: {self.db_conn.db_type}")
+                return None
+
+        except Exception as e:
+            self.connection_error.emit(str(e))
+            return None
+
+    def cancel(self):
+        """Request cancellation."""
+        self._cancelled = True
 
 
 class DatabaseManager(QWidget):
@@ -54,6 +185,7 @@ class DatabaseManager(QWidget):
         self._expand_connected = False
         self._workspace_filter: Optional[str] = None
         self._current_item = None
+        self._pending_workers: Dict[str, DatabaseConnectionWorker] = {}  # Track active connection workers
 
         self._setup_ui()
         self._load_all_connections()
@@ -75,7 +207,9 @@ class DatabaseManager(QWidget):
         layout.addWidget(self.toolbar)
 
         # Main splitter (left: tree, right: tabs)
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setHandleWidth(6)  # Larger handle for easier grabbing
+        self.main_splitter.setChildrenCollapsible(False)  # Prevent collapsing children
 
         # Left panel: Pinnable panel with database explorer tree
         self.left_panel = PinnablePanel(
@@ -99,7 +233,7 @@ class DatabaseManager(QWidget):
         tree_layout.addWidget(self.schema_tree)
 
         self.left_panel.set_content(tree_container)
-        main_splitter.addWidget(self.left_panel)
+        self.main_splitter.addWidget(self.left_panel)
 
         # Right panel: Query tabs
         self.tab_widget = QTabWidget()
@@ -107,16 +241,22 @@ class DatabaseManager(QWidget):
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
         self.tab_widget.tabBarDoubleClicked.connect(self._rename_query_tab)
+        # Set minimum width to prevent it from pushing left panel
+        self.tab_widget.setMinimumWidth(200)
 
         # Add welcome tab
         self._create_welcome_tab()
 
-        main_splitter.addWidget(self.tab_widget)
+        self.main_splitter.addWidget(self.tab_widget)
 
         # Set splitter proportions (left 25%, right 75%)
-        main_splitter.setSizes([300, 900])
+        self.main_splitter.setSizes([300, 900])
 
-        layout.addWidget(main_splitter)
+        # Allow both panels to be resized freely
+        self.main_splitter.setStretchFactor(0, 0)  # Left panel: don't auto-stretch
+        self.main_splitter.setStretchFactor(1, 1)  # Right panel: takes remaining space
+
+        layout.addWidget(self.main_splitter)
 
     def _create_welcome_tab(self):
         """Create welcome tab"""
@@ -253,86 +393,97 @@ class DatabaseManager(QWidget):
             main_window.status_bar.set_message(message)
 
     def _connect_and_load_schema(self, server_item: QTreeWidgetItem, db_conn: DatabaseConnection):
-        """Actually connect to database and load schema"""
-        try:
-            # Show wait cursor and status message
-            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
-            self._set_status_message(f"Connexion à {db_conn.name}...")
+        """Start background connection to database and load schema."""
+        # Check if already connecting
+        if db_conn.id in self._pending_workers:
+            return
 
-            QApplication.processEvents()
+        # Update tree item to show loading state
+        while server_item.childCount() > 0:
+            server_item.removeChild(server_item.child(0))
 
-            # First, check if server is reachable (skip for local file-based databases)
-            if db_conn.db_type not in ("sqlite", "access"):
-                self._set_status_message(f"Connexion à la base {db_conn.name}...")
-                QApplication.processEvents()
+        loading_item = QTreeWidgetItem(server_item)
+        loading_item.setText(0, "⏳ Connexion en cours...")
+        loading_item.setForeground(0, Qt.GlobalColor.gray)
+        loading_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "loading"})
 
-                reachable, vpn_message = check_server_reachable(
-                    db_conn.connection_string,
-                    db_type=db_conn.db_type,
-                    timeout=3
-                )
+        self._set_status_message(f"Connexion à {db_conn.name}...")
 
-                if not reachable:
-                    self._set_status_message(tr("status_ready"))
-                    server_item.setExpanded(False)  # Collapse to allow retry
-                    DialogHelper.warning(
-                        f"Serveur non accessible : {db_conn.name}\n\nVérifiez que le VPN est actif.",
-                        parent=self
-                    )
-                    return
+        # Create and start worker
+        worker = DatabaseConnectionWorker(db_conn, self)
 
-            # Create connection based on database type
-            connection = self._create_connection(db_conn)
-            if connection is None:
-                return
+        # Connect signals with lambdas that capture the context
+        worker.connection_success.connect(
+            lambda conn, schema, item=server_item, dbc=db_conn:
+                self._on_connection_success(item, dbc, conn, schema)
+        )
+        worker.connection_error.connect(
+            lambda error, item=server_item, dbc=db_conn:
+                self._on_connection_error(item, dbc, error)
+        )
+        worker.status_update.connect(self._set_status_message)
 
-            self.connections[db_conn.id] = connection
+        # Track worker
+        self._pending_workers[db_conn.id] = worker
 
-            # Remove placeholder on success
-            while server_item.childCount() > 0:
-                server_item.removeChild(server_item.child(0))
+        # Start connection in background
+        worker.start()
 
-            # Use SchemaLoaderFactory to load schema
-            loader = SchemaLoaderFactory.create(
-                db_conn.db_type, connection, db_conn.id, db_conn.name
-            )
-            if loader:
-                schema = loader.load_schema()
-                self._populate_tree_from_schema(server_item, schema, db_conn)
+    def _on_connection_success(self, server_item: QTreeWidgetItem, db_conn: DatabaseConnection,
+                                connection, schema):
+        """Handle successful connection from worker thread."""
+        # Remove from pending
+        self._pending_workers.pop(db_conn.id, None)
 
-                # Update server node text for SQL Server (show database count)
-                if db_conn.db_type == "sqlserver":
-                    server_item.setText(0, schema.display_name)
-            else:
-                self._set_status_message(f"Type non supporté: {db_conn.db_type}")
-                DialogHelper.warning(
-                    f"Type de base non supporté : {db_conn.db_type}",
-                    parent=self
-                )
-                return
+        # Store connection
+        self.connections[db_conn.id] = connection
 
-            # Mark as connected
-            data = server_item.data(0, Qt.ItemDataRole.UserRole)
+        # Remove loading placeholder
+        while server_item.childCount() > 0:
+            server_item.removeChild(server_item.child(0))
+
+        # Populate tree with schema
+        self._populate_tree_from_schema(server_item, schema, db_conn)
+
+        # Update server node text for SQL Server (show database count)
+        if db_conn.db_type == "sqlserver":
+            server_item.setText(0, schema.display_name)
+
+        # Mark as connected
+        data = server_item.data(0, Qt.ItemDataRole.UserRole)
+        if data:
             data["connected"] = True
             server_item.setData(0, Qt.ItemDataRole.UserRole, data)
 
-            # Delay expansion to run after Qt's double-click toggle
-            QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
-            self._set_status_message(f"Connecté à {db_conn.name}")
+        # Expand the node
+        QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
+        self._set_status_message(f"Connecté à {db_conn.name}")
 
-        except Exception as e:
-            logger.warning(f"Could not connect to {db_conn.name}: {e}")
-            self._set_status_message(tr("status_ready"))
-            server_item.setExpanded(False)  # Collapse to allow retry
-            DialogHelper.error(
-                f"Erreur de connexion : {db_conn.name}",
-                parent=self,
-                details=str(e)
-            )
+    def _on_connection_error(self, server_item: QTreeWidgetItem, db_conn: DatabaseConnection,
+                              error_message: str):
+        """Handle connection error from worker thread."""
+        # Remove from pending
+        self._pending_workers.pop(db_conn.id, None)
 
-        finally:
-            # Always restore cursor
-            QApplication.restoreOverrideCursor()
+        # Update tree item to show error
+        while server_item.childCount() > 0:
+            server_item.removeChild(server_item.child(0))
+
+        # Add placeholder back for retry
+        placeholder = QTreeWidgetItem(server_item)
+        placeholder.setText(0, tr("double_click_to_load"))
+        placeholder.setForeground(0, Qt.GlobalColor.gray)
+
+        server_item.setExpanded(False)  # Collapse to allow retry
+
+        self._set_status_message(tr("status_ready"))
+
+        # Show error dialog
+        DialogHelper.error(
+            f"Erreur de connexion : {db_conn.name}",
+            parent=self,
+            details=error_message
+        )
 
     def _create_connection(self, db_conn: DatabaseConnection):
         """
@@ -437,6 +588,7 @@ class DatabaseManager(QWidget):
                     metadata["type"] = "server"
                 else:
                     metadata["type"] = "database"
+                    metadata["name"] = node.name  # Database name for workspace menu
                     if db_icon:
                         item.setIcon(0, db_icon)
 
@@ -506,6 +658,64 @@ class DatabaseManager(QWidget):
         for child in schema.children:
             create_item(child, parent_item)
 
+    def load_specific_database_schema(
+        self,
+        parent_item: QTreeWidgetItem,
+        db_conn: DatabaseConnection,
+        database_name: str
+    ) -> bool:
+        """
+        Load schema for a specific database (not the whole server).
+
+        Used by WorkspaceManager when a specific database is attached to a workspace.
+
+        Args:
+            parent_item: Tree item to populate with database schema
+            db_conn: Database connection config
+            database_name: Name of the specific database to load
+
+        Returns:
+            True if successfully loaded, False otherwise
+        """
+        try:
+            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+
+            # Get or create connection
+            connection = self.connections.get(db_conn.id)
+            if not connection:
+                connection = self._create_connection(db_conn)
+                if connection is None:
+                    return False
+                self.connections[db_conn.id] = connection
+
+            # Use the schema loader to load just the specific database
+            loader = SchemaLoaderFactory.create(
+                db_conn.db_type, connection, db_conn.id, db_conn.name
+            )
+
+            if not loader:
+                logger.warning(f"No loader for db_type: {db_conn.db_type}")
+                return False
+
+            # For SQL Server, use _load_database_schema for a specific database
+            if hasattr(loader, '_load_database_schema'):
+                db_schema = loader._load_database_schema(database_name)
+                # Populate with just this database's contents (Tables, Views, etc.)
+                self._populate_tree_from_schema(parent_item, db_schema, db_conn)
+                return True
+            else:
+                # For other DB types, load full schema
+                schema = loader.load_schema()
+                self._populate_tree_from_schema(parent_item, schema, db_conn)
+                return True
+
+        except Exception as e:
+            logger.error(f"Error loading specific database schema: {e}")
+            return False
+
+        finally:
+            QApplication.restoreOverrideCursor()
+
     def _on_tree_context_menu(self, position: QPoint):
         """Show context menu on tree item right-click"""
         item = self.schema_tree.itemAt(position)
@@ -569,15 +779,20 @@ class DatabaseManager(QWidget):
 
         # Context menu for tables and views
         elif node_type in ["table", "view"]:
+            # SELECT * action
+            select_all_action = QAction("SELECT *", self)
+            select_all_action.triggered.connect(lambda: self._generate_select_query(data, limit=None))
+            menu.addAction(select_all_action)
+
             # SELECT TOP 100 action
             select_top_action = QAction("SELECT TOP 100 *", self)
             select_top_action.triggered.connect(lambda: self._generate_select_query(data, limit=100))
             menu.addAction(select_top_action)
 
-            # SELECT * action
-            select_all_action = QAction("SELECT *", self)
-            select_all_action.triggered.connect(lambda: self._generate_select_query(data, limit=None))
-            menu.addAction(select_all_action)
+            # SELECT COLUMNS action
+            select_cols_action = QAction("SELECT COLUMNS...", self)
+            select_cols_action.triggered.connect(lambda checked, d=data: self._generate_select_columns_query(d))
+            menu.addAction(select_cols_action)
 
             menu.addSeparator()
 
@@ -701,6 +916,143 @@ class DatabaseManager(QWidget):
         query_tab._execute_query()
 
         logger.info(f"Created query tab '{tab_name}' for table {table_name}")
+
+    def _generate_select_columns_query(self, data: dict):
+        """Generate a formatted SELECT query with all column names in a new tab."""
+        table_name = data["name"]
+        db_id = data.get("db_id")
+        db_name = data.get("db_name")
+
+        db_conn = self._get_connection_by_id(db_id)
+        connection = self.connections.get(db_id)
+
+        if not connection or not db_conn:
+            DialogHelper.warning("Database not connected. Please expand the database node first.", parent=self)
+            return
+
+        try:
+            # Get columns based on database type
+            if db_conn.db_type == "sqlite":
+                cursor = connection.cursor()
+                cursor.execute(f"PRAGMA table_info([{table_name}])")
+                columns = [row[1] for row in cursor.fetchall()]
+                full_table_name = f"[{table_name}]"
+            elif db_conn.db_type == "sqlserver" and db_name:
+                # Parse schema.table format
+                parts = table_name.split(".")
+                if len(parts) == 2:
+                    schema, tbl_name = parts
+                else:
+                    schema, tbl_name = "dbo", table_name
+
+                cursor = connection.cursor()
+                cursor.execute(f"""
+                    SELECT c.name
+                    FROM [{db_name}].sys.columns c
+                    INNER JOIN [{db_name}].sys.tables t ON c.object_id = t.object_id
+                    INNER JOIN [{db_name}].sys.schemas s ON t.schema_id = s.schema_id
+                    WHERE t.name = '{tbl_name}' AND s.name = '{schema}'
+                    ORDER BY c.column_id
+                """)
+                columns = [row[0] for row in cursor.fetchall()]
+
+                # If no columns found, try as a view
+                if not columns:
+                    cursor.execute(f"""
+                        SELECT c.name
+                        FROM [{db_name}].sys.columns c
+                        INNER JOIN [{db_name}].sys.views v ON c.object_id = v.object_id
+                        INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
+                        WHERE v.name = '{tbl_name}' AND s.name = '{schema}'
+                        ORDER BY c.column_id
+                    """)
+                    columns = [row[0] for row in cursor.fetchall()]
+
+                full_table_name = f"[{db_name}].[{schema}].[{tbl_name}]"
+            else:
+                # Fallback: get columns from a sample query
+                cursor = connection.cursor()
+                cursor.execute(f"SELECT TOP 1 * FROM [{table_name}]")
+                columns = [desc[0] for desc in cursor.description]
+                full_table_name = f"[{table_name}]"
+
+            if not columns:
+                DialogHelper.warning("No columns found for this table.", parent=self)
+                return
+
+            # Format the query
+            query = self._format_select_columns_query(columns, full_table_name)
+
+            # Create a new query tab
+            simple_name = table_name.split('.')[-1].strip('[]')
+            tab_name = f"{simple_name} (columns)"
+
+            query_tab = QueryTab(
+                parent=self,
+                connection=connection,
+                db_connection=db_conn,
+                tab_name=tab_name,
+                database_manager=self
+            )
+
+            query_tab.query_saved.connect(self.query_saved.emit)
+
+            index = self.tab_widget.addTab(query_tab, tab_name)
+            self.tab_widget.setCurrentIndex(index)
+
+            # Set query but don't execute (user may want to modify it first)
+            query_tab.set_query_text(query)
+
+            logger.info(f"Created SELECT COLUMNS query for {table_name}")
+
+        except Exception as e:
+            logger.error(f"Error generating SELECT COLUMNS query: {e}")
+            DialogHelper.error(f"Error generating query: {e}", parent=self)
+
+    def _format_select_columns_query(self, columns: list, table_name: str) -> str:
+        """
+        Format a SELECT query with columns in sophisticated/ultimate style.
+
+        Style:
+        SELECT
+              [Column1]
+            , [Column2]
+            ...
+        FROM [Table]
+        WHERE 1 = 1
+            -- AND [Column1] = ''
+        ORDER BY
+              [Column1] ASC
+        ;
+        """
+        lines = ["SELECT"]
+
+        # Format columns with leading comma style
+        for i, col in enumerate(columns):
+            if i == 0:
+                lines.append(f"      [{col}]")
+            else:
+                lines.append(f"    , [{col}]")
+
+        lines.append(f"FROM {table_name}")
+        lines.append("WHERE 1 = 1")
+
+        # Add commented WHERE conditions for first 5 columns
+        for col in columns[:5]:
+            lines.append(f"    -- AND [{col}] = ''")
+
+        if len(columns) > 5:
+            lines.append(f"    -- ... ({len(columns) - 5} more columns)")
+
+        lines.append("ORDER BY")
+        lines.append(f"      [{columns[0]}] ASC")
+
+        if len(columns) > 1:
+            lines.append(f"    --, [{columns[1]}] DESC")
+
+        lines.append(";")
+
+        return "\n".join(lines)
 
     def _load_view_code(self, data: dict):
         """Load view code into query editor as ALTER VIEW"""

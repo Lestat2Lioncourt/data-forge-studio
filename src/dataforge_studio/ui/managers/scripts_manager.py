@@ -159,6 +159,20 @@ class ScriptsManager(HierarchicalManagerView):
         delete_action.triggered.connect(self._delete_script)
         menu.addAction(delete_action)
 
+        menu.addSeparator()
+
+        # Workspace submenu
+        from ..widgets.workspace_menu_builder import build_workspace_menu
+        config_db = get_config_db()
+        ws_menu = build_workspace_menu(
+            parent=self,
+            item_id=script.id,
+            get_item_workspaces=lambda: config_db.get_script_workspaces(script.id),
+            add_to_workspace=lambda ws_id: config_db.add_script_to_workspace(ws_id, script.id),
+            remove_from_workspace=lambda ws_id: config_db.remove_script_from_workspace(ws_id, script.id)
+        )
+        menu.addMenu(ws_menu)
+
     # ==================== Actions ====================
 
     def _add_script(self):

@@ -176,6 +176,19 @@ class QueryTab(QWidget):
         self.ultimate_btn.clicked.connect(lambda: self._format_sql("ultimate"))
         toolbar.addWidget(self.ultimate_btn)
 
+        toolbar.addSpacing(10)
+
+        # Script format buttons (Python and TSQL)
+        self.python_btn = QPushButton("Python")
+        self.python_btn.setToolTip(tr("query_format_python_tooltip"))
+        self.python_btn.clicked.connect(self._format_for_python)
+        toolbar.addWidget(self.python_btn)
+
+        self.tsql_btn = QPushButton("T-SQL")
+        self.tsql_btn.setToolTip(tr("query_format_tsql_tooltip"))
+        self.tsql_btn.clicked.connect(self._format_for_tsql)
+        toolbar.addWidget(self.tsql_btn)
+
         layout.addLayout(toolbar)
 
         # Splitter for SQL editor (top) and results (bottom)
@@ -741,6 +754,46 @@ class QueryTab(QWidget):
         except Exception as e:
             logger.error(f"SQL formatting error: {e}")
             DialogHelper.error("Formatting failed", parent=self, details=str(e))
+
+    def _format_for_python(self):
+        """
+        Format the SQL query as a Python variable assignment.
+        Shows result in a dialog with copy option.
+        """
+        from .script_format_dialog import ScriptFormatDialog
+
+        query_text = self.sql_editor.toPlainText().strip()
+        if not query_text:
+            DialogHelper.warning(tr("no_query_to_format"), parent=self)
+            return
+
+        # Show format dialog
+        dialog = ScriptFormatDialog(
+            parent=self,
+            query_text=query_text,
+            format_type="python"
+        )
+        dialog.exec()
+
+    def _format_for_tsql(self):
+        """
+        Format the SQL query as a T-SQL variable assignment.
+        Shows result in a dialog with copy option.
+        """
+        from .script_format_dialog import ScriptFormatDialog
+
+        query_text = self.sql_editor.toPlainText().strip()
+        if not query_text:
+            DialogHelper.warning(tr("no_query_to_format"), parent=self)
+            return
+
+        # Show format dialog
+        dialog = ScriptFormatDialog(
+            parent=self,
+            query_text=query_text,
+            format_type="tsql"
+        )
+        dialog.exec()
 
     def set_query_text(self, query: str):
         """Set the SQL query text"""

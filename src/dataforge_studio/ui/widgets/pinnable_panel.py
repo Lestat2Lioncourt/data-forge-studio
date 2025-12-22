@@ -202,11 +202,24 @@ class PinnablePanel(QWidget):
         self._hide_timer.timeout.connect(self._do_collapse)
         self._hide_delay = 400  # ms
 
+        # Flag to track if splitter signal is connected
+        self._splitter_connected = False
+
+        # Set size policy to allow free resizing in horizontal direction
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
         self._setup_ui()
         self._apply_style()
 
         theme_bridge = ThemeBridge.get_instance()
         theme_bridge.register_observer(self._on_theme_changed)
+
+    def showEvent(self, event):
+        """Connect splitter signal when panel becomes visible."""
+        super().showEvent(event)
+        # Connect to splitter signal to track manual resizes
+        if not self._splitter_connected:
+            self._connect_splitter_signals()
 
     def _setup_ui(self):
         """Setup the panel UI."""
@@ -312,8 +325,8 @@ class PinnablePanel(QWidget):
             # Pinned: expand and stay visible
             self._expand()
             self._hide_timer.stop()
-            # Disconnect splitter signal if connected
-            self._disconnect_splitter_signals()
+            # Keep splitter signal connected to track manual resizes
+            self._connect_splitter_signals()
         else:
             # Unpinned: capture current width and setup splitter monitoring
             self._capture_current_width()
@@ -334,8 +347,10 @@ class PinnablePanel(QWidget):
 
     def _connect_splitter_signals(self):
         """Connect to splitter signals to detect resizing."""
+        if self._splitter_connected:
+            return
         splitter = self._find_parent_splitter()
-        if splitter and not hasattr(self, '_splitter_connected'):
+        if splitter:
             splitter.splitterMoved.connect(self._on_splitter_moved)
             self._splitter_connected = True
 
@@ -383,6 +398,8 @@ class PinnablePanel(QWidget):
 
     def _expand(self):
         """Expand the panel."""
+        was_expanded = self._is_expanded
+
         if self._is_expanded:
             return
 
@@ -395,14 +412,18 @@ class PinnablePanel(QWidget):
         self.setMinimumWidth(0)
         self.setMaximumWidth(16777215)  # QWIDGETSIZE_MAX
 
-        # Update splitter sizes
-        splitter = self._find_parent_splitter()
-        if splitter:
-            idx = self._get_splitter_index(splitter)
-            if idx >= 0:
-                sizes = splitter.sizes()
-                sizes[idx] = self._normal_width
-                splitter.setSizes(sizes)
+        # Only set splitter size if we're coming from collapsed state
+        # Don't reset if panel was already visible (preserves user's resize)
+        if not was_expanded:
+            splitter = self._find_parent_splitter()
+            if splitter:
+                idx = self._get_splitter_index(splitter)
+                if idx >= 0:
+                    sizes = splitter.sizes()
+                    # Only set if current size is collapsed
+                    if sizes[idx] <= self.COLLAPSED_WIDTH:
+                        sizes[idx] = self._normal_width
+                        splitter.setSizes(sizes)
 
         self.expanded_changed.emit(True)
 
@@ -508,12 +529,24 @@ class PinnablePanel(QWidget):
 
     def sizeHint(self) -> QSize:
         if self._is_expanded:
+            # Return actual current width if available, otherwise normal_width
+            current_width = self.width()
+            if current_width > self.COLLAPSED_WIDTH:
+                return QSize(current_width, 400)
             return QSize(self._normal_width, 400)
         else:
             return QSize(self.COLLAPSED_WIDTH, 400)
 
     def minimumSizeHint(self) -> QSize:
         if self._is_expanded:
-            return QSize(self._normal_width, 100)
+            # Allow shrinking below normal width (minimum 150px when expanded)
+            return QSize(150, 100)
         else:
             return QSize(self.COLLAPSED_WIDTH, 100)
+
+    def resizeEvent(self, event):
+        """Track resize events to update normal width."""
+        super().resizeEvent(event)
+        # Update normal width when resized while expanded
+        if self._is_expanded and event.size().width() > self.COLLAPSED_WIDTH:
+            self._normal_width = event.size().width()

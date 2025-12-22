@@ -22,7 +22,7 @@ def main():
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("DataForge Studio")
-    app.setApplicationVersion("0.5.0")
+    app.setApplicationVersion("0.5.3")
     app.setOrganizationName("DataForge")
 
     # Set application icon (for taskbar and window)

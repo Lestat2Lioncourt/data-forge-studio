@@ -102,7 +102,8 @@ class TreePopulator:
         parent_item: QTreeWidgetItem,
         folder_path: Path,
         add_item_callback: Callable,
-        recursive: bool = True
+        recursive: bool = True,
+        update_parent_count: bool = True
     ) -> int:
         """
         Load folder contents into tree.
@@ -112,6 +113,7 @@ class TreePopulator:
             folder_path: Path to folder to scan
             add_item_callback: Function to add items (tree_view.add_item or similar)
             recursive: Whether to add dummy children for subfolders
+            update_parent_count: Whether to update parent item text with count
 
         Returns:
             Number of items added
@@ -120,6 +122,9 @@ class TreePopulator:
             return 0
 
         count = 0
+        folder_count = 0
+        file_count = 0
+
         try:
             entries = sorted(
                 folder_path.iterdir(),
@@ -136,6 +141,7 @@ class TreePopulator:
                     TreePopulator.set_item_icon(folder_item, "folder")
                     if recursive:
                         TreePopulator.add_dummy_child(folder_item)
+                    folder_count += 1
                     count += 1
                 else:
                     file_item = add_item_callback(
@@ -145,7 +151,16 @@ class TreePopulator:
                     )
                     icon_name = TreePopulator.get_file_icon(entry)
                     TreePopulator.set_item_icon(file_item, icon_name)
+                    file_count += 1
                     count += 1
+
+            # Update parent item text with count
+            if update_parent_count and count > 0:
+                current_text = parent_item.text(0)
+                # Remove existing count if present
+                if " (" in current_text and current_text.endswith(")"):
+                    current_text = current_text[:current_text.rfind(" (")]
+                parent_item.setText(0, f"{current_text} ({count})")
 
         except PermissionError as e:
             logger.warning(f"Permission denied accessing {folder_path}: {e}")
@@ -168,7 +183,9 @@ class TreePopulator:
             parent_item: Parent tree item (database node)
             db_config: Database connection config object
             database_manager: DatabaseManager instance for connection handling
-            database_name: Specific database name (for servers with multiple DBs)
+            database_name: Specific database name (for servers with multiple DBs).
+                          If provided, only that database's schema is loaded.
+                          If empty/None, the full server schema is loaded.
 
         Returns:
             True if successfully loaded, False otherwise
@@ -181,24 +198,35 @@ class TreePopulator:
             # Store original data for restoration on failure
             original_data = parent_item.data(0, Qt.ItemDataRole.UserRole)
 
-            # Update item data to match DatabaseManager's expected format
-            parent_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "server",
-                "config": db_config,
-                "connected": False,
-                "database_name": database_name
-            })
+            if database_name:
+                # Load only the specific database's schema
+                success = database_manager.load_specific_database_schema(
+                    parent_item, db_config, database_name
+                )
+                if not success:
+                    parent_item.setData(0, Qt.ItemDataRole.UserRole, original_data)
+                    return False
+                return True
+            else:
+                # Load full server schema (all databases)
+                # Update item data to match DatabaseManager's expected format
+                parent_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "server",
+                    "config": db_config,
+                    "connected": False,
+                    "database_name": database_name
+                })
 
-            # Delegate to DatabaseManager's connection and schema loading
-            database_manager._connect_and_load_schema(parent_item, db_config)
+                # Delegate to DatabaseManager's connection and schema loading
+                database_manager._connect_and_load_schema(parent_item, db_config)
 
-            # Check if connection succeeded
-            if not database_manager.connections.get(db_config.id):
-                # Connection failed - restore original data
-                parent_item.setData(0, Qt.ItemDataRole.UserRole, original_data)
-                return False
+                # Check if connection succeeded
+                if not database_manager.connections.get(db_config.id):
+                    # Connection failed - restore original data
+                    parent_item.setData(0, Qt.ItemDataRole.UserRole, original_data)
+                    return False
 
-            return True
+                return True
 
         except Exception as e:
             logger.error(f"Error loading database schema: {e}")

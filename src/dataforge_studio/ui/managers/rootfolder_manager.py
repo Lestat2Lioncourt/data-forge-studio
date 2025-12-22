@@ -114,7 +114,9 @@ class RootFolderManager(QWidget):
         layout.addWidget(self.toolbar)
 
         # Main splitter (left: tree, right: details + content)
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setHandleWidth(6)  # Larger handle for easier grabbing
+        self.main_splitter.setChildrenCollapsible(False)  # Prevent collapsing children
 
         # Left panel: Pinnable panel with file explorer tree
         self.left_panel = PinnablePanel(
@@ -141,7 +143,7 @@ class RootFolderManager(QWidget):
         tree_layout.addWidget(self.file_tree)
 
         self.left_panel.set_content(tree_container)
-        main_splitter.addWidget(self.left_panel)
+        self.main_splitter.addWidget(self.left_panel)
 
         # Right panel: Details (top) + Content (bottom)
         right_widget = QWidget()
@@ -194,12 +196,16 @@ class RootFolderManager(QWidget):
 
         right_layout.addWidget(self.content_stack, stretch=4)
 
-        main_splitter.addWidget(right_widget)
+        self.main_splitter.addWidget(right_widget)
 
         # Set splitter proportions (left 30%, right 70%)
-        main_splitter.setSizes([350, 850])
+        self.main_splitter.setSizes([350, 850])
 
-        layout.addWidget(main_splitter)
+        # Allow both panels to be resized freely
+        self.main_splitter.setStretchFactor(0, 0)  # Left panel: don't auto-stretch
+        self.main_splitter.setStretchFactor(1, 1)  # Right panel: takes remaining space
+
+        layout.addWidget(self.main_splitter)
 
     def _load_root_folders(self):
         """Load all root folders into tree"""

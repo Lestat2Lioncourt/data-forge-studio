@@ -175,6 +175,18 @@ class ConfigDatabase:
             )
         """)
 
+        # Project-Script junction table (for workspace assignments)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS project_scripts (
+                project_id TEXT NOT NULL,
+                script_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (project_id, script_id),
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
+            )
+        """)
+
         # Scripts table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scripts (
@@ -1351,6 +1363,94 @@ class ConfigDatabase:
             WHERE pj.job_id = ?
             ORDER BY p.name
         """, (job_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Project(**dict(row)) for row in rows]
+
+    # ==================== Workspace-Script Relations ====================
+
+    def add_script_to_workspace(self, workspace_id: str, script_id: str) -> bool:
+        """Add a script to a workspace"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                INSERT OR IGNORE INTO project_scripts
+                (project_id, script_id, created_at)
+                VALUES (?, ?, ?)
+            """, (workspace_id, script_id, datetime.now().isoformat()))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error adding script to workspace: {e}")
+            return False
+
+    def remove_script_from_workspace(self, workspace_id: str, script_id: str) -> bool:
+        """Remove a script from a workspace"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                DELETE FROM project_scripts
+                WHERE project_id = ? AND script_id = ?
+            """, (workspace_id, script_id))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            print(f"Error removing script from workspace: {e}")
+            return False
+
+    def get_workspace_scripts(self, workspace_id: str) -> List[Script]:
+        """Get all scripts in a workspace"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT s.* FROM scripts s
+            INNER JOIN project_scripts ps ON s.id = ps.script_id
+            WHERE ps.project_id = ?
+            ORDER BY s.script_type, s.name
+        """, (workspace_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Script(**dict(row)) for row in rows]
+
+    def get_workspace_script_ids(self, workspace_id: str) -> List[str]:
+        """Get all script IDs in a workspace"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT script_id FROM project_scripts
+            WHERE project_id = ?
+        """, (workspace_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [row[0] for row in rows]
+
+    def get_script_workspaces(self, script_id: str) -> List[Project]:
+        """Get all workspaces that contain a script"""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT p.* FROM projects p
+            INNER JOIN project_scripts ps ON p.id = ps.project_id
+            WHERE ps.script_id = ?
+            ORDER BY p.name
+        """, (script_id,))
         rows = cursor.fetchall()
 
         db_conn.close()
