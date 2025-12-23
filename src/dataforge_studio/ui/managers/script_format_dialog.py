@@ -1,5 +1,7 @@
 """
-Script Format Dialog - Dialog for formatting SQL queries as Python or T-SQL variables.
+Script Format Dialog - Dialog for formatting SQL queries as code variables.
+
+Supports: Python, T-SQL, VB.NET/VBScript, C#
 
 Displays the formatted query with options to customize variable name and copy to clipboard.
 """
@@ -23,24 +25,33 @@ class ScriptFormatDialog(QDialog):
         self,
         parent=None,
         query_text: str = "",
-        format_type: str = "python"  # "python" or "tsql"
+        format_type: str = "python"  # "python", "tsql", "vb", "csharp"
     ):
         super().__init__(parent)
         self.query_text = query_text
         self.format_type = format_type
 
-        # Default variable names
-        self.default_var_name = "query" if format_type == "python" else "Query"
+        # Default variable names per language
+        default_names = {
+            "python": "query",
+            "tsql": "Query",
+            "vb": "strQuery",
+            "csharp": "query"
+        }
+        self.default_var_name = default_names.get(format_type, "query")
 
         self._setup_ui()
         self._update_formatted_text()
 
     def _setup_ui(self):
         """Setup dialog UI."""
-        if self.format_type == "python":
-            self.setWindowTitle(tr("query_format_python_title"))
-        else:
-            self.setWindowTitle(tr("query_format_tsql_title"))
+        titles = {
+            "python": tr("query_format_python_title"),
+            "tsql": tr("query_format_tsql_title"),
+            "vb": tr("query_format_vb_title"),
+            "csharp": tr("query_format_csharp_title")
+        }
+        self.setWindowTitle(titles.get(self.format_type, "Export Query"))
 
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)
@@ -98,10 +109,14 @@ class ScriptFormatDialog(QDialog):
         if not var_name:
             var_name = self.default_var_name
 
-        if self.format_type == "python":
-            formatted = self._format_python(var_name)
-        else:
-            formatted = self._format_tsql(var_name)
+        formatters = {
+            "python": self._format_python,
+            "tsql": self._format_tsql,
+            "vb": self._format_vb,
+            "csharp": self._format_csharp
+        }
+        formatter = formatters.get(self.format_type, self._format_python)
+        formatted = formatter(var_name)
 
         self.result_text.setPlainText(formatted)
 
@@ -159,6 +174,46 @@ class ScriptFormatDialog(QDialog):
                     formatted_lines.append(f"{part};")
 
             return '\n'.join(formatted_lines)
+
+    def _format_vb(self, var_name: str) -> str:
+        """Format as VB.NET/VBScript variable assignment."""
+        # Escape double quotes in query (double them for VB)
+        escaped_query = self.query_text.replace('"', '""')
+
+        # Split query into lines
+        lines = escaped_query.split('\n')
+
+        if len(lines) == 1:
+            # Single line query
+            return f'Dim {var_name} As String = "{escaped_query}"'
+        else:
+            # Multiline query - use string concatenation with vbCrLf
+            formatted_lines = [f'Dim {var_name} As String = ""']
+
+            for i, line in enumerate(lines):
+                if i < len(lines) - 1:
+                    formatted_lines.append(f'{var_name} &= "{line}" & vbCrLf')
+                else:
+                    formatted_lines.append(f'{var_name} &= "{line}"')
+
+            return '\n'.join(formatted_lines)
+
+    def _format_csharp(self, var_name: str) -> str:
+        """Format as C# variable assignment."""
+        # Escape double quotes and backslashes for C#
+        escaped_query = self.query_text.replace('\\', '\\\\').replace('"', '\\"')
+
+        # Split query into lines
+        lines = escaped_query.split('\n')
+
+        if len(lines) == 1:
+            # Single line query
+            return f'string {var_name} = "{escaped_query}";'
+        else:
+            # Multiline query - use verbatim string (@"") or string concatenation
+            # Using verbatim string (simpler, quotes are doubled)
+            verbatim_query = self.query_text.replace('"', '""')
+            return f'string {var_name} = @"\n{verbatim_query}";'
 
     def _copy_to_clipboard(self):
         """Copy formatted text to clipboard."""

@@ -314,6 +314,8 @@
     "query_format_tsql_tooltip": "Format query as T-SQL variable for copy-paste",
     "query_format_python_title": "Format as Python",
     "query_format_tsql_title": "Format as T-SQL",
+    "query_format_vb_title": "Format as VB",
+    "query_format_csharp_title": "Format as C#",
     "query_format_variable_name": "Variable name",
     "query_format_invalid_python_var": "Invalid Python variable name",
     "query_format_copied_clipboard": "Formatted query copied to clipboard",

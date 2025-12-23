@@ -234,6 +234,8 @@ class QueryTab(QWidget):
         self.export_combo = QComboBox()
         self.export_combo.addItem("Python", "python")
         self.export_combo.addItem("T-SQL", "tsql")
+        self.export_combo.addItem("VB", "vb")
+        self.export_combo.addItem("C#", "csharp")
         self.export_combo.setMinimumWidth(80)
         export_layout.addWidget(self.export_combo)
 
@@ -1200,11 +1202,20 @@ class QueryTab(QWidget):
 
     def _run_export(self):
         """Export SQL based on selected format."""
+        from .script_format_dialog import ScriptFormatDialog
+
+        query_text = self.sql_editor.toPlainText().strip()
+        if not query_text:
+            DialogHelper.warning(tr("no_query_to_format"), parent=self)
+            return
+
         export_format = self.export_combo.currentData()
-        if export_format == "python":
-            self._format_for_python()
-        elif export_format == "tsql":
-            self._format_for_tsql()
+        dialog = ScriptFormatDialog(
+            parent=self,
+            query_text=query_text,
+            format_type=export_format
+        )
+        dialog.exec()
 
     def _format_sql(self, style: str):
         """
