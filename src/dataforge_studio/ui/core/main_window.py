@@ -630,8 +630,8 @@ class DataForgeMainWindow:
         # Git safe.directory command (fixes "dubious ownership" error on Windows)
         safe_dir_cmd = f'git config --global --add safe.directory "{project_root_str}"'
 
-        # Git update commands: checkout main first (handles detached HEAD from tag installs)
-        git_update_cmd = 'git checkout main && git pull origin main'
+        # Git update commands: stash local changes if any, checkout main, pull, then drop stash if exists
+        git_update_cmd = 'git stash || true && git checkout main && git pull origin main && (git stash drop 2>nul || true)'
 
         # Build update commands
         if sys.platform == 'win32':
