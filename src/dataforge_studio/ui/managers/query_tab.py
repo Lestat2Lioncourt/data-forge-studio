@@ -104,7 +104,8 @@ class QueryTab(QWidget):
                  connection: Union[pyodbc.Connection, sqlite3.Connection] = None,
                  db_connection: DatabaseConnection = None,
                  tab_name: str = "Query",
-                 database_manager=None):
+                 database_manager=None,
+                 target_database: str = None):
         """
         Initialize query tab.
 
@@ -114,6 +115,7 @@ class QueryTab(QWidget):
             db_connection: Database connection config
             tab_name: Name of the tab
             database_manager: Reference to parent DatabaseManager for reconnection
+            target_database: Target database name for SQL Server (to select in combo)
         """
         super().__init__(parent)
 
@@ -121,6 +123,7 @@ class QueryTab(QWidget):
         self.db_connection = db_connection
         self.tab_name = tab_name
         self._database_manager = database_manager
+        self._target_database = target_database  # Database to select initially
         self.is_sqlite = isinstance(connection, sqlite3.Connection)
         # Use db_type from connection config, fallback to detection
         if db_connection and hasattr(db_connection, 'db_type'):
@@ -154,79 +157,103 @@ class QueryTab(QWidget):
 
     def _setup_ui(self):
         """Setup UI components"""
+        from PySide6.QtWidgets import QGroupBox
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # Top toolbar with Execute button on left, format buttons on right
+        # Top toolbar - with GroupBox containers
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(10)
 
-        # Left side: Database selector (like SSMS)
-        db_label = QLabel(tr("field_database"))
-        toolbar.addWidget(db_label)
+        # === Database GroupBox ===
+        db_group = QGroupBox(tr("field_database").rstrip(" :"))
+        db_layout = QHBoxLayout(db_group)
+        db_layout.setContentsMargins(5, 2, 5, 5)
 
         self.db_combo = QComboBox()
         self.db_combo.setMinimumWidth(150)
         self.db_combo.setToolTip(tr("query_tooltip_select_db"))
         self.db_combo.currentTextChanged.connect(self._on_database_changed)
-        toolbar.addWidget(self.db_combo)
+        db_layout.addWidget(self.db_combo)
 
-        toolbar.addSpacing(20)
+        toolbar.addWidget(db_group)
 
-        # Execute buttons: Query (parallel) and Script (sequential)
-        self.query_btn = QPushButton(tr("query_execute_query"))
-        self.query_btn.setToolTip(tr("query_execute_query_tooltip"))
-        self.query_btn.clicked.connect(self._execute_as_query)
-        self.query_btn.setShortcut("F5")
-        toolbar.addWidget(self.query_btn)
+        # === Execute GroupBox ===
+        exec_group = QGroupBox(tr("query_toolbar_execute"))
+        exec_layout = QHBoxLayout(exec_group)
+        exec_layout.setContentsMargins(5, 2, 5, 5)
+        exec_layout.setSpacing(4)
 
-        self.script_btn = QPushButton(tr("query_execute_script"))
-        self.script_btn.setToolTip(tr("query_execute_script_tooltip"))
-        self.script_btn.clicked.connect(self._execute_as_script)
-        self.script_btn.setShortcut("F6")
-        toolbar.addWidget(self.script_btn)
+        self.execute_combo = QComboBox()
+        self.execute_combo.addItem(tr("query_execute_query"), "query")
+        self.execute_combo.addItem(tr("query_execute_script"), "script")
+        self.execute_combo.setToolTip(tr("query_execute_query_tooltip"))
+        self.execute_combo.setMinimumWidth(100)
+        self.execute_combo.currentIndexChanged.connect(self._on_execute_mode_changed)
+        exec_layout.addWidget(self.execute_combo)
 
-        self.clear_btn = QPushButton(tr("btn_clear"))
-        self.clear_btn.clicked.connect(self._clear_query)
-        toolbar.addWidget(self.clear_btn)
+        self.run_btn = QPushButton(tr("query_btn_run"))
+        self.run_btn.setToolTip(tr("query_execute_query_tooltip"))
+        self.run_btn.clicked.connect(self._run_execute)
+        self.run_btn.setShortcut("F5")
+        self.run_btn.setFixedWidth(35)
+        self.run_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
+        exec_layout.addWidget(self.run_btn)
 
-        self.save_query_btn = QPushButton(tr("query_save_to_queries"))
-        self.save_query_btn.clicked.connect(self._save_query)
-        toolbar.addWidget(self.save_query_btn)
+        toolbar.addWidget(exec_group)
+
+        # === Format GroupBox ===
+        format_group = QGroupBox(tr("query_toolbar_format"))
+        format_layout = QHBoxLayout(format_group)
+        format_layout.setContentsMargins(5, 2, 5, 5)
+        format_layout.setSpacing(4)
+
+        self.format_combo = QComboBox()
+        self.format_combo.addItem(tr("query_format_compact"), "compact")
+        self.format_combo.addItem(tr("query_format_expanded"), "expanded")
+        self.format_combo.addItem(tr("query_format_comma_first"), "comma_first")
+        self.format_combo.addItem(tr("query_format_ultimate"), "ultimate")
+        self.format_combo.setMinimumWidth(100)
+        format_layout.addWidget(self.format_combo)
+
+        self.format_btn = QPushButton(tr("query_btn_format"))
+        self.format_btn.setToolTip(tr("format_sql"))
+        self.format_btn.clicked.connect(self._run_format)
+        self.format_btn.setFixedWidth(35)
+        format_layout.addWidget(self.format_btn)
+
+        toolbar.addWidget(format_group)
+
+        # === Export GroupBox ===
+        export_group = QGroupBox(tr("query_toolbar_export"))
+        export_layout = QHBoxLayout(export_group)
+        export_layout.setContentsMargins(5, 2, 5, 5)
+        export_layout.setSpacing(4)
+
+        self.export_combo = QComboBox()
+        self.export_combo.addItem("Python", "python")
+        self.export_combo.addItem("T-SQL", "tsql")
+        self.export_combo.setMinimumWidth(80)
+        export_layout.addWidget(self.export_combo)
+
+        self.export_btn = QPushButton(tr("query_btn_export"))
+        self.export_btn.setToolTip(tr("query_toolbar_export"))
+        self.export_btn.clicked.connect(self._run_export)
+        self.export_btn.setFixedWidth(35)
+        export_layout.addWidget(self.export_btn)
+
+        toolbar.addWidget(export_group)
 
         toolbar.addStretch()
 
-        # Right side: Format style buttons
-        format_label = QLabel(tr("format_sql") + ":")
-        toolbar.addWidget(format_label)
-
-        self.compact_btn = QPushButton(tr("query_format_compact"))
-        self.compact_btn.clicked.connect(lambda: self._format_sql("compact"))
-        toolbar.addWidget(self.compact_btn)
-
-        self.expanded_btn = QPushButton(tr("query_format_expanded"))
-        self.expanded_btn.clicked.connect(lambda: self._format_sql("expanded"))
-        toolbar.addWidget(self.expanded_btn)
-
-        self.comma_first_btn = QPushButton(tr("query_format_comma_first"))
-        self.comma_first_btn.clicked.connect(lambda: self._format_sql("comma_first"))
-        toolbar.addWidget(self.comma_first_btn)
-
-        self.ultimate_btn = QPushButton(tr("query_format_ultimate"))
-        self.ultimate_btn.clicked.connect(lambda: self._format_sql("ultimate"))
-        toolbar.addWidget(self.ultimate_btn)
-
-        toolbar.addSpacing(10)
-
-        # Script format buttons (Python and TSQL)
-        self.python_btn = QPushButton("Python")
-        self.python_btn.setToolTip(tr("query_format_python_tooltip"))
-        self.python_btn.clicked.connect(self._format_for_python)
-        toolbar.addWidget(self.python_btn)
-
-        self.tsql_btn = QPushButton("T-SQL")
-        self.tsql_btn.setToolTip(tr("query_format_tsql_tooltip"))
-        self.tsql_btn.clicked.connect(self._format_for_tsql)
-        toolbar.addWidget(self.tsql_btn)
+        # === Save button (standalone) ===
+        self.save_query_btn = QPushButton("💾")
+        self.save_query_btn.setToolTip(tr("query_save_to_queries"))
+        self.save_query_btn.clicked.connect(self._save_query)
+        self.save_query_btn.setFixedWidth(40)
+        self.save_query_btn.setFixedHeight(40)
+        toolbar.addWidget(self.save_query_btn)
 
         layout.addLayout(toolbar)
 
@@ -1074,10 +1101,6 @@ class QueryTab(QWidget):
             elif self.db_type == "sqlserver":
                 cursor = self.connection.cursor()
 
-                # Get current database
-                cursor.execute("SELECT DB_NAME()")
-                current_db = cursor.fetchone()[0]
-
                 # Get all databases (user databases, not system)
                 cursor.execute("""
                     SELECT name FROM sys.databases
@@ -1090,10 +1113,23 @@ class QueryTab(QWidget):
                 for db in databases:
                     self.db_combo.addItem(db)
 
-                # Select current database
-                if current_db in databases:
-                    self.db_combo.setCurrentText(current_db)
-                    self.current_database = current_db
+                # Determine which database to select:
+                # 1. Use target_database if specified (from right-click on table)
+                # 2. Otherwise use current database from connection
+                target_db = self._target_database
+                if not target_db:
+                    cursor.execute("SELECT DB_NAME()")
+                    target_db = cursor.fetchone()[0]
+
+                # Select target database and switch context
+                if target_db in databases:
+                    self.db_combo.setCurrentText(target_db)
+                    self.current_database = target_db
+                    # Switch database context
+                    try:
+                        cursor.execute(f"USE [{target_db}]")
+                    except Exception as e:
+                        logger.warning(f"Could not switch to database {target_db}: {e}")
 
             else:
                 # Other database types - just show connection name
@@ -1122,7 +1158,7 @@ class QueryTab(QWidget):
             self.current_database = db_name
 
             # Clear schema cache for new database
-            self.schema_cache.clear()
+            self.schema_cache.invalidate()
 
             logger.info(f"Database context changed to: {db_name}")
 
@@ -1134,6 +1170,41 @@ class QueryTab(QWidget):
                 self.db_combo.blockSignals(True)
                 self.db_combo.setCurrentText(self.current_database)
                 self.db_combo.blockSignals(False)
+
+    # =========================================================================
+    # Toolbar action handlers
+    # =========================================================================
+
+    def _on_execute_mode_changed(self, index: int):
+        """Update tooltip when execute mode changes."""
+        mode = self.execute_combo.currentData()
+        if mode == "query":
+            self.run_btn.setToolTip(tr("query_execute_query_tooltip"))
+            self.run_btn.setShortcut("F5")
+        else:
+            self.run_btn.setToolTip(tr("query_execute_script_tooltip"))
+            self.run_btn.setShortcut("F6")
+
+    def _run_execute(self):
+        """Execute query based on selected mode."""
+        mode = self.execute_combo.currentData()
+        if mode == "script":
+            self._execute_as_script()
+        else:
+            self._execute_as_query()
+
+    def _run_format(self):
+        """Format SQL based on selected style."""
+        style = self.format_combo.currentData()
+        self._format_sql(style)
+
+    def _run_export(self):
+        """Export SQL based on selected format."""
+        export_format = self.export_combo.currentData()
+        if export_format == "python":
+            self._format_for_python()
+        elif export_format == "tsql":
+            self._format_for_tsql()
 
     def _format_sql(self, style: str):
         """

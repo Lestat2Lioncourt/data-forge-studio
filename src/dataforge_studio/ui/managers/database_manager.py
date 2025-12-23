@@ -901,7 +901,8 @@ class DatabaseManager(QWidget):
             connection=connection,
             db_connection=db_conn,
             tab_name=tab_name,
-            database_manager=self
+            database_manager=self,
+            target_database=db_name
         )
 
         # Connect query_saved signal
@@ -913,7 +914,7 @@ class DatabaseManager(QWidget):
 
         # Set query and execute
         query_tab.set_query_text(query)
-        query_tab._execute_query()
+        query_tab._execute_as_query()
 
         logger.info(f"Created query tab '{tab_name}' for table {table_name}")
 
@@ -992,7 +993,8 @@ class DatabaseManager(QWidget):
                 connection=connection,
                 db_connection=db_conn,
                 tab_name=tab_name,
-                database_manager=self
+                database_manager=self,
+                target_database=db_name
             )
 
             query_tab.query_saved.connect(self.query_saved.emit)

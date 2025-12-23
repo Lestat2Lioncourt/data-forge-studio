@@ -734,7 +734,7 @@ class DataForgeMainWindow:
 
         # Set query text and execute
         query_tab.set_query_text(saved_query.query_text or "")
-        query_tab._execute_query()
+        query_tab._execute_as_query()
 
         import logging
         logging.getLogger(__name__).info(f"Executed saved query: {saved_query.name}")
