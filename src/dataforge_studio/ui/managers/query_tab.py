@@ -26,6 +26,7 @@ from ...utils.schema_cache import SchemaCache
 from ...utils.sql_formatter import format_sql
 from ...utils.sql_splitter import split_sql_statements, SQLStatement
 from .query_loader import BackgroundRowLoader
+from ...config.user_preferences import UserPreferences
 
 # DataFrame-Pivot pattern: use shared threshold
 from ...core.data_loader import LARGE_DATASET_THRESHOLD
@@ -215,6 +216,14 @@ class QueryTab(QWidget):
         self.format_combo.addItem(tr("query_format_comma_first"), "comma_first")
         self.format_combo.addItem(tr("query_format_ultimate"), "ultimate")
         self.format_combo.setMinimumWidth(100)
+        # Load saved format preference
+        prefs = UserPreferences.instance()
+        saved_format = prefs.get("sql_format_style", "expanded")
+        for i in range(self.format_combo.count()):
+            if self.format_combo.itemData(i) == saved_format:
+                self.format_combo.setCurrentIndex(i)
+                break
+        self.format_combo.currentIndexChanged.connect(self._on_format_changed)
         format_layout.addWidget(self.format_combo)
 
         self.format_btn = QPushButton(tr("query_btn_format"))
@@ -225,27 +234,15 @@ class QueryTab(QWidget):
 
         toolbar.addWidget(format_group)
 
-        # === Export GroupBox ===
-        export_group = QGroupBox(tr("query_toolbar_export"))
-        export_layout = QHBoxLayout(export_group)
-        export_layout.setContentsMargins(5, 2, 5, 5)
-        export_layout.setSpacing(4)
-
-        self.export_combo = QComboBox()
-        self.export_combo.addItem("Python", "python")
-        self.export_combo.addItem("T-SQL", "tsql")
-        self.export_combo.addItem("VB", "vb")
-        self.export_combo.addItem("C#", "csharp")
-        self.export_combo.setMinimumWidth(80)
-        export_layout.addWidget(self.export_combo)
-
-        self.export_btn = QPushButton(tr("query_btn_export"))
+        # === Export button (standalone, opens dialog with language choice) ===
+        self.export_btn = QPushButton()
         self.export_btn.setToolTip(tr("query_toolbar_export"))
         self.export_btn.clicked.connect(self._run_export)
-        self.export_btn.setFixedWidth(35)
-        export_layout.addWidget(self.export_btn)
-
-        toolbar.addWidget(export_group)
+        self.export_btn.setFixedHeight(40)
+        # Use {/} text symbol for code export
+        self.export_btn.setText("{ / }")
+        self.export_btn.setStyleSheet("font-weight: bold; font-size: 14px; padding: 0 8px;")
+        toolbar.addWidget(self.export_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         toolbar.addStretch()
 
@@ -1195,13 +1192,19 @@ class QueryTab(QWidget):
         else:
             self._execute_as_query()
 
+    def _on_format_changed(self, index: int):
+        """Save format preference when changed."""
+        style = self.format_combo.currentData()
+        prefs = UserPreferences.instance()
+        prefs.set("sql_format_style", style)
+
     def _run_format(self):
         """Format SQL based on selected style."""
         style = self.format_combo.currentData()
         self._format_sql(style)
 
     def _run_export(self):
-        """Export SQL based on selected format."""
+        """Export SQL - opens dialog with language selection."""
         from .script_format_dialog import ScriptFormatDialog
 
         query_text = self.sql_editor.toPlainText().strip()
@@ -1209,11 +1212,9 @@ class QueryTab(QWidget):
             DialogHelper.warning(tr("no_query_to_format"), parent=self)
             return
 
-        export_format = self.export_combo.currentData()
         dialog = ScriptFormatDialog(
             parent=self,
-            query_text=query_text,
-            format_type=export_format
+            query_text=query_text
         )
         dialog.exec()
 

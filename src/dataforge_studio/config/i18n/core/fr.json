@@ -352,6 +352,7 @@
     "query_toolbar_execute": "Exécuter",
     "query_toolbar_format": "Format",
     "query_toolbar_export": "Export",
+    "query_export_language": "Langage",
     "query_btn_run": "▶",
     "query_btn_format": "{ }",
     "query_btn_export": "</>",

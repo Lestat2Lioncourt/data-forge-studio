@@ -13,7 +13,15 @@ GITHUB_REPO = "Lestat2Lioncourt/data-forge-studio"
 
 
 def get_app_version() -> str:
-    """Get app version from pyproject.toml"""
+    """Get app version from installed package or pyproject.toml"""
+    # First try: importlib.metadata (works for installed packages)
+    try:
+        from importlib.metadata import version
+        return version("data-forge-studio")
+    except Exception:
+        pass
+
+    # Second try: pyproject.toml (works in development)
     try:
         import tomllib
         pyproject = Path(__file__).parent.parent.parent.parent / "pyproject.toml"
@@ -23,7 +31,8 @@ def get_app_version() -> str:
                 return data.get("project", {}).get("version", "0.0.0")
     except Exception:
         pass
-    return "0.5.0"  # Fallback
+
+    return "0.0.0"  # Fallback
 
 
 class UpdateChecker:

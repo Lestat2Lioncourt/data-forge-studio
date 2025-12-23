@@ -1,6 +1,6 @@
 """
 Configuration Database Module - SQLite database for all configuration
-Migrated for PySide6 version v0.50
+Migrated for PySide6 version.
 
 Models are defined in database/models/ package.
 This module provides the ConfigDatabase class as a facade for all database operations.

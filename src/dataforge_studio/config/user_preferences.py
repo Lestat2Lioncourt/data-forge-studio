@@ -6,7 +6,9 @@ from typing import Any, Optional
 DEFAULT_PREFERENCES = {
     "objects_borders": "false",  # Show debug borders on UI components
     "theme": "minimal_dark",
-    "language": "fr"
+    "language": "fr",
+    "sql_format_style": "expanded",  # compact, expanded, comma_first, ultimate
+    "export_language": "python"  # python, tsql, vb, csharp
 }
 
 

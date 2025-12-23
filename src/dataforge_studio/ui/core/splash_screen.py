@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QImage, QPen
 from pathlib import Path
 from ...utils.image_loader import get_pixmap
+from ... import __version__
 
 
 class SplashScreen(QSplashScreen):
@@ -97,7 +98,7 @@ class SplashScreen(QSplashScreen):
         painter.setPen(QColor("#808080"))
         painter.drawText(right_area_x, 115, right_area_width, 30,
                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                        "Version 0.50")
+                        f"Version {__version__}")
 
         # Subtitle
         subtitle_font = QFont("Arial", 10)
