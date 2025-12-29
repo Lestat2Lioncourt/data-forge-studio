@@ -1,28 +1,30 @@
 """
 DataForge Studio - Main entry point
+
+Note: Imports are done progressively to show splash screen immediately.
+Heavy imports are deferred until after splash is visible.
 """
 
 import sys
+import time
 from pathlib import Path
+
+# Minimal imports for splash screen - these are fast
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
-
-from .ui.core.main_window import DataForgeMainWindow
-from .ui.core.theme_bridge import ThemeBridge
-from .ui.core.splash_screen import show_splash_screen
-from .core.plugin_manager import PluginManager
-from .plugins import ALL_PLUGINS
-from .ui.managers import ResourcesManager
-from .ui.widgets.icon_sidebar import IconSidebar
 
 
 def main():
     """Main entry point for DataForge Studio."""
 
+    # =========================================================================
+    # PHASE 1: Create app and show splash IMMEDIATELY (before heavy imports)
+    # =========================================================================
+
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("DataForge Studio")
-    app.setApplicationVersion("0.5.3")
+    app.setApplicationVersion("0.5.7")
     app.setOrganizationName("DataForge")
 
     # Set application icon (for taskbar and window)
@@ -39,15 +41,21 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = 'dataforge.studio.v050'
+            myappid = 'dataforge.studio.v057'
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
 
-    # Show splash screen
-    import time
+    # Show splash screen IMMEDIATELY
+    from .ui.core.splash_screen import show_splash_screen
     splash_start_time = time.time()
     splash = show_splash_screen()
+
+    # =========================================================================
+    # PHASE 2: Heavy imports with progress updates
+    # =========================================================================
+
+    splash.update_progress("Chargement des modules...", 2)
 
     # Load configuration database
     splash.update_progress("Connexion base de configuration...", 3)
@@ -62,6 +70,7 @@ def main():
 
     # Initialize theme bridge
     splash.update_progress("Initialisation gestionnaire themes...", 9)
+    from .ui.core.theme_bridge import ThemeBridge
     theme_bridge = ThemeBridge.get_instance()
     from .ui.core.i18n_bridge import I18nBridge
     i18n_bridge = I18nBridge.instance()
@@ -73,14 +82,17 @@ def main():
 
     # Create main window
     splash.update_progress("Creation fenetre principale...", 18)
+    from .ui.core.main_window import DataForgeMainWindow
     main_window = DataForgeMainWindow()
 
     # Initialize Plugin Manager
     splash.update_progress("Initialisation systeme de plugins...", 22)
+    from .core.plugin_manager import PluginManager
     plugin_manager = PluginManager()
 
     # Register all plugins
     splash.update_progress("Enregistrement des plugins...", 26)
+    from .plugins import ALL_PLUGINS
     for plugin_class in ALL_PLUGINS:
         plugin_manager.register_class(plugin_class)
 
@@ -116,10 +128,12 @@ def main():
 
     # Create ResourcesManager (unified view - not a plugin)
     splash.update_progress("Chargement ResourcesManager...", 88)
+    from .ui.managers import ResourcesManager
     resources_manager = ResourcesManager()
 
     # Create IconSidebar
     splash.update_progress("Chargement IconSidebar...", 90)
+    from .ui.widgets.icon_sidebar import IconSidebar
     icon_sidebar = IconSidebar()
 
     # Get widgets from plugins for backward compatibility with set_frames
