@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
                                QTabWidget, QPushButton, QTreeWidget, QTreeWidgetItem,
-                               QLabel, QMenu, QApplication, QInputDialog)
+                               QLabel, QMenu, QApplication, QInputDialog, QFileDialog)
 from PySide6.QtCore import Qt, QPoint, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction, QCursor
 import uuid
@@ -29,6 +29,10 @@ from ...utils.image_loader import get_database_icon, get_icon
 from ...utils.credential_manager import CredentialManager
 from ...utils.network_utils import check_server_reachable
 from ...config.user_preferences import UserPreferences
+from ...utils.workspace_export import (
+    export_connections_to_json, save_export_to_file, get_export_summary,
+    load_import_from_file, import_connections_from_json
+)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -246,6 +250,8 @@ class DatabaseManager(QWidget):
         toolbar_builder.add_separator()
         toolbar_builder.add_button(tr("menu_new_connection"), self._new_connection)
         toolbar_builder.add_button(tr("db_connections"), self._manage_connections)
+        toolbar_builder.add_separator()
+        toolbar_builder.add_button("Import", self._import_connections, icon="import.png")
 
         self.toolbar = toolbar_builder.build()
         layout.addWidget(self.toolbar)
@@ -879,6 +885,13 @@ class DatabaseManager(QWidget):
             delete_action = QAction("🗑️ Delete Connection", self)
             delete_action.triggered.connect(lambda: self._delete_connection(data["config"]))
             menu.addAction(delete_action)
+
+            menu.addSeparator()
+
+            # Export connection
+            export_action = QAction("📤 Export Connection...", self)
+            export_action.triggered.connect(lambda: self._export_connection(data["config"]))
+            menu.addAction(export_action)
 
             menu.exec(self.schema_tree.viewport().mapToGlobal(position))
 
@@ -1992,3 +2005,139 @@ class DatabaseManager(QWidget):
             thread = threading.Thread(target=close_connections, daemon=True)
             thread.start()
             # Don't wait - let it run in background
+
+    def _export_connection(self, db_conn: DatabaseConnection):
+        """Export a single connection to JSON file."""
+        try:
+            # Ask user for file location
+            default_filename = f"{db_conn.name.replace(' ', '_')}_connection.json"
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Connection",
+                default_filename,
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if not filepath:
+                return  # User cancelled
+
+            # Export connection
+            export_data = export_connections_to_json(
+                connection_ids=[db_conn.id],
+                include_credentials=False  # Security: don't export passwords
+            )
+
+            # Save to file
+            save_export_to_file(export_data, filepath)
+
+            # Show success message
+            summary = get_export_summary(export_data)
+            DialogHelper.info(
+                f"Export successful!\n\n{summary}\n\nFile: {filepath}",
+                parent=self
+            )
+
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            DialogHelper.error(f"Export failed: {str(e)}", parent=self)
+
+    def _export_all_connections(self):
+        """Export all connections to JSON file."""
+        try:
+            # Ask user for file location
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export All Connections",
+                "connections_export.json",
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if not filepath:
+                return  # User cancelled
+
+            # Export all connections
+            export_data = export_connections_to_json(
+                connection_ids=None,  # All connections
+                include_credentials=False  # Security: don't export passwords
+            )
+
+            # Save to file
+            save_export_to_file(export_data, filepath)
+
+            # Show success message
+            summary = get_export_summary(export_data)
+            DialogHelper.info(
+                f"Export successful!\n\n{summary}\n\nFile: {filepath}",
+                parent=self
+            )
+
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            DialogHelper.error(f"Export failed: {str(e)}", parent=self)
+
+    def _import_connections(self):
+        """Import connections from JSON file."""
+        try:
+            # Ask user for file location
+            filepath, _ = QFileDialog.getOpenFileName(
+                self,
+                "Import Connections",
+                "",
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if not filepath:
+                return  # User cancelled
+
+            # Load import data
+            import_data = load_import_from_file(filepath)
+
+            # Check export type - must be connections or workspace (we extract connections)
+            export_type = import_data.get("export_type", "")
+            if export_type not in ["connections", "workspace"]:
+                DialogHelper.error(
+                    f"Format de fichier non supporté: {export_type}",
+                    parent=self
+                )
+                return
+
+            # Import connections
+            results = import_connections_from_json(import_data)
+
+            # Refresh schema tree to show new connections
+            self._refresh_schema()
+
+            # Show results
+            created = results.get("created", [])
+            existing = results.get("existing", [])
+            errors = results.get("errors", [])
+
+            summary_lines = ["Import terminé!"]
+            if created:
+                summary_lines.append(f"\nConnexions créées ({len(created)}):")
+                for name in created[:5]:
+                    summary_lines.append(f"  - {name}")
+                if len(created) > 5:
+                    summary_lines.append(f"  ... et {len(created) - 5} autres")
+
+            if existing:
+                summary_lines.append(f"\nConnexions existantes ({len(existing)}):")
+                for name in existing[:5]:
+                    summary_lines.append(f"  - {name}")
+                if len(existing) > 5:
+                    summary_lines.append(f"  ... et {len(existing) - 5} autres")
+
+            if errors:
+                summary_lines.append(f"\nErreurs ({len(errors)}):")
+                for err in errors[:3]:
+                    summary_lines.append(f"  - {err}")
+                if len(errors) > 3:
+                    summary_lines.append(f"  ... et {len(errors) - 3} autres")
+
+            DialogHelper.info("\n".join(summary_lines), parent=self)
+
+        except ValueError as e:
+            DialogHelper.error(f"Erreur de format: {str(e)}", parent=self)
+        except Exception as e:
+            logger.error(f"Import failed: {e}")
+            DialogHelper.error(f"Import échoué: {str(e)}", parent=self)

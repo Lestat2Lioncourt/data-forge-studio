@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTreeWidget, QTreeWidgetItem, QLabel, QMenu, QMessageBox
+    QTreeWidget, QTreeWidgetItem, QLabel, QMenu, QMessageBox, QFileDialog
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont
@@ -26,6 +26,11 @@ from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, Workspace, Script
 from ...database.models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
 from ...utils.image_loader import get_icon, get_database_icon
+from ...utils.workspace_export import (
+    export_workspace_to_json, save_export_to_file, get_export_summary,
+    load_import_from_file, check_workspace_conflict, import_workspace_from_json,
+    ImportConflictMode, get_import_summary
+)
 
 import logging
 import uuid
@@ -124,6 +129,8 @@ class WorkspaceManager(QWidget):
         toolbar_builder.add_button("+ New", self._new_workspace, icon="add.png")
         toolbar_builder.add_button("Edit", self._edit_workspace, icon="edit.png")
         toolbar_builder.add_button("Delete", self._delete_workspace, icon="delete.png")
+        toolbar_builder.add_separator()
+        toolbar_builder.add_button("Import", self._import_workspace, icon="import.png")
         toolbar_builder.add_separator()
         toolbar_builder.add_button(tr("btn_refresh"), self._refresh, icon="refresh.png")
 
@@ -774,6 +781,12 @@ class WorkspaceManager(QWidget):
             delete_action.triggered.connect(lambda: self._delete_workspace_item(data["id"]))
             menu.addAction(delete_action)
 
+            menu.addSeparator()
+
+            export_action = QAction("Export Workspace...", self)
+            export_action.triggered.connect(lambda: self._export_workspace(data["id"], data.get("name", "workspace")))
+            menu.addAction(export_action)
+
         elif item_type in ["database", "query", "rootfolder", "script"]:
             # Resource context menu - remove from workspace
             remove_action = QAction("Remove from Workspace", self)
@@ -1421,3 +1434,158 @@ class WorkspaceManager(QWidget):
         lines.append(";")
 
         return "\n".join(lines)
+
+    def _export_workspace(self, workspace_id: str, workspace_name: str):
+        """Export workspace to JSON file."""
+        try:
+            # Ask user for file location
+            default_filename = f"{workspace_name.replace(' ', '_')}_export.json"
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Workspace",
+                default_filename,
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if not filepath:
+                return  # User cancelled
+
+            # Export workspace data
+            export_data = export_workspace_to_json(
+                workspace_id,
+                include_credentials=False,  # Security: don't export passwords
+                include_databases=True,
+                include_rootfolders=True,
+                include_queries=True,
+                include_scripts=True,
+                include_jobs=True
+            )
+
+            # Save to file
+            save_export_to_file(export_data, filepath)
+
+            # Show success message
+            summary = get_export_summary(export_data)
+            DialogHelper.info(
+                f"Export successful!\n\n{summary}\n\nFile: {filepath}",
+                parent=self
+            )
+
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            DialogHelper.error(f"Export failed: {str(e)}", parent=self)
+
+    def _import_workspace(self):
+        """Import workspace from JSON file."""
+        try:
+            # Ask user for file location
+            filepath, _ = QFileDialog.getOpenFileName(
+                self,
+                "Import Workspace",
+                "",
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if not filepath:
+                return  # User cancelled
+
+            # Load import data
+            import_data = load_import_from_file(filepath)
+
+            # Check export type
+            export_type = import_data.get("export_type", "")
+            if export_type not in ["workspace", "connections"]:
+                DialogHelper.error(
+                    f"Format de fichier non supporté: {export_type}",
+                    parent=self
+                )
+                return
+
+            # If connections only, import them directly
+            if export_type == "connections":
+                from ...utils.workspace_export import import_connections_from_json
+                results = import_connections_from_json(import_data)
+                created = len(results.get("created", []))
+                existing = len(results.get("existing", []))
+                errors = results.get("errors", [])
+
+                summary = f"Connexions importées:\n  {created} créée(s)\n  {existing} existante(s)"
+                if errors:
+                    summary += f"\n\nErreurs: {len(errors)}"
+                    for err in errors[:3]:
+                        summary += f"\n  - {err}"
+
+                DialogHelper.info(summary, parent=self)
+                return
+
+            # Workspace import - check for name conflict
+            ws_data = import_data.get("workspace", {})
+            ws_name = ws_data.get("name", "Imported Workspace")
+
+            existing_ws = check_workspace_conflict(ws_name)
+
+            if existing_ws:
+                # Show conflict dialog
+                conflict_mode = self._show_import_conflict_dialog(ws_name, existing_ws)
+                if conflict_mode == ImportConflictMode.CANCEL:
+                    return
+
+                existing_workspace_id = existing_ws.id if conflict_mode == ImportConflictMode.MERGE else None
+            else:
+                conflict_mode = ImportConflictMode.RENAME  # No conflict, just create
+                existing_workspace_id = None
+
+            # Perform import
+            results = import_workspace_from_json(
+                import_data,
+                conflict_mode=conflict_mode,
+                existing_workspace_id=existing_workspace_id
+            )
+
+            # Refresh tree
+            self._refresh()
+
+            # Show success message
+            summary = get_import_summary(results)
+            DialogHelper.info(
+                f"Import réussi!\n\n{summary}",
+                parent=self
+            )
+
+        except ValueError as e:
+            DialogHelper.error(f"Erreur de format: {str(e)}", parent=self)
+        except Exception as e:
+            logger.error(f"Import failed: {e}")
+            DialogHelper.error(f"Import échoué: {str(e)}", parent=self)
+
+    def _show_import_conflict_dialog(self, workspace_name: str, existing_ws: Workspace) -> str:
+        """
+        Show dialog to handle workspace name conflict.
+
+        Args:
+            workspace_name: Name of workspace being imported
+            existing_ws: Existing workspace with same name
+
+        Returns:
+            ImportConflictMode value
+        """
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Conflit de nom")
+        msg.setText(f"Un workspace '{workspace_name}' existe déjà.")
+        msg.setInformativeText("Comment voulez-vous procéder?")
+
+        # Add buttons
+        rename_btn = msg.addButton("Nouveau nom", QMessageBox.ButtonRole.AcceptRole)
+        merge_btn = msg.addButton("Fusionner", QMessageBox.ButtonRole.ActionRole)
+        cancel_btn = msg.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+
+        msg.setDefaultButton(rename_btn)
+        msg.exec()
+
+        clicked = msg.clickedButton()
+        if clicked == rename_btn:
+            return ImportConflictMode.RENAME
+        elif clicked == merge_btn:
+            return ImportConflictMode.MERGE
+        else:
+            return ImportConflictMode.CANCEL
