@@ -8,6 +8,7 @@ from .base import SchemaLoader
 from .sqlite_loader import SQLiteSchemaLoader
 from .sqlserver_loader import SQLServerSchemaLoader
 from .access_loader import AccessSchemaLoader
+from .postgresql_loader import PostgreSQLSchemaLoader
 
 import logging
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class SchemaLoaderFactory:
         "sqlite": SQLiteSchemaLoader,
         "sqlserver": SQLServerSchemaLoader,
         "access": AccessSchemaLoader,
+        "postgresql": PostgreSQLSchemaLoader,
     }
 
     @classmethod

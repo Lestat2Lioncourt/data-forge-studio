@@ -10,6 +10,7 @@ from .factory import SchemaLoaderFactory
 from .sqlite_loader import SQLiteSchemaLoader
 from .sqlserver_loader import SQLServerSchemaLoader
 from .access_loader import AccessSchemaLoader
+from .postgresql_loader import PostgreSQLSchemaLoader
 
 __all__ = [
     "SchemaLoader",
@@ -19,4 +20,5 @@ __all__ = [
     "SQLiteSchemaLoader",
     "SQLServerSchemaLoader",
     "AccessSchemaLoader",
+    "PostgreSQLSchemaLoader",
 ]
