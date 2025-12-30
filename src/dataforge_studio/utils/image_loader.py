@@ -5,8 +5,12 @@ Loads images and icons for PySide6 applications
 
 from pathlib import Path
 from typing import Optional
+import logging
+
 from PySide6.QtGui import QPixmap, QIcon
 from PySide6.QtCore import QSize, Qt
+
+logger = logging.getLogger(__name__)
 
 
 class ImageLoader:
@@ -20,7 +24,7 @@ class ImageLoader:
         self.images_dir = Path(__file__).parent.parent / "ui" / "assets" / "images"
 
         if not self.images_dir.exists():
-            print(f"Warning: Images directory not found: {self.images_dir}")
+            logger.warning(f"Images directory not found: {self.images_dir}")
 
     @classmethod
     def get_instance(cls):
@@ -48,7 +52,7 @@ class ImageLoader:
         if image_path.exists():
             return image_path
         else:
-            print(f"Warning: Image not found: {image_path}")
+            logger.warning(f"Image not found: {image_path}")
             return None
 
     def get_pixmap(self, image_name: str, width: Optional[int] = None,
@@ -78,7 +82,7 @@ class ImageLoader:
         pixmap = QPixmap(str(image_path))
 
         if pixmap.isNull():
-            print(f"Warning: Failed to load image: {image_path}")
+            logger.warning(f"Failed to load image: {image_path}")
             return None
 
         # Scale if requested

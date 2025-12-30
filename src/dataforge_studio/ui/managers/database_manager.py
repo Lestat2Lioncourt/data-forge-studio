@@ -1986,7 +1986,21 @@ class DatabaseManager(QWidget):
         Cleanup all resources - stop background loaders in query tabs.
         Called when the application is closing.
         """
-        # Cleanup all query tabs first (stop background threads)
+        # Cancel all pending connection workers first
+        for worker_id, worker in list(self._pending_workers.items()):
+            try:
+                worker.cancel()
+                # Disconnect signals to prevent callbacks after cleanup
+                worker.connection_success.disconnect()
+                worker.connection_error.disconnect()
+                worker.status_update.disconnect()
+                worker.quit()
+                worker.wait(1000)  # Wait max 1 second
+            except Exception:
+                pass  # Ignore errors during shutdown
+        self._pending_workers.clear()
+
+        # Cleanup all query tabs (stop background threads)
         for i in range(self.tab_widget.count()):
             widget = self.tab_widget.widget(i)
             if isinstance(widget, QueryTab):

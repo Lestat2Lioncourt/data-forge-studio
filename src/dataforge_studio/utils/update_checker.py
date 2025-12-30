@@ -4,9 +4,12 @@ Update Checker Module - Check for new releases on GitHub
 import json
 import urllib.request
 import urllib.error
+import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Constants
 GITHUB_REPO = "Lestat2Lioncourt/data-forge-studio"
@@ -63,7 +66,7 @@ class UpdateChecker:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[UpdateChecker] Error loading config: {e}")
+            logger.debug(f"Error loading update config: {e}")
             return {}
 
     def _save_config(self, config: Dict):
@@ -73,7 +76,7 @@ class UpdateChecker:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
-            print(f"[UpdateChecker] Error saving config: {e}")
+            logger.debug(f"Error saving update config: {e}")
 
     def should_check(self) -> bool:
         """
@@ -139,10 +142,10 @@ class UpdateChecker:
                 return None
 
         except urllib.error.URLError as e:
-            print(f"[UpdateChecker] Network error: {e}")
+            logger.debug(f"Update check network error: {e}")
             return None
         except Exception as e:
-            print(f"[UpdateChecker] Error: {e}")
+            logger.debug(f"Update check error: {e}")
             return None
 
     def _is_newer_version(self, latest: str, current: str) -> bool:

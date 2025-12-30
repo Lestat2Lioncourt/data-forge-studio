@@ -275,6 +275,52 @@ class DataForgeMainWindow:
         if self.queries_manager:
             self.queries_manager.query_execute_requested.connect(self._on_execute_saved_query)
 
+    def _disconnect_signals(self):
+        """Disconnect signals to prevent memory leaks on close."""
+        try:
+            # Unregister i18n observer
+            self.i18n_bridge.unregister_observer(self._on_language_changed)
+        except Exception:
+            pass
+
+        # Disconnect settings frame signals
+        if self.settings_frame:
+            try:
+                self.settings_frame.debug_borders_changed.disconnect(self._on_debug_borders_changed)
+                self.settings_frame.theme_changed.disconnect(self._on_theme_changed)
+            except Exception:
+                pass
+
+        # Disconnect icon sidebar signals
+        if self.icon_sidebar:
+            try:
+                self.icon_sidebar.manager_selected.disconnect(self._on_manager_selected)
+                self.icon_sidebar.open_image_library_requested.disconnect()
+            except Exception:
+                pass
+
+        # Disconnect resources manager signals
+        if self.resources_manager:
+            try:
+                self.resources_manager.open_resource_requested.disconnect(self._on_open_resource)
+                self.resources_manager.open_image_library_requested.disconnect()
+            except Exception:
+                pass
+
+        # Disconnect database manager signals
+        if self.database_manager and self.resources_manager:
+            try:
+                self.database_manager.query_saved.disconnect(self.resources_manager.refresh_queries)
+            except Exception:
+                pass
+
+        # Disconnect queries manager signals
+        if self.queries_manager:
+            try:
+                self.queries_manager.query_execute_requested.disconnect(self._on_execute_saved_query)
+            except Exception:
+                pass
+
     def _switch_frame(self, frame_name: str):
         """
         Switch to a different frame or manager.
@@ -586,6 +632,9 @@ class DataForgeMainWindow:
         This ensures background threads are stopped properly.
         """
         import threading
+
+        # Disconnect signals first to prevent callbacks during cleanup
+        self._disconnect_signals()
 
         # Run cleanup in background to not block the close event
         def async_cleanup():

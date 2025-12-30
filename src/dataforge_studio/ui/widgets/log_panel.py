@@ -3,10 +3,13 @@ Log Panel - Reusable log panel with filtering
 Provides colored log output with optional level filtering
 """
 
+import logging
 from typing import Optional, Dict
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QCheckBox
 from PySide6.QtGui import QTextCursor, QColor
 from PySide6.QtCore import Qt
+
+logger = logging.getLogger(__name__)
 
 
 class LogPanel(QWidget):
@@ -234,7 +237,7 @@ class LogPanel(QWidget):
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(self.get_text())
         except Exception as e:
-            print(f"Error saving log to file: {e}")
+            logger.error(f"Error saving log to file: {e}")
 
     def apply_theme_style(self, stylesheet: str):
         """

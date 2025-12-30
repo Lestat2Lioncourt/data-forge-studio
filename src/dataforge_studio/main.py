@@ -7,7 +7,10 @@ Heavy imports are deferred until after splash is visible.
 
 import sys
 import time
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Minimal imports for splash screen - these are fast
 from PySide6.QtWidgets import QApplication
@@ -245,7 +248,7 @@ def _check_updates_on_startup(main_window):
                     f"🔔 v{version} disponible - Aide → Vérifier les Mises à Jour"
                 )
     except Exception as e:
-        print(f"[UpdateChecker] Startup check failed: {e}")
+        logger.debug(f"Startup update check failed: {e}")
 
 
 if __name__ == "__main__":

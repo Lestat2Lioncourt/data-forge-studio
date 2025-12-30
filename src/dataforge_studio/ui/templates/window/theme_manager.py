@@ -1,8 +1,11 @@
 """Theme manager for loading and applying color themes."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _lighten_color(hex_color: str, percent: int) -> str:
@@ -446,10 +449,10 @@ class ThemeManager:
             with open(theme_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
-            print(f"Warning: Theme file not found: {theme_file}")
+            logger.warning(f"Theme file not found: {theme_file}")
             return self._get_default_theme()
         except json.JSONDecodeError as e:
-            print(f"Warning: Invalid JSON in theme file: {e}")
+            logger.warning(f"Invalid JSON in theme file: {e}")
             return self._get_default_theme()
 
     def _get_default_theme(self) -> Dict:
@@ -513,7 +516,7 @@ class ThemeManager:
             theme_name = self.current_theme
 
         if theme_name not in self.themes:
-            print(f"Warning: Theme '{theme_name}' not found, using 'dark_mode'")
+            logger.warning(f"Theme '{theme_name}' not found, using 'dark_mode'")
             theme_name = "dark_mode"
 
         theme_data = self.themes[theme_name]

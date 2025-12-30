@@ -6,6 +6,9 @@ Models are defined in database/models/ package.
 This module provides the ConfigDatabase class as a facade for all database operations.
 """
 import sqlite3
+import logging
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from dataclasses import asdict
@@ -330,7 +333,7 @@ class ConfigDatabase:
                   config_conn.created_at, config_conn.updated_at))
 
             conn.commit()
-            print(f"[OK] Added self-reference connection to Configuration Database")
+            logger.info("Added self-reference connection to Configuration Database")
         elif result[0] != expected_conn_string:
             # Update connection string if path has changed
             cursor.execute("""
@@ -340,7 +343,7 @@ class ConfigDatabase:
             """, (expected_conn_string, datetime.now().isoformat(), self.CONFIG_DB_ID))
 
             conn.commit()
-            print(f"[OK] Updated Configuration Database connection path")
+            logger.info("Updated Configuration Database connection path")
 
     def _migrate_database(self):
         """Apply database migrations for schema updates"""
@@ -352,7 +355,7 @@ class ConfigDatabase:
         columns = [row[1] for row in cursor.fetchall()]
 
         if 'name' not in columns:
-            print("[MIGRATION] Adding 'name' column to file_roots table...")
+            logger.info("[MIGRATION] Adding 'name' column to file_roots table...")
 
             # Add the column
             cursor.execute("ALTER TABLE file_roots ADD COLUMN name TEXT")
@@ -370,14 +373,14 @@ class ConfigDatabase:
                 )
 
             conn.commit()
-            print(f"[OK] Migration complete: Initialized {len(rows)} file root names from paths")
+            logger.info(f"Migration complete: Initialized {len(rows)} file root names from paths")
 
         # Migration 2: Add 'database_name' column to project_databases if it doesn't exist
         cursor.execute("PRAGMA table_info(project_databases)")
         columns = [row[1] for row in cursor.fetchall()]
 
         if 'database_name' not in columns:
-            print("[MIGRATION] Adding 'database_name' column to project_databases table...")
+            logger.info("[MIGRATION] Adding 'database_name' column to project_databases table...")
 
             # SQLite doesn't support adding column with PRIMARY KEY constraint
             # So we need to recreate the table
@@ -404,14 +407,14 @@ class ConfigDatabase:
             cursor.execute("ALTER TABLE project_databases_new RENAME TO project_databases")
 
             conn.commit()
-            print("[OK] Migration complete: project_databases now supports database_name")
+            logger.info("Migration complete: project_databases now supports database_name")
 
         # Migration 3: Update saved_images table structure (add rootfolder_id, physical_path)
         cursor.execute("PRAGMA table_info(saved_images)")
         columns = [row[1] for row in cursor.fetchall()]
 
         if 'rootfolder_id' not in columns:
-            print("[MIGRATION] Updating saved_images table structure...")
+            logger.info("[MIGRATION] Updating saved_images table structure...")
 
             # Create new table with updated schema
             cursor.execute("""
@@ -455,7 +458,7 @@ class ConfigDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_physical_path ON saved_images(physical_path)")
 
             conn.commit()
-            print(f"[OK] Migration complete: saved_images updated, {len(old_categories)} categories migrated")
+            logger.info(f"Migration complete: saved_images updated, {len(old_categories)} categories migrated")
 
         # Ensure image indexes exist (for fresh installs or post-migration)
         try:
@@ -535,7 +538,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding database connection: {e}")
+            logger.error(f"Error adding database connection: {e}")
             return False
 
     def update_database_connection(self, conn: DatabaseConnection) -> bool:
@@ -558,7 +561,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error updating database connection: {e}")
+            logger.error(f"Error updating database connection: {e}")
             return False
 
     def delete_database_connection(self, conn_id: str) -> bool:
@@ -573,7 +576,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error deleting database connection: {e}")
+            logger.error(f"Error deleting database connection: {e}")
             return False
 
     def save_database_connection(self, conn: DatabaseConnection) -> bool:
@@ -626,7 +629,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding saved query: {e}")
+            logger.error(f"Error adding saved query: {e}")
             return False
 
     def update_saved_query(self, query: SavedQuery) -> bool:
@@ -649,7 +652,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error updating saved query: {e}")
+            logger.error(f"Error updating saved query: {e}")
             return False
 
     def delete_saved_query(self, query_id: str) -> bool:
@@ -664,7 +667,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error deleting saved query: {e}")
+            logger.error(f"Error deleting saved query: {e}")
             return False
 
     # ==================== Scripts ====================
@@ -747,7 +750,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error updating job: {e}")
+            logger.error(f"Error updating job: {e}")
             return False
 
     # ==================== Projects ====================
@@ -813,7 +816,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding workspace: {e}")
+            logger.error(f"Error adding workspace: {e}")
             return False
 
     def update_workspace(self, workspace: Project) -> bool:
@@ -837,7 +840,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error updating workspace: {e}")
+            logger.error(f"Error updating workspace: {e}")
             return False
 
     def delete_workspace(self, workspace_id: str) -> bool:
@@ -852,7 +855,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error deleting workspace: {e}")
+            logger.error(f"Error deleting workspace: {e}")
             return False
 
     def touch_workspace(self, workspace_id: str) -> bool:
@@ -871,7 +874,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error touching workspace: {e}")
+            logger.error(f"Error touching workspace: {e}")
             return False
 
     # ==================== Workspace-Database Relations ====================
@@ -901,7 +904,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding database to workspace: {e}")
+            logger.error(f"Error adding database to workspace: {e}")
             return False
 
     def remove_database_from_workspace(self, workspace_id: str, database_id: str,
@@ -927,7 +930,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error removing database from workspace: {e}")
+            logger.error(f"Error removing database from workspace: {e}")
             return False
 
     def get_workspace_databases(self, workspace_id: str) -> List[DatabaseConnection]:
@@ -1093,7 +1096,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding query to workspace: {e}")
+            logger.error(f"Error adding query to workspace: {e}")
             return False
 
     def remove_query_from_workspace(self, workspace_id: str, query_id: str) -> bool:
@@ -1111,7 +1114,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error removing query from workspace: {e}")
+            logger.error(f"Error removing query from workspace: {e}")
             return False
 
     def get_workspace_queries(self, workspace_id: str) -> List[SavedQuery]:
@@ -1183,7 +1186,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding file root to workspace: {e}")
+            logger.error(f"Error adding file root to workspace: {e}")
             return False
 
     def remove_file_root_from_workspace(self, workspace_id: str, file_root_id: str) -> bool:
@@ -1201,7 +1204,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error removing file root from workspace: {e}")
+            logger.error(f"Error removing file root from workspace: {e}")
             return False
 
     def get_workspace_file_roots(self, workspace_id: str) -> List[FileRoot]:
@@ -1299,7 +1302,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding job to workspace: {e}")
+            logger.error(f"Error adding job to workspace: {e}")
             return False
 
     def remove_job_from_workspace(self, workspace_id: str, job_id: str) -> bool:
@@ -1317,7 +1320,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error removing job from workspace: {e}")
+            logger.error(f"Error removing job from workspace: {e}")
             return False
 
     def get_workspace_jobs(self, workspace_id: str) -> List:
@@ -1387,7 +1390,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding script to workspace: {e}")
+            logger.error(f"Error adding script to workspace: {e}")
             return False
 
     def remove_script_from_workspace(self, workspace_id: str, script_id: str) -> bool:
@@ -1405,7 +1408,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error removing script from workspace: {e}")
+            logger.error(f"Error removing script from workspace: {e}")
             return False
 
     def get_workspace_scripts(self, workspace_id: str) -> List[Script]:
@@ -1550,7 +1553,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error setting preference: {e}")
+            logger.error(f"Error setting preference: {e}")
             return False
 
     def get_all_preferences(self) -> dict:
@@ -1608,7 +1611,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding image rootfolder: {e}")
+            logger.error(f"Error adding image rootfolder: {e}")
             return False
 
     def update_image_rootfolder(self, rootfolder: ImageRootfolder) -> bool:
@@ -1630,7 +1633,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error updating image rootfolder: {e}")
+            logger.error(f"Error updating image rootfolder: {e}")
             return False
 
     def delete_image_rootfolder(self, rootfolder_id: str) -> bool:
@@ -1645,7 +1648,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error deleting image rootfolder: {e}")
+            logger.error(f"Error deleting image rootfolder: {e}")
             return False
 
     # ==================== Saved Images ====================
@@ -1757,7 +1760,7 @@ class ConfigDatabase:
             db_conn.close()
             return image.id
         except Exception as e:
-            print(f"Error adding saved image: {e}")
+            logger.error(f"Error adding saved image: {e}")
             return None
 
     def update_saved_image(self, image: SavedImage) -> bool:
@@ -1780,7 +1783,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error updating saved image: {e}")
+            logger.error(f"Error updating saved image: {e}")
             return False
 
     def delete_saved_image(self, image_id: str) -> bool:
@@ -1795,7 +1798,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error deleting saved image: {e}")
+            logger.error(f"Error deleting saved image: {e}")
             return False
 
     def delete_images_by_rootfolder(self, rootfolder_id: str) -> int:
@@ -1813,7 +1816,7 @@ class ConfigDatabase:
             db_conn.close()
             return count
         except Exception as e:
-            print(f"Error deleting images by rootfolder: {e}")
+            logger.error(f"Error deleting images by rootfolder: {e}")
             return 0
 
     # ==================== Image Categories ====================
@@ -1881,7 +1884,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding image category: {e}")
+            logger.error(f"Error adding image category: {e}")
             return False
 
     def remove_image_category(self, image_id: str, category_name: str) -> bool:
@@ -1899,7 +1902,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error removing image category: {e}")
+            logger.error(f"Error removing image category: {e}")
             return False
 
     def set_image_categories(self, image_id: str, category_names: List[str]) -> bool:
@@ -1924,7 +1927,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error setting image categories: {e}")
+            logger.error(f"Error setting image categories: {e}")
             return False
 
     # ==================== Image Tags ====================
@@ -1992,7 +1995,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error adding image tag: {e}")
+            logger.error(f"Error adding image tag: {e}")
             return False
 
     def remove_image_tag(self, image_id: str, tag_name: str) -> bool:
@@ -2010,7 +2013,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error removing image tag: {e}")
+            logger.error(f"Error removing image tag: {e}")
             return False
 
     def set_image_tags(self, image_id: str, tag_names: List[str]) -> bool:
@@ -2036,7 +2039,7 @@ class ConfigDatabase:
             db_conn.close()
             return True
         except Exception as e:
-            print(f"Error setting image tags: {e}")
+            logger.error(f"Error setting image tags: {e}")
             return False
 
     # ==================== Image Search ====================

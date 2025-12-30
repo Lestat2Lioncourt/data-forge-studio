@@ -4,9 +4,12 @@ Fusion of window-template theme system and DataForge Studio theme management
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import List, Callable, Dict
 from ..templates.window.theme_manager import ThemeManager as BaseThemeManager
+
+logger = logging.getLogger(__name__)
 from .theme_image_generator import generate_dropdown_arrow, generate_branch_images
 
 # Path to custom themes
@@ -50,7 +53,7 @@ class ThemeBridge(BaseThemeManager):
 
                         self.themes[theme_id] = theme_data
                 except Exception as e:
-                    print(f"Warning: Failed to load custom theme '{theme_id}': {e}")
+                    logger.warning(f"Failed to load custom theme '{theme_id}': {e}")
 
     def _expand_patch_theme(self, patch_data: Dict) -> Dict:
         """
@@ -161,7 +164,7 @@ class ThemeBridge(BaseThemeManager):
             try:
                 observer(theme_colors)
             except Exception as e:
-                print(f"Error notifying theme observer: {e}")
+                logger.error(f"Error notifying theme observer: {e}")
 
     def get_qss_for_widget(self, widget_type: str, theme_name: str = None) -> str:
         """
