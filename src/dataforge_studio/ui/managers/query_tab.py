@@ -257,7 +257,7 @@ class QueryTab(QWidget):
         layout.addLayout(toolbar)
 
         # Splitter for SQL editor (top) and results (bottom)
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
 
         # SQL Editor
         self.sql_editor = QTextEdit()
@@ -268,7 +268,7 @@ class QueryTab(QWidget):
         # Apply SQL syntax highlighting
         self.sql_highlighter = SQLHighlighter(self.sql_editor.document())
 
-        splitter.addWidget(self.sql_editor)
+        self.splitter.addWidget(self.sql_editor)
 
         # Results panel
         results_widget = QWidget()
@@ -316,12 +316,41 @@ class QueryTab(QWidget):
         # Legacy compatibility: results_grid points to first result tab's grid (or None)
         self.results_grid = None
 
-        splitter.addWidget(results_widget)
+        self.splitter.addWidget(results_widget)
 
-        # Set splitter proportions
-        splitter.setSizes([300, 400])
+        # Set splitter proportions (default values)
+        self.splitter.setSizes([300, 400])
 
-        layout.addWidget(splitter)
+        # Restore saved splitter sizes from preferences
+        self._restore_splitter_sizes()
+
+        # Save splitter sizes when changed
+        self.splitter.splitterMoved.connect(self._save_splitter_sizes)
+
+        layout.addWidget(self.splitter)
+
+    def _restore_splitter_sizes(self):
+        """Restore splitter sizes from user preferences."""
+        try:
+            prefs = UserPreferences.instance()
+            saved_sizes = prefs.get("query_tab_splitter_sizes")
+            if saved_sizes:
+                # Parse "300,400" format
+                sizes = [int(s) for s in saved_sizes.split(",")]
+                if len(sizes) == 2 and all(s > 0 for s in sizes):
+                    self.splitter.setSizes(sizes)
+        except Exception as e:
+            pass  # Silently ignore - use defaults
+
+    def _save_splitter_sizes(self):
+        """Save splitter sizes to user preferences."""
+        try:
+            sizes = self.splitter.sizes()
+            if sizes and len(sizes) == 2:
+                prefs = UserPreferences.instance()
+                prefs.set("query_tab_splitter_sizes", f"{sizes[0]},{sizes[1]}")
+        except Exception:
+            pass  # Silently ignore
 
     def _execute_as_query(self):
         """Execute as independent queries (parallel mode with separate connections).
@@ -508,7 +537,7 @@ class QueryTab(QWidget):
                 conn_str = self.db_connection.connection_string
                 if conn_str.startswith("sqlite:///"):
                     db_path = conn_str[10:]
-                    return sqlite3.connect(db_path)
+                    return sqlite3.connect(db_path, check_same_thread=False)
             elif self.db_type == "sqlserver":
                 # SQL Server: create new pyodbc connection
                 from ...utils.credential_manager import CredentialManager
@@ -521,6 +550,42 @@ class QueryTab(QWidget):
                                 conn_str += ";"
                             conn_str += f"UID={username};PWD={password};"
                 return pyodbc.connect(conn_str, timeout=5)
+            elif self.db_type == "postgresql":
+                # PostgreSQL: create new psycopg2 connection
+                import psycopg2
+                from ...utils.credential_manager import CredentialManager
+                conn_str = self.db_connection.connection_string
+
+                if conn_str.startswith("postgresql://"):
+                    url_part = conn_str.replace("postgresql://", "")
+                    username, password = CredentialManager.get_credentials(self.db_connection.id)
+
+                    if "@" in url_part:
+                        auth_part, server_part = url_part.split("@", 1)
+                        if not username:
+                            username = auth_part.split(":")[0] if ":" in auth_part else auth_part
+                        if not password and ":" in auth_part:
+                            password = auth_part.split(":", 1)[1]
+                    else:
+                        server_part = url_part
+
+                    if "/" in server_part:
+                        host_port, database = server_part.split("/", 1)
+                        database = database.split("?")[0]
+                    else:
+                        host_port = server_part
+                        database = "postgres"
+
+                    host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
+
+                    return psycopg2.connect(
+                        host=host,
+                        port=int(port),
+                        user=username or "",
+                        password=password or "",
+                        database=database,
+                        connect_timeout=5
+                    )
             # Add other database types as needed
         except Exception as e:
             logger.warning(f"Could not create parallel connection: {e}")
@@ -1129,6 +1194,14 @@ class QueryTab(QWidget):
                         cursor.execute(f"USE [{target_db}]")
                     except Exception as e:
                         logger.warning(f"Could not switch to database {target_db}: {e}")
+
+            elif self.db_type == "postgresql":
+                # PostgreSQL: show current database (can't switch without reconnecting)
+                cursor = self.connection.cursor()
+                cursor.execute("SELECT current_database()")
+                current_db = cursor.fetchone()[0]
+                self.db_combo.addItem(current_db)
+                self.current_database = current_db
 
             else:
                 # Other database types - just show connection name

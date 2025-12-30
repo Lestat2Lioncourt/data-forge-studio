@@ -28,6 +28,7 @@ from ...database.schema_loaders import SchemaLoaderFactory, SchemaNode, SchemaNo
 from ...utils.image_loader import get_database_icon, get_icon
 from ...utils.credential_manager import CredentialManager
 from ...utils.network_utils import check_server_reachable
+from ...config.user_preferences import UserPreferences
 
 import logging
 logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ class DatabaseConnectionWorker(QThread):
                     self.connection_error.emit(f"Fichier introuvable : {db_path}")
                     return None
 
-                return sqlite3.connect(db_path)
+                return sqlite3.connect(db_path, check_same_thread=False)
 
             elif self.db_conn.db_type == "sqlserver":
                 conn_str = self.db_conn.connection_string
@@ -150,6 +151,49 @@ class DatabaseConnectionWorker(QThread):
                     return None
 
                 return pyodbc.connect(conn_str)
+
+            elif self.db_conn.db_type == "postgresql":
+                import psycopg2
+                conn_str = self.db_conn.connection_string
+
+                # Parse postgresql:// URL format
+                if conn_str.startswith("postgresql://"):
+                    url_part = conn_str.replace("postgresql://", "")
+
+                    # Get credentials from keyring if available
+                    username, password = CredentialManager.get_credentials(self.db_conn.id)
+
+                    # Parse URL: [user:pass@]host[:port][/database]
+                    if "@" in url_part:
+                        auth_part, server_part = url_part.split("@", 1)
+                        if not username:
+                            username = auth_part.split(":")[0] if ":" in auth_part else auth_part
+                        if not password and ":" in auth_part:
+                            password = auth_part.split(":", 1)[1]
+                    else:
+                        server_part = url_part
+
+                    # Parse host:port/database
+                    if "/" in server_part:
+                        host_port, database = server_part.split("/", 1)
+                        database = database.split("?")[0]  # Remove query params
+                    else:
+                        host_port = server_part
+                        database = "postgres"
+
+                    host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
+
+                    return psycopg2.connect(
+                        host=host,
+                        port=int(port),
+                        user=username or "",
+                        password=password or "",
+                        database=database,
+                        connect_timeout=5
+                    )
+                else:
+                    self.connection_error.emit("Format de connexion PostgreSQL non supporté. Utilisez postgresql://")
+                    return None
 
             else:
                 self.connection_error.emit(f"Type non supporté: {self.db_conn.db_type}")
@@ -249,8 +293,14 @@ class DatabaseManager(QWidget):
 
         self.main_splitter.addWidget(self.tab_widget)
 
-        # Set splitter proportions (left 25%, right 75%)
+        # Set splitter proportions (left 25%, right 75%) - default values
         self.main_splitter.setSizes([300, 900])
+
+        # Restore saved splitter sizes from preferences
+        self._restore_splitter_sizes()
+
+        # Save splitter sizes when changed
+        self.main_splitter.splitterMoved.connect(self._save_splitter_sizes)
 
         # Allow both panels to be resized freely
         self.main_splitter.setStretchFactor(0, 0)  # Left panel: don't auto-stretch
@@ -277,6 +327,29 @@ class DatabaseManager(QWidget):
         welcome_layout.addWidget(info, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.tab_widget.addTab(welcome_widget, tr("welcome_tab"))
+
+    def _restore_splitter_sizes(self):
+        """Restore splitter sizes from user preferences."""
+        try:
+            prefs = UserPreferences.instance()
+            saved_sizes = prefs.get("db_manager_splitter_sizes")
+            if saved_sizes:
+                # Parse "300,900" format
+                sizes = [int(s) for s in saved_sizes.split(",")]
+                if len(sizes) == 2 and all(s > 0 for s in sizes):
+                    self.main_splitter.setSizes(sizes)
+        except Exception as e:
+            logger.debug(f"Could not restore splitter sizes: {e}")
+
+    def _save_splitter_sizes(self):
+        """Save splitter sizes to user preferences."""
+        try:
+            sizes = self.main_splitter.sizes()
+            if sizes and len(sizes) == 2:
+                prefs = UserPreferences.instance()
+                prefs.set("db_manager_splitter_sizes", f"{sizes[0]},{sizes[1]}")
+        except Exception as e:
+            logger.debug(f"Could not save splitter sizes: {e}")
 
     def refresh(self):
         """Public refresh method."""
@@ -506,7 +579,7 @@ class DatabaseManager(QWidget):
                 DialogHelper.warning(f"Fichier introuvable : {db_path}", parent=self)
                 return None
 
-            return sqlite3.connect(db_path)
+            return sqlite3.connect(db_path, check_same_thread=False)
 
         elif db_conn.db_type == "sqlserver":
             conn_str = db_conn.connection_string
@@ -553,6 +626,50 @@ class DatabaseManager(QWidget):
                 conn_str += f"Pwd={password};"
 
             return pyodbc.connect(conn_str, timeout=5)
+
+        elif db_conn.db_type == "postgresql":
+            import psycopg2
+            conn_str = db_conn.connection_string
+
+            # Parse postgresql:// URL format
+            if conn_str.startswith("postgresql://"):
+                url_part = conn_str.replace("postgresql://", "")
+
+                # Get credentials from keyring if available
+                username, password = CredentialManager.get_credentials(db_conn.id)
+
+                # Parse URL: [user:pass@]host[:port][/database]
+                if "@" in url_part:
+                    auth_part, server_part = url_part.split("@", 1)
+                    if not username:
+                        username = auth_part.split(":")[0] if ":" in auth_part else auth_part
+                    if not password and ":" in auth_part:
+                        password = auth_part.split(":", 1)[1]
+                else:
+                    server_part = url_part
+
+                # Parse host:port/database
+                if "/" in server_part:
+                    host_port, database = server_part.split("/", 1)
+                    database = database.split("?")[0]  # Remove query params
+                else:
+                    host_port = server_part
+                    database = "postgres"
+
+                host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
+
+                return psycopg2.connect(
+                    host=host,
+                    port=int(port),
+                    user=username or "",
+                    password=password or "",
+                    database=database,
+                    connect_timeout=5
+                )
+            else:
+                self._set_status_message(tr("status_ready"))
+                DialogHelper.warning("Format de connexion PostgreSQL non supporté. Utilisez postgresql://", parent=self)
+                return None
 
         else:
             # Unsupported database type
@@ -877,6 +994,12 @@ class DatabaseManager(QWidget):
                 query = f"SELECT * FROM {table_name} LIMIT {limit}"
             else:
                 query = f"SELECT * FROM {table_name}"
+        elif db_conn.db_type == "postgresql":
+            # PostgreSQL: use schema.table format with quotes
+            if limit:
+                query = f"SELECT * FROM {table_name} LIMIT {limit}"
+            else:
+                query = f"SELECT * FROM {table_name}"
         elif db_conn.db_type == "sqlserver" and db_name:
             # SQL Server: use fully qualified name [database].[schema].[table]
             full_table_name = f"[{db_name}].{table_name}"
@@ -885,7 +1008,7 @@ class DatabaseManager(QWidget):
             else:
                 query = f"SELECT * FROM {full_table_name}"
         else:
-            # Other databases
+            # Other databases (Access, etc.)
             if limit:
                 query = f"SELECT TOP {limit} * FROM {table_name}"
             else:
@@ -970,6 +1093,23 @@ class DatabaseManager(QWidget):
                     columns = [row[0] for row in cursor.fetchall()]
 
                 full_table_name = f"[{db_name}].[{schema}].[{tbl_name}]"
+            elif db_conn.db_type == "postgresql":
+                # PostgreSQL: use information_schema
+                parts = table_name.split(".")
+                if len(parts) == 2:
+                    schema, tbl_name = parts
+                else:
+                    schema, tbl_name = "public", table_name
+
+                cursor = connection.cursor()
+                cursor.execute("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = %s AND table_name = %s
+                    ORDER BY ordinal_position
+                """, (schema, tbl_name))
+                columns = [row[0] for row in cursor.fetchall()]
+                full_table_name = f'"{schema}"."{tbl_name}"'
             else:
                 # Fallback: get columns from a sample query
                 cursor = connection.cursor()
@@ -1321,6 +1461,8 @@ class DatabaseManager(QWidget):
             # Execute query to get data (limit to 10000 rows for analysis)
             cursor = connection.cursor()
             if db_conn.db_type == "sqlite":
+                query = f"SELECT * FROM {table_name} LIMIT 10000"
+            elif db_conn.db_type == "postgresql":
                 query = f"SELECT * FROM {table_name} LIMIT 10000"
             elif db_conn.db_type == "sqlserver" and db_name:
                 # SQL Server: use fully qualified name
@@ -1739,7 +1881,7 @@ class DatabaseManager(QWidget):
                 else:
                     db_path = conn_str
 
-                connection = sqlite3.connect(db_path)
+                connection = sqlite3.connect(db_path, check_same_thread=False)
                 self.connections[db_id] = connection
 
             elif db_conn.db_type == "sqlserver":
@@ -1759,6 +1901,46 @@ class DatabaseManager(QWidget):
 
                 connection = pyodbc.connect(conn_str, timeout=5)
                 self.connections[db_id] = connection
+
+            elif db_conn.db_type == "postgresql":
+                import psycopg2
+                conn_str = db_conn.connection_string
+
+                if conn_str.startswith("postgresql://"):
+                    url_part = conn_str.replace("postgresql://", "")
+
+                    username, password = CredentialManager.get_credentials(db_id)
+
+                    if "@" in url_part:
+                        auth_part, server_part = url_part.split("@", 1)
+                        if not username:
+                            username = auth_part.split(":")[0] if ":" in auth_part else auth_part
+                        if not password and ":" in auth_part:
+                            password = auth_part.split(":", 1)[1]
+                    else:
+                        server_part = url_part
+
+                    if "/" in server_part:
+                        host_port, database = server_part.split("/", 1)
+                        database = database.split("?")[0]
+                    else:
+                        host_port = server_part
+                        database = "postgres"
+
+                    host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
+
+                    connection = psycopg2.connect(
+                        host=host,
+                        port=int(port),
+                        user=username or "",
+                        password=password or "",
+                        database=database,
+                        connect_timeout=5
+                    )
+                    self.connections[db_id] = connection
+                else:
+                    return None
+
             else:
                 return None
 
