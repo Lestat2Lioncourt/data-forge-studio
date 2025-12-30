@@ -33,6 +33,7 @@ from ...utils.workspace_export import (
     export_connections_to_json, save_export_to_file, get_export_summary,
     load_import_from_file, import_connections_from_json
 )
+from ...utils.connection_error_handler import format_connection_error, get_server_unreachable_message
 
 import logging
 logger = logging.getLogger(__name__)
@@ -69,9 +70,11 @@ class DatabaseConnectionWorker(QThread):
                 )
 
                 if not reachable:
-                    self.connection_error.emit(
-                        f"Serveur non accessible : {self.db_conn.name}\n\nVérifiez que le VPN est actif."
+                    error_msg = get_server_unreachable_message(
+                        self.db_conn.name,
+                        db_type=self.db_conn.db_type
                     )
+                    self.connection_error.emit(error_msg)
                     return
 
             if self._cancelled:
@@ -102,7 +105,8 @@ class DatabaseConnectionWorker(QThread):
 
         except Exception as e:
             logger.error(f"Connection error: {e}")
-            self.connection_error.emit(str(e))
+            error_msg = format_connection_error(e, db_type=self.db_conn.db_type)
+            self.connection_error.emit(error_msg)
 
     def _create_connection(self):
         """Create database connection based on type."""
@@ -204,7 +208,8 @@ class DatabaseConnectionWorker(QThread):
                 return None
 
         except Exception as e:
-            self.connection_error.emit(str(e))
+            error_msg = format_connection_error(e, db_type=self.db_conn.db_type)
+            self.connection_error.emit(error_msg)
             return None
 
     def cancel(self):

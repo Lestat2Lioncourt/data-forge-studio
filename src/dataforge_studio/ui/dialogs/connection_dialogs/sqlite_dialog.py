@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QWidget
 
 from .file_based_connection_dialog import FileBasedConnectionDialog
 from ....database.config_db import DatabaseConnection
+from ....utils.connection_error_handler import format_connection_error
 
 import logging
 logger = logging.getLogger(__name__)
@@ -69,7 +70,8 @@ class SQLiteConnectionDialog(FileBasedConnectionDialog):
             return (True, f"SQLite version: {version}\nTables: {table_count}")
 
         except Exception as e:
-            return (False, str(e))
+            error_msg = format_connection_error(e, db_type="sqlite", include_original=False)
+            return (False, error_msg)
 
     def _extract_file_path(self, connection_string: str) -> str:
         """Extract file path from SQLite connection string"""

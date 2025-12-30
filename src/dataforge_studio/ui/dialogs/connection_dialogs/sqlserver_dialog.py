@@ -14,6 +14,7 @@ from .base_connection_dialog import BaseConnectionDialog
 from .credentials_widget import CredentialsWidget
 from ....database.config_db import DatabaseConnection
 from ....utils.credential_manager import CredentialManager
+from ....utils.connection_error_handler import format_connection_error
 
 import logging
 logger = logging.getLogger(__name__)
@@ -204,11 +205,26 @@ class SQLServerConnectionDialog(BaseConnectionDialog):
             return (True, f"Connected to: {db_name}\n\nServer version:\n{version[:100]}...")
 
         except Exception as e:
-            return (False, str(e))
+            error_msg = format_connection_error(e, db_type="sqlserver", include_original=False)
+            return (False, error_msg)
 
     def _get_db_type(self) -> str:
         """Get database type identifier"""
         return "sqlserver"
+
+    def _get_server_name(self) -> str:
+        """Get server name for error messages."""
+        if self.tab_widget.currentIndex() == 0:
+            return self.server_edit.text().strip()
+        else:
+            # Try to extract from connection string
+            conn_str = self.connection_string_edit.toPlainText()
+            if "Server=" in conn_str:
+                import re
+                match = re.search(r'Server=([^;]+)', conn_str, re.IGNORECASE)
+                if match:
+                    return match.group(1)
+        return ""
 
     def _get_credentials(self) -> tuple[str, str, bool]:
         """Get credentials from current mode"""

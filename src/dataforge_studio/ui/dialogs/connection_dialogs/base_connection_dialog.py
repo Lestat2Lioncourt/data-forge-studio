@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from ....database.config_db import get_config_db, DatabaseConnection
 from ....utils.credential_manager import CredentialManager
 from ....utils.network_utils import check_server_reachable
+from ....utils.connection_error_handler import format_connection_error, get_server_unreachable_message
 from ...widgets.dialog_helper import DialogHelper
 from ...core.i18n_bridge import tr
 
@@ -164,6 +165,17 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
         """
         pass
 
+    def _get_server_name(self) -> str:
+        """
+        Get server name for error messages.
+
+        Returns:
+            Server name or empty string if not applicable.
+
+        Can be overridden by subclasses.
+        """
+        return ""
+
     def _load_existing_connection(self):
         """Load existing connection data into fields"""
         if not self.connection:
@@ -196,7 +208,11 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
             )
 
             if not reachable:
-                DialogHelper.error("❌ " + tr("conn_server_unreachable") + f"\n\n{vpn_message}", parent=self)
+                error_msg = get_server_unreachable_message(
+                    self._get_server_name(),
+                    db_type=self._get_db_type()
+                )
+                DialogHelper.error("❌ " + tr("conn_server_unreachable") + f"\n\n{error_msg}", parent=self)
                 return
 
             # Test connection

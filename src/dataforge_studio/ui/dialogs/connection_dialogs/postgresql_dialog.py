@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 
 from .multimode_connection_dialog import MultiModeConnectionDialog
 from ....database.config_db import DatabaseConnection
+from ....utils.connection_error_handler import format_connection_error
 
 import logging
 logger = logging.getLogger(__name__)
@@ -107,6 +108,8 @@ class PostgreSQLConnectionDialog(MultiModeConnectionDialog):
                 return (False, "Unsupported connection string format. Use postgresql:// format.")
 
         except ImportError:
-            return (False, "psycopg2 library not installed. Please install it:\npip install psycopg2-binary")
+            return (False, "La librairie psycopg2 n'est pas installée.\n\n"
+                          "💡 Installez-la avec:\npip install psycopg2-binary")
         except Exception as e:
-            return (False, str(e))
+            error_msg = format_connection_error(e, db_type="postgresql", include_original=False)
+            return (False, error_msg)
