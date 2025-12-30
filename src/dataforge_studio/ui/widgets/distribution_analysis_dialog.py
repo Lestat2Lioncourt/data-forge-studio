@@ -126,10 +126,10 @@ class DistributionAnalysisDialog(QDialog):
         """Toggle between maximized and normal state"""
         if self.isMaximized():
             self.showNormal()
-            self.title_bar.set_maximized(False)
+            self.title_bar.update_maximize_button(False)
         else:
             self.showMaximized()
-            self.title_bar.set_maximized(True)
+            self.title_bar.update_maximize_button(True)
 
     def _analyze_data(self):
         """Analyze data and populate tables"""

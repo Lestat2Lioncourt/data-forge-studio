@@ -59,29 +59,31 @@ class PostgreSQLSchemaLoader(SchemaLoader):
         return root
 
     def load_tables(self) -> List[SchemaNode]:
-        """Load all tables with columns."""
+        """Load all tables with columns (optimized: single query for all columns)."""
         cursor = self.connection.cursor()
         tables = []
 
         try:
             # Get all user tables with their schemas
             cursor.execute("""
-                SELECT table_schema, table_name,
-                       (SELECT COUNT(*) FROM information_schema.columns c
-                        WHERE c.table_schema = t.table_schema
-                        AND c.table_name = t.table_name) as column_count
-                FROM information_schema.tables t
+                SELECT table_schema, table_name
+                FROM information_schema.tables
                 WHERE table_type = 'BASE TABLE'
                 AND table_schema NOT IN %s
                 ORDER BY table_schema, table_name
             """, (self.SYSTEM_SCHEMAS,))
+            table_list = cursor.fetchall()
 
-            for row in cursor.fetchall():
-                schema_name, table_name, column_count = row
-                columns = self.load_columns(table_name, schema_name)
+            # Load ALL columns in one query (avoids N+1 problem)
+            columns_by_table = self._load_all_columns_bulk(cursor)
+
+            for row in table_list:
+                schema_name, table_name = row
+                table_key = f"{schema_name}.{table_name}"
+                columns = columns_by_table.get(table_key, [])
 
                 table_node = self._create_table_node(
-                    table_name, schema_name, column_count=column_count or len(columns)
+                    table_name, schema_name, column_count=len(columns)
                 )
                 table_node.children = columns
                 tables.append(table_node)
@@ -90,6 +92,38 @@ class PostgreSQLSchemaLoader(SchemaLoader):
             logger.error(f"Error loading PostgreSQL tables: {e}")
 
         return tables
+
+    def _load_all_columns_bulk(self, cursor) -> dict:
+        """Load all columns for all tables in a single query."""
+        columns_by_table = {}
+
+        try:
+            cursor.execute("""
+                SELECT table_schema, table_name, column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_schema NOT IN %s
+                ORDER BY table_schema, table_name, ordinal_position
+            """, (self.SYSTEM_SCHEMAS,))
+
+            for row in cursor.fetchall():
+                schema_name, table_name, col_name, col_type, nullable = row
+                table_key = f"{schema_name}.{table_name}"
+
+                # Format type with nullable indicator
+                type_display = col_type.upper()
+                if nullable == 'NO':
+                    type_display += ' NOT NULL'
+
+                column_node = self._create_column_node(col_name, type_display, table_key)
+
+                if table_key not in columns_by_table:
+                    columns_by_table[table_key] = []
+                columns_by_table[table_key].append(column_node)
+
+        except Exception as e:
+            logger.error(f"Error bulk loading columns: {e}")
+
+        return columns_by_table
 
     def load_views(self) -> List[SchemaNode]:
         """Load all views."""

@@ -25,7 +25,7 @@ from ..widgets.tree_populator import TreePopulator
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, Workspace, Script
 from ...database.models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
-from ...utils.image_loader import get_icon
+from ...utils.image_loader import get_icon, get_database_icon
 
 import logging
 import uuid
@@ -267,7 +267,7 @@ class WorkspaceManager(QWidget):
         for ws_db in ws_databases:
             db = ws_db.connection
             db_item = QTreeWidgetItem(ws_item)
-            db_icon = get_icon(f"{db.db_type.lower()}.png", size=16) or get_icon("database.png", size=16)
+            db_icon = get_database_icon(db.db_type, size=16)
             if db_icon:
                 db_item.setIcon(0, db_icon)
             # Display specific database name or server name

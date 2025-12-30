@@ -23,7 +23,7 @@ from ..widgets.form_builder import FormBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db
-from ...utils.image_loader import get_icon
+from ...utils.image_loader import get_icon, get_database_icon
 
 import logging
 logger = logging.getLogger(__name__)
@@ -311,7 +311,9 @@ class ResourcesManager(BaseManagerView):
                     text=[db.name],
                     data={"type": "database", "id": db.id, "obj": db}
                 )
-                self._set_item_icon(item, db.db_type)
+                db_icon = get_database_icon(db.db_type, size=16)
+                if db_icon:
+                    item.setIcon(0, db_icon)
                 self._add_dummy_child(item)
 
             # Rootfolders - with expand capability (workspace filtered)
