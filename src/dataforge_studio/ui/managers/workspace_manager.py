@@ -390,112 +390,32 @@ class WorkspaceManager(QWidget):
             pass  # Database schema folders - already loaded
 
     def _load_database_schema(self, db_item: QTreeWidgetItem, data: dict):
-        """Load database schema using DatabaseManager."""
+        """
+        Load database schema by delegating to DatabaseManager.
+
+        This ensures consistent behavior (loading indicator, connection handling)
+        between DatabaseManager and WorkspaceManager.
+        """
         if not self._database_manager:
+            logger.warning("WorkspaceManager: No database_manager available")
             return
 
-        db_id = data.get("id")
-        database_name = data.get("database_name")
         db_conn = data.get("resource_obj")
+        database_name = data.get("database_name")
 
         if not db_conn:
+            logger.warning(f"WorkspaceManager: No resource_obj in data")
             return
 
-        connection = self._database_manager.connections.get(db_id)
-        if not connection:
-            try:
-                connection = self._database_manager.reconnect_database(db_id)
-            except Exception as e:
-                logger.error(f"Failed to connect: {e}")
-                return
+        # Delegate entirely to DatabaseManager for consistent behavior
+        success = self._database_manager.load_specific_database_schema(
+            parent_item=db_item,
+            db_conn=db_conn,
+            database_name=database_name or db_conn.name
+        )
 
-        if not connection:
-            return
-
-        # Load schema
-        try:
-            if db_conn.db_type == "sqlite":
-                self._load_sqlite_schema(db_item, connection, db_id)
-            elif db_conn.db_type == "sqlserver" and database_name:
-                self._load_sqlserver_schema(db_item, connection, db_id, database_name)
-        except Exception as e:
-            logger.error(f"Error loading schema: {e}")
-
-    def _load_sqlite_schema(self, parent: QTreeWidgetItem, connection, db_id: str):
-        """Load SQLite schema."""
-        cursor = connection.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        tables = cursor.fetchall()
-
-        tables_folder = QTreeWidgetItem(parent)
-        tables_folder.setText(0, f"Tables ({len(tables)})")
-        tables_folder.setIcon(0, get_icon("folder.png", size=16))
-        tables_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "tables_folder", "db_id": db_id})
-
-        for (table_name,) in tables:
-            t_item = QTreeWidgetItem(tables_folder)
-            t_item.setText(0, table_name)
-            t_item.setIcon(0, get_icon("table.png", size=16))
-            t_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "table",
-                "name": table_name,
-                "db_id": db_id
-            })
-
-    def _load_sqlserver_schema(self, parent: QTreeWidgetItem, connection, db_id: str, db_name: str):
-        """Load SQL Server schema."""
-        cursor = connection.cursor()
-
-        # Tables
-        cursor.execute(f"""
-            SELECT s.name + '.' + t.name AS full_name
-            FROM [{db_name}].sys.tables t
-            INNER JOIN [{db_name}].sys.schemas s ON t.schema_id = s.schema_id
-            ORDER BY s.name, t.name
-        """)
-        tables = cursor.fetchall()
-
-        tables_folder = QTreeWidgetItem(parent)
-        tables_folder.setText(0, f"Tables ({len(tables)})")
-        tables_folder.setIcon(0, get_icon("folder.png", size=16))
-        tables_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "tables_folder", "db_id": db_id, "db_name": db_name})
-
-        for (table_name,) in tables:
-            t_item = QTreeWidgetItem(tables_folder)
-            t_item.setText(0, table_name)
-            t_item.setIcon(0, get_icon("table.png", size=16))
-            t_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "table",
-                "name": table_name,
-                "db_id": db_id,
-                "db_name": db_name
-            })
-
-        # Views
-        cursor.execute(f"""
-            SELECT s.name + '.' + v.name AS full_name
-            FROM [{db_name}].sys.views v
-            INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
-            ORDER BY s.name, v.name
-        """)
-        views = cursor.fetchall()
-
-        if views:
-            views_folder = QTreeWidgetItem(parent)
-            views_folder.setText(0, f"Views ({len(views)})")
-            views_folder.setIcon(0, get_icon("folder.png", size=16))
-            views_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "views_folder", "db_id": db_id, "db_name": db_name})
-
-            for (view_name,) in views:
-                v_item = QTreeWidgetItem(views_folder)
-                v_item.setText(0, view_name)
-                v_item.setIcon(0, get_icon("view.png", size=16))
-                v_item.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "view",
-                    "name": view_name,
-                    "db_id": db_id,
-                    "db_name": db_name
-                })
+        if not success:
+            DialogHelper.warning(f"Could not load schema for: {db_conn.name}")
 
     def _count_files_in_folder(self, folder_path: Path) -> int:
         """Count all files recursively in a folder."""
@@ -955,6 +875,43 @@ class WorkspaceManager(QWidget):
         """Refresh the tree."""
         self._load_workspaces()
         self.object_viewer.clear()
+
+    def _find_workspace_item(self, workspace_id: str) -> Optional[QTreeWidgetItem]:
+        """Find a workspace item in the tree by ID."""
+        for i in range(self.workspace_tree.topLevelItemCount()):
+            item = self.workspace_tree.topLevelItem(i)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "workspace" and data.get("id") == workspace_id:
+                return item
+        return None
+
+    def refresh_workspace(self, workspace_id: str, select_and_expand: bool = True):
+        """
+        Refresh a specific workspace in the tree.
+
+        Called when a resource is added/removed from a workspace via the menu builder.
+
+        Args:
+            workspace_id: ID of the workspace to refresh
+            select_and_expand: If True, select and expand the workspace after refresh
+        """
+        ws_item = self._find_workspace_item(workspace_id)
+        if not ws_item:
+            # Workspace not found - might be new, do full refresh
+            self._load_workspaces()
+            ws_item = self._find_workspace_item(workspace_id)
+
+        if ws_item:
+            # Collapse, clear children, and reload
+            ws_item.setExpanded(False)
+            # Remove all children using Qt's takeChildren()
+            ws_item.takeChildren()
+            TreePopulator.add_dummy_child(ws_item)
+
+            if select_and_expand:
+                # Select and expand the workspace
+                self.workspace_tree.setCurrentItem(ws_item)
+                ws_item.setExpanded(True)  # This triggers _on_item_expanded
 
     # ==================== Import/Export ====================
 

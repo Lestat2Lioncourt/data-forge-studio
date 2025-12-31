@@ -3,12 +3,15 @@ Jobs Manager - Manager for scheduled jobs with hierarchical TreeView
 Provides interface to view, edit, and manage automated jobs organized by type
 """
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, TYPE_CHECKING
 from PySide6.QtWidgets import (
     QVBoxLayout, QTextEdit, QLabel, QMenu, QTreeWidgetItem
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
+
+if TYPE_CHECKING:
+    from .workspace_manager import WorkspaceManager
 
 from .base import HierarchicalManagerView
 from ..widgets.toolbar_builder import ToolbarBuilder
@@ -43,7 +46,12 @@ class JobsManager(HierarchicalManagerView):
     }
 
     def __init__(self, parent=None):
+        self._workspace_manager: Optional["WorkspaceManager"] = None
         super().__init__(parent)
+
+    def set_workspace_manager(self, workspace_manager: "WorkspaceManager"):
+        """Set reference to WorkspaceManager for auto-refresh on workspace changes."""
+        self._workspace_manager = workspace_manager
 
     # ==================== Abstract Method Implementations ====================
 
@@ -203,7 +211,13 @@ class JobsManager(HierarchicalManagerView):
             get_item_workspaces=lambda: config_db.get_job_workspaces(job_id),
             add_to_workspace=lambda ws_id: config_db.add_job_to_workspace(ws_id, job_id),
             remove_from_workspace=lambda ws_id: config_db.remove_job_from_workspace(ws_id, job_id),
+            on_workspace_changed=self._on_workspace_changed,
         )
+
+    def _on_workspace_changed(self, workspace_id: str):
+        """Callback when item is added/removed from a workspace."""
+        if self._workspace_manager:
+            self._workspace_manager.refresh_workspace(workspace_id)
 
     # ==================== Actions ====================
 

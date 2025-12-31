@@ -184,6 +184,17 @@ def main():
             jobs_manager=jobs_manager
         )
 
+    # Connect managers to WorkspaceManager for auto-refresh on workspace changes
+    if workspace_manager:
+        if database_manager and hasattr(database_manager, 'set_workspace_manager'):
+            database_manager.set_workspace_manager(workspace_manager)
+        if queries_manager and hasattr(queries_manager, 'set_workspace_manager'):
+            queries_manager.set_workspace_manager(workspace_manager)
+        if scripts_manager and hasattr(scripts_manager, 'set_workspace_manager'):
+            scripts_manager.set_workspace_manager(workspace_manager)
+        if jobs_manager and hasattr(jobs_manager, 'set_workspace_manager'):
+            jobs_manager.set_workspace_manager(workspace_manager)
+
     # Connect plugin signals
     plugin_manager.connect_all_signals()
 

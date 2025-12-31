@@ -2,9 +2,12 @@
 Database Manager - Multi-tab SQL query interface with SSMS-style tree
 """
 
-from typing import Optional, Union, Dict
+from typing import Optional, Union, Dict, TYPE_CHECKING
 import pyodbc
 import sqlite3
+
+if TYPE_CHECKING:
+    from .workspace_manager import WorkspaceManager
 import re
 import threading
 import traceback
@@ -239,9 +242,14 @@ class DatabaseManager(QWidget):
         self._workspace_filter: Optional[str] = None
         self._current_item = None
         self._pending_workers: Dict[str, DatabaseConnectionWorker] = {}  # Track active connection workers
+        self._workspace_manager: Optional["WorkspaceManager"] = None
 
         self._setup_ui()
         self._load_all_connections()
+
+    def set_workspace_manager(self, workspace_manager: "WorkspaceManager"):
+        """Set reference to WorkspaceManager for auto-refresh on workspace changes."""
+        self._workspace_manager = workspace_manager
 
     def _setup_ui(self):
         """Setup UI components"""
@@ -796,6 +804,7 @@ class DatabaseManager(QWidget):
         Load schema for a specific database (not the whole server).
 
         Used by WorkspaceManager when a specific database is attached to a workspace.
+        Shows loading indicator for consistent UX with DatabaseManager.
 
         Args:
             parent_item: Tree item to populate with database schema
@@ -805,6 +814,25 @@ class DatabaseManager(QWidget):
         Returns:
             True if successfully loaded, False otherwise
         """
+        # Show loading indicator (same as _connect_and_load_schema)
+        while parent_item.childCount() > 0:
+            parent_item.removeChild(parent_item.child(0))
+
+        loading_item = QTreeWidgetItem(parent_item)
+        loading_item.setText(0, "⏳ Connexion en cours...")
+        loading_item.setForeground(0, Qt.GlobalColor.gray)
+        loading_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "loading"})
+
+        # Expand parent and get the tree widget to force repaint
+        parent_item.setExpanded(True)
+        tree = parent_item.treeWidget()
+        if tree:
+            tree.repaint()
+
+        # Force multiple UI updates to ensure loading indicator is visible
+        QApplication.processEvents()
+        QApplication.processEvents()
+
         try:
             QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
 
@@ -813,6 +841,9 @@ class DatabaseManager(QWidget):
             if not connection:
                 connection = self._create_connection(db_conn)
                 if connection is None:
+                    # Remove loading indicator on failure
+                    while parent_item.childCount() > 0:
+                        parent_item.removeChild(parent_item.child(0))
                     return False
                 self.connections[db_conn.id] = connection
 
@@ -823,7 +854,14 @@ class DatabaseManager(QWidget):
 
             if not loader:
                 logger.warning(f"No loader for db_type: {db_conn.db_type}")
+                # Remove loading indicator on failure
+                while parent_item.childCount() > 0:
+                    parent_item.removeChild(parent_item.child(0))
                 return False
+
+            # Remove loading indicator before populating
+            while parent_item.childCount() > 0:
+                parent_item.removeChild(parent_item.child(0))
 
             # For SQL Server, use _load_database_schema for a specific database
             if hasattr(loader, '_load_database_schema'):
@@ -839,6 +877,9 @@ class DatabaseManager(QWidget):
 
         except Exception as e:
             logger.error(f"Error loading specific database schema: {e}")
+            # Remove loading indicator on failure
+            while parent_item.childCount() > 0:
+                parent_item.removeChild(parent_item.child(0))
             return False
 
         finally:
@@ -1878,6 +1919,10 @@ class DatabaseManager(QWidget):
             db_desc = f"database '{database_name}'" if database_name else "server"
             logger.info(f"{action_text} workspace: {db_desc} (db_id={db_id})")
 
+            # Refresh workspace if manager is set
+            if self._workspace_manager:
+                self._workspace_manager.refresh_workspace(workspace_id)
+
         except Exception as e:
             logger.error(f"Error toggling workspace: {e}")
             DialogHelper.error("Error updating workspace", parent=self, details=str(e))
@@ -1901,6 +1946,10 @@ class DatabaseManager(QWidget):
                 config_db.add_database_to_workspace(ws.id, db_id, database_name)
                 db_desc = f"database '{database_name}'" if database_name else "server"
                 logger.info(f"Created workspace '{ws.name}' and added {db_desc}")
+
+                # Refresh workspace if manager is set
+                if self._workspace_manager:
+                    self._workspace_manager.refresh_workspace(ws.id)
             else:
                 DialogHelper.warning("Failed to create workspace. Name may already exist.", parent=self)
 
@@ -1946,7 +1995,6 @@ class DatabaseManager(QWidget):
                 conn_str = db_conn.connection_string
 
                 if "trusted_connection=yes" not in conn_str.lower():
-                    from ...utils.credential_manager import CredentialManager
                     username, password = CredentialManager.get_credentials(db_id)
                     if username and password:
                         if "uid=" not in conn_str.lower() and "user id=" not in conn_str.lower():
@@ -1960,7 +2008,7 @@ class DatabaseManager(QWidget):
                 connection = pyodbc.connect(conn_str, timeout=5)
                 self.connections[db_id] = connection
 
-            elif db_conn.db_type == "postgresql":
+            elif db_conn.db_type in ("postgresql", "postgres"):
                 import psycopg2
                 conn_str = db_conn.connection_string
 

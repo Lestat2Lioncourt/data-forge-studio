@@ -3,12 +3,15 @@ Scripts Manager - Manager for Python scripts with hierarchical TreeView
 Provides interface to view, edit, and execute Python scripts organized by type
 """
 
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from PySide6.QtWidgets import (
     QVBoxLayout, QTextEdit, QLabel, QMenu, QSplitter
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
+
+if TYPE_CHECKING:
+    from .workspace_manager import WorkspaceManager
 
 from .base import HierarchicalManagerView
 from ..widgets.toolbar_builder import ToolbarBuilder
@@ -35,7 +38,12 @@ class ScriptsManager(HierarchicalManagerView):
     """
 
     def __init__(self, parent=None):
+        self._workspace_manager: Optional["WorkspaceManager"] = None
         super().__init__(parent)
+
+    def set_workspace_manager(self, workspace_manager: "WorkspaceManager"):
+        """Set reference to WorkspaceManager for auto-refresh on workspace changes."""
+        self._workspace_manager = workspace_manager
 
     # ==================== Abstract Method Implementations ====================
 
@@ -170,9 +178,15 @@ class ScriptsManager(HierarchicalManagerView):
             item_id=script.id,
             get_item_workspaces=lambda: config_db.get_script_workspaces(script.id),
             add_to_workspace=lambda ws_id: config_db.add_script_to_workspace(ws_id, script.id),
-            remove_from_workspace=lambda ws_id: config_db.remove_script_from_workspace(ws_id, script.id)
+            remove_from_workspace=lambda ws_id: config_db.remove_script_from_workspace(ws_id, script.id),
+            on_workspace_changed=self._on_workspace_changed,
         )
         menu.addMenu(ws_menu)
+
+    def _on_workspace_changed(self, workspace_id: str):
+        """Callback when item is added/removed from a workspace."""
+        if self._workspace_manager:
+            self._workspace_manager.refresh_workspace(workspace_id)
 
     # ==================== Actions ====================
 

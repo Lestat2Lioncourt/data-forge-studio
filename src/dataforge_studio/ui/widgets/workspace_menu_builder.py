@@ -46,6 +46,7 @@ class WorkspaceMenuBuilder:
         menu_title: Optional[str] = None,
         use_checkmarks: bool = True,
         icon_name: Optional[str] = "Workspace",
+        on_workspace_changed: Optional[Callable[[str], None]] = None,
     ):
         """
         Initialize the workspace menu builder.
@@ -59,6 +60,7 @@ class WorkspaceMenuBuilder:
             menu_title: Optional custom menu title (default: "Workspaces")
             use_checkmarks: If True, use checkable actions; if False, use text prefix
             icon_name: Icon name for the menu (default: "Workspace")
+            on_workspace_changed: Optional callback when workspace is modified (takes workspace_id)
         """
         self.parent = parent
         self.item_id = item_id
@@ -68,6 +70,7 @@ class WorkspaceMenuBuilder:
         self.menu_title = menu_title or tr("menu_workspaces")
         self.use_checkmarks = use_checkmarks
         self.icon_name = icon_name
+        self.on_workspace_changed = on_workspace_changed
 
         self._config_db = get_config_db()
 
@@ -137,6 +140,10 @@ class WorkspaceMenuBuilder:
                 self.remove_from_workspace(workspace_id)
             else:
                 self.add_to_workspace(workspace_id)
+
+            # Notify callback if set
+            if self.on_workspace_changed:
+                self.on_workspace_changed(workspace_id)
         except Exception as e:
             DialogHelper.error("Error updating workspace", parent=self.parent, details=str(e))
 
@@ -157,6 +164,10 @@ class WorkspaceMenuBuilder:
 
             if self._config_db.add_workspace(ws):
                 self.add_to_workspace(ws.id)
+
+                # Notify callback if set
+                if self.on_workspace_changed:
+                    self.on_workspace_changed(ws.id)
             else:
                 DialogHelper.warning(
                     tr("workspace_create_failed") if hasattr(tr, '__call__') else "Failed to create workspace",
@@ -172,6 +183,7 @@ def build_workspace_menu(
     remove_from_workspace: Callable[[str], None],
     menu_title: Optional[str] = None,
     use_checkmarks: bool = True,
+    on_workspace_changed: Optional[Callable[[str], None]] = None,
 ) -> QMenu:
     """
     Convenience function to build a workspace submenu.
@@ -184,6 +196,7 @@ def build_workspace_menu(
         remove_from_workspace: Callback to remove item from workspace
         menu_title: Optional custom menu title
         use_checkmarks: If True, use checkable actions
+        on_workspace_changed: Optional callback when workspace is modified
 
     Returns:
         QMenu with workspace options
@@ -196,5 +209,6 @@ def build_workspace_menu(
         remove_from_workspace=remove_from_workspace,
         menu_title=menu_title,
         use_checkmarks=use_checkmarks,
+        on_workspace_changed=on_workspace_changed,
     )
     return builder.build()

@@ -29,6 +29,7 @@ class SchemaLoaderFactory:
         "sqlserver": SQLServerSchemaLoader,
         "access": AccessSchemaLoader,
         "postgresql": PostgreSQLSchemaLoader,
+        "postgres": PostgreSQLSchemaLoader,  # Alias
     }
 
     @classmethod
