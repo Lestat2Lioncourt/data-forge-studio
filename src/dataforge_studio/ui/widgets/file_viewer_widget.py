@@ -18,10 +18,10 @@ import logging
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QStackedWidget, QTextEdit, QComboBox, QMessageBox
+    QStackedWidget, QTextEdit, QComboBox, QMessageBox, QApplication
 )
-from PySide6.QtGui import QColor, QTextCharFormat, QFont
-from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor, QTextCharFormat, QFont, QCursor
+from PySide6.QtCore import Signal, Qt
 
 from .form_builder import FormBuilder
 from .custom_datagridview import CustomDataGridView
@@ -132,6 +132,9 @@ class FileViewerWidget(QWidget):
         Args:
             file_path: Path to the file to display
         """
+        # Show wait cursor
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+
         try:
             self.current_file_path = file_path
             extension = file_path.suffix.lower()
@@ -173,6 +176,10 @@ class FileViewerWidget(QWidget):
         except Exception as e:
             logger.error(f"Error loading file: {e}")
             DialogHelper.error("Error loading file", details=str(e))
+
+        finally:
+            # Restore cursor
+            QApplication.restoreOverrideCursor()
 
     def _show_file_details(self, file_path: Path):
         """Show file details in the details panel."""

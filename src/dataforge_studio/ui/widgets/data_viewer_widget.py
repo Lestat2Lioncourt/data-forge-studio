@@ -13,10 +13,10 @@ import logging
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTabWidget, QTextEdit, QLabel, QPushButton
+    QTabWidget, QTextEdit, QLabel, QPushButton, QApplication
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QCursor
 
 from .form_builder import FormBuilder
 from .custom_datagridview import CustomDataGridView
@@ -289,6 +289,9 @@ class DataViewerWidget(QWidget):
             self.row_count_label.setText("")
             return
 
+        # Show wait cursor
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+
         try:
             # Use centralized data loader
             result = query_to_dataframe(
@@ -321,6 +324,10 @@ class DataViewerWidget(QWidget):
             DialogHelper.error("Query execution failed", details=str(e))
             self.results_grid.clear()
             self.row_count_label.setText("Error")
+
+        finally:
+            # Restore cursor
+            QApplication.restoreOverrideCursor()
 
     def _on_execute_clicked(self):
         """Handle Execute button click."""
