@@ -20,6 +20,7 @@ from ..utils.ui_helper import UIHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, Job
 from ...utils.image_loader import get_icon
+from ..dialogs.job_dialog import JobDialog
 
 import logging
 logger = logging.getLogger(__name__)
@@ -208,14 +209,21 @@ class JobsManager(HierarchicalManagerView):
 
     def _add_job(self):
         """Add a new job."""
-        DialogHelper.info(tr("feature_coming_soon"), tr("add_job_title"), self)
+        dialog = JobDialog(self)
+        if dialog.exec() == JobDialog.DialogCode.Accepted:
+            self.refresh()
+            DialogHelper.info(tr("job_added"), tr("add_job_title"), self)
 
     def _edit_job(self):
         """Edit selected job."""
         if not self._current_item:
             DialogHelper.warning(tr("select_job_first"), tr("edit_job_title"), self)
             return
-        DialogHelper.info(tr("feature_coming_soon"), tr("edit_job_title"), self)
+
+        dialog = JobDialog(self, job=self._current_item)
+        if dialog.exec() == JobDialog.DialogCode.Accepted:
+            self.refresh()
+            DialogHelper.info(tr("job_updated"), tr("edit_job_title"), self)
 
     def _delete_job(self):
         """Delete selected job."""

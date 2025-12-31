@@ -698,6 +698,64 @@ class ConfigDatabase:
             return Script(**dict(row))
         return None
 
+    def add_script(self, script: Script) -> bool:
+        """Add a new script"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO scripts
+                (id, name, description, script_type, parameters_schema, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (script.id, script.name, script.description, script.script_type,
+                  script.parameters_schema, script.created_at, script.updated_at))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding script: {e}")
+            return False
+
+    def update_script(self, script: Script) -> bool:
+        """Update an existing script"""
+        try:
+            script.updated_at = datetime.now().isoformat()
+
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                UPDATE scripts
+                SET name = ?, description = ?, script_type = ?,
+                    parameters_schema = ?, updated_at = ?
+                WHERE id = ?
+            """, (script.name, script.description, script.script_type,
+                  script.parameters_schema, script.updated_at, script.id))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating script: {e}")
+            return False
+
+    def delete_script(self, script_id: str) -> bool:
+        """Delete a script"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("DELETE FROM scripts WHERE id = ?", (script_id,))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting script: {e}")
+            return False
+
     # ==================== Jobs ====================
 
     def get_all_jobs(self) -> List[Job]:
@@ -751,6 +809,47 @@ class ConfigDatabase:
             return True
         except Exception as e:
             logger.error(f"Error updating job: {e}")
+            return False
+
+    def add_job(self, job: Job) -> bool:
+        """Add a new job"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO jobs
+                (id, name, description, job_type, script_id, project_id,
+                 parent_job_id, previous_job_id, parameters, enabled,
+                 created_at, updated_at, last_run_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                job.id, job.name, job.description, job.job_type, job.script_id,
+                job.project_id, job.parent_job_id, job.previous_job_id,
+                job.parameters, job.enabled, job.created_at, job.updated_at,
+                job.last_run_at
+            ))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding job: {e}")
+            return False
+
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a job"""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting job: {e}")
             return False
 
     # ==================== Projects ====================

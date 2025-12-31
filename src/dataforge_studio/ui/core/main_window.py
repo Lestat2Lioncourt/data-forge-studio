@@ -41,6 +41,7 @@ class DataForgeMainWindow:
         self.workspace_selector = None
         self.stacked_widget = None
         self._current_view = None  # Track current view
+        self._last_resource_view = "database"  # Track last resource view for "Resources" menu
         self._current_workspace_id: Optional[str] = None  # Active workspace filter
         self._pending_update = False  # Flag for update on quit
 
@@ -328,9 +329,9 @@ class DataForgeMainWindow:
         Args:
             frame_name: Name of the frame/manager to switch to
         """
-        # "resources" now means show the database manager (icon sidebar always visible)
+        # "resources" means restore the last resource view (or default to database)
         if frame_name == "resources":
-            frame_name = "database"
+            frame_name = self._last_resource_view or "database"
 
         frame_map = {
             "rootfolders": (self.rootfolder_manager, "status_viewing_rootfolders"),
@@ -356,6 +357,8 @@ class DataForgeMainWindow:
                 # Show/hide icon sidebar based on context
                 resource_views = ["database", "rootfolders", "queries", "jobs", "scripts", "images"]
                 if frame_name in resource_views:
+                    # Remember last resource view for "Resources" menu
+                    self._last_resource_view = frame_name
                     # Show sidebar and sync selection
                     if self.icon_sidebar:
                         self.window.left_panel.show()

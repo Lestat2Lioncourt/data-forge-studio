@@ -18,6 +18,7 @@ from ..widgets.dialog_helper import DialogHelper
 from ..utils.ui_helper import UIHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, Script
+from ..dialogs.script_dialog import ScriptDialog
 
 import logging
 logger = logging.getLogger(__name__)
@@ -177,14 +178,21 @@ class ScriptsManager(HierarchicalManagerView):
 
     def _add_script(self):
         """Add a new script."""
-        DialogHelper.info(tr("feature_coming_soon"), tr("add_script_title"), self)
+        dialog = ScriptDialog(self)
+        if dialog.exec() == ScriptDialog.DialogCode.Accepted:
+            self.refresh()
+            DialogHelper.info(tr("script_added"), tr("add_script_title"), self)
 
     def _edit_script(self):
         """Edit selected script."""
         if not self._current_item:
             DialogHelper.warning(tr("select_script_first"), tr("edit_script_title"), self)
             return
-        DialogHelper.info(tr("feature_coming_soon"), tr("edit_script_title"), self)
+
+        dialog = ScriptDialog(self, script=self._current_item)
+        if dialog.exec() == ScriptDialog.DialogCode.Accepted:
+            self.refresh()
+            DialogHelper.info(tr("script_updated"), tr("edit_script_title"), self)
 
     def _delete_script(self):
         """Delete selected script."""
