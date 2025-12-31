@@ -284,12 +284,12 @@ Repartition recommandee:
 
 | # | Action | Justification | Effort | Priorite |
 |---|--------|---------------|--------|----------|
-| 1.1 | **Finaliser PostgreSQL** | Loader existe, a integrer dans factory | 2h | **P0** |
-| 1.2 | **Splash screen immediat** | UX: delai actuel avant affichage splash | 1h | **P0** |
-| 1.3 | Ameliorer messages erreur connexion | UX critique pour utilisateurs | 3h | P1 |
-| 1.4 | Persistance etat UI (splitters) | Confort utilisateur | 2h | P1 |
-| 1.5 | Export connexions en JSON | Partage config entre collegues | 4h | P1 |
-| 1.6 | Import connexions depuis JSON | Complementaire a 1.5 | 2h | P2 |
+| 1.1 | ~~**Finaliser PostgreSQL**~~ | ✅ FAIT - Loader integre dans factory | - | **DONE** |
+| 1.2 | ~~**Splash screen immediat**~~ | ✅ FAIT - Imports differes apres splash | - | **DONE** |
+| 1.3 | ~~Ameliorer messages erreur connexion~~ | ✅ FAIT - connection_error_handler.py | - | **DONE** |
+| 1.4 | Persistance etat UI (splitters) | Confort utilisateur | 2h | **P0** |
+| 1.5 | ~~Export connexions en JSON~~ | ✅ FAIT - workspace_export.py | - | **DONE** |
+| 1.6 | ~~Import connexions depuis JSON~~ | ✅ FAIT - workspace_export.py | - | **DONE** |
 
 #### Detail 1.2 - Splash Screen Immediat
 
@@ -315,10 +315,10 @@ Imports lourds avec progress updates
 
 | # | Action | Justification | Effort | Priorite |
 |---|--------|---------------|--------|----------|
-| 2.1 | Corriger fuites memoire signaux | Stabilite sessions longues | 2h | P1 |
-| 2.2 | Meilleure gestion erreurs DB | Moins de confusion utilisateur | 3h | P1 |
-| 2.3 | Logger au lieu de print() | Debug plus facile | 1h | P2 |
-| 2.4 | Gestion propre fermeture app | Pas de crash a la fermeture | 2h | P2 |
+| 2.1 | ~~Corriger fuites memoire signaux~~ | ✅ FAIT - _disconnect_signals() | - | **DONE** |
+| 2.2 | ~~Meilleure gestion erreurs DB~~ | ✅ FAIT - connection_error_handler | - | **DONE** |
+| 2.3 | ~~Logger au lieu de print()~~ | ✅ FAIT - 40+ print → logger | - | **DONE** |
+| 2.4 | ~~Gestion propre fermeture app~~ | ✅ FAIT - cleanup workers | - | **DONE** |
 
 ### PHASE 3: EVOLUTION FONCTIONNALITES ALPHA (Post-POC)
 
@@ -420,20 +420,19 @@ Imports lourds avec progress updates
 ## 9. PRIORITES RESUMEES (Beta → POC)
 
 ```
-IMMEDIAT (P0) - Bloquant pour POC
-├── Finaliser PostgreSQL (loader existe, integrer factory)
-└── Splash screen immediat (deplacer imports lourds)
+✅ FAIT - Phase 1 & 2 quasi-completes
+├── ✅ PostgreSQL integre dans factory
+├── ✅ Splash screen immediat
+├── ✅ Messages erreur connexion user-friendly
+├── ✅ Export/Import workspace JSON
+├── ✅ Signaux cleanup, fermeture propre
+└── ✅ Logger au lieu de print()
 
-HAUTE (P1) - Important pour UX
-├── Ameliorer messages erreur connexion
-├── Persistance etat UI
-├── Export/Import config JSON
-└── Stabilite (signaux, fermeture propre)
+IMMEDIAT (P0) - Reste pour POC
+└── Persistance etat UI (splitters, positions)
 
 MOYENNE (P2) - Nice to have pour POC
-├── Logger au lieu de print()
 ├── Documentation utilisateur basique
-├── Gestion erreurs DB amelioree
 └── Parametres scripts (fonctionnalite alpha)
 
 POST-POC (v1.0) - Theming & Qualite technique
@@ -574,4 +573,4 @@ Reporter a v1.0:
 - Couverture tests complete
 
 ### Prochaine etape immediate
-**Finaliser PostgreSQL** - Le loader existe (`postgresql_loader.py`), il suffit de l'integrer dans la factory et de tester.
+**Persistance etat UI** - Sauvegarder/restaurer les positions des splitters et l'etat de l'interface entre les sessions.
