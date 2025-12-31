@@ -992,8 +992,14 @@ class DatabaseManager(QWidget):
 
             menu.exec(self.schema_tree.viewport().mapToGlobal(position))
 
-    def _generate_select_query(self, data: dict, limit: Optional[int] = None):
-        """Generate and execute a SELECT query in a NEW tab named after the table"""
+    def _generate_select_query(self, data: dict, limit: Optional[int] = None, target_tab_widget: Optional[QTabWidget] = None):
+        """Generate and execute a SELECT query in a NEW tab named after the table.
+
+        Args:
+            data: Dict with table info (name, db_id, db_name)
+            limit: Optional row limit
+            target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+        """
         table_name = data["name"]
         db_id = data.get("db_id")
         db_name = data.get("db_name")  # Database name for SQL Server
@@ -1049,9 +1055,10 @@ class DatabaseManager(QWidget):
         # Connect query_saved signal
         query_tab.query_saved.connect(self.query_saved.emit)
 
-        # Add to tab widget
-        index = self.tab_widget.addTab(query_tab, tab_name)
-        self.tab_widget.setCurrentIndex(index)
+        # Add to target tab widget (or self.tab_widget if not specified)
+        tab_widget = target_tab_widget if target_tab_widget else self.tab_widget
+        index = tab_widget.addTab(query_tab, tab_name)
+        tab_widget.setCurrentIndex(index)
 
         # Set query and execute
         query_tab.set_query_text(query)
@@ -1059,8 +1066,13 @@ class DatabaseManager(QWidget):
 
         logger.info(f"Created query tab '{tab_name}' for table {table_name}")
 
-    def _generate_select_columns_query(self, data: dict):
-        """Generate a formatted SELECT query with all column names in a new tab."""
+    def _generate_select_columns_query(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+        """Generate a formatted SELECT query with all column names in a new tab.
+
+        Args:
+            data: Dict with table info (name, db_id, db_name)
+            target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+        """
         table_name = data["name"]
         db_id = data.get("db_id")
         db_name = data.get("db_name")
@@ -1157,8 +1169,10 @@ class DatabaseManager(QWidget):
 
             query_tab.query_saved.connect(self.query_saved.emit)
 
-            index = self.tab_widget.addTab(query_tab, tab_name)
-            self.tab_widget.setCurrentIndex(index)
+            # Add to target tab widget (or self.tab_widget if not specified)
+            tab_widget = target_tab_widget if target_tab_widget else self.tab_widget
+            index = tab_widget.addTab(query_tab, tab_name)
+            tab_widget.setCurrentIndex(index)
 
             # Set query but don't execute (user may want to modify it first)
             query_tab.set_query_text(query)
@@ -1214,8 +1228,13 @@ class DatabaseManager(QWidget):
 
         return "\n".join(lines)
 
-    def _load_view_code(self, data: dict):
-        """Load view code into query editor as ALTER VIEW"""
+    def _load_view_code(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+        """Load view code into query editor as ALTER VIEW.
+
+        Args:
+            data: Dict with view info (name, db_id, db_name)
+            target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+        """
         db_id = data.get("db_id")
         db_name = data.get("db_name")
         view_name = data.get("name")  # schema.viewname
@@ -1264,12 +1283,33 @@ class DatabaseManager(QWidget):
                     flags=re.IGNORECASE
                 )
 
-                # Get or create a query tab
-                current_tab = self._get_or_create_query_tab(db_id)
+                # Determine target tab widget
+                tab_widget = target_tab_widget if target_tab_widget else self.tab_widget
 
-                if current_tab:
-                    current_tab.set_query_text(code)
+                # Get or create a query tab
+                if target_tab_widget:
+                    # Create new tab in target widget
+                    db_conn = self._get_connection_by_id(db_id)
+                    tab_name = f"{name} (view)"
+                    query_tab = QueryTab(
+                        parent=self,
+                        connection=connection,
+                        db_connection=db_conn,
+                        tab_name=tab_name,
+                        database_manager=self,
+                        target_database=db_name
+                    )
+                    query_tab.query_saved.connect(self.query_saved.emit)
+                    index = tab_widget.addTab(query_tab, tab_name)
+                    tab_widget.setCurrentIndex(index)
+                    query_tab.set_query_text(code)
                     logger.info(f"Loaded view code: {schema}.{name}")
+                else:
+                    # Use existing method for self.tab_widget
+                    current_tab = self._get_or_create_query_tab(db_id)
+                    if current_tab:
+                        current_tab.set_query_text(code)
+                        logger.info(f"Loaded view code: {schema}.{name}")
             else:
                 DialogHelper.warning(
                     f"Could not retrieve code for view {schema}.{name}\n"

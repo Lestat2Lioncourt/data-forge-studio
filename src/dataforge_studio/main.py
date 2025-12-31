@@ -179,7 +179,9 @@ def main():
     if workspace_manager:
         workspace_manager.set_managers(
             database_manager=database_manager,
-            rootfolder_manager=rootfolder_manager
+            rootfolder_manager=rootfolder_manager,
+            scripts_manager=scripts_manager,
+            jobs_manager=jobs_manager
         )
 
     # Connect plugin signals

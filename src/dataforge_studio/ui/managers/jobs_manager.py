@@ -262,13 +262,58 @@ class JobsManager(HierarchicalManagerView):
             DialogHelper.warning(tr("select_job_first"), tr("toggle_job_title"), self)
             return
 
-        new_enabled = not self._current_item.enabled
+        self.toggle_job_by_obj(self._current_item)
+
+    # ==================== Public API (for WorkspaceManager) ====================
+
+    def show_job(self, job: Job, target_viewer=None):
+        """
+        Display job details in a viewer.
+
+        Args:
+            job: Job object to display
+            target_viewer: Optional ObjectViewerWidget (default: internal display)
+        """
+        if target_viewer:
+            # Use external viewer for basic details
+            status = tr("status_enabled") if job.enabled else tr("status_disabled")
+            target_viewer.show_details(
+                name=job.name,
+                obj_type=f"Job ({job.job_type or 'script'})",
+                description=job.description or "",
+                created=job.created_at or "",
+                updated=job.last_run_at or "",
+                extra_fields={"Status": status}
+            )
+        else:
+            # Use internal display
+            self._display_item(job)
+
+    def run_job_by_obj(self, job: Job):
+        """
+        Run a specific job immediately.
+
+        Args:
+            job: Job object to run
+        """
+        self.log_panel.clear()
+        self.log_panel.add_message(tr("job_execution_started"), "INFO")
+        DialogHelper.info(tr("feature_coming_soon"), tr("run_job_title"), self)
+
+    def toggle_job_by_obj(self, job: Job):
+        """
+        Toggle a specific job's enabled/disabled status.
+
+        Args:
+            job: Job object to toggle
+        """
+        new_enabled = not job.enabled
         new_status = tr("status_enabled") if new_enabled else tr("status_disabled")
 
         try:
             config_db = get_config_db()
-            self._current_item.enabled = new_enabled
-            config_db.update_job(self._current_item)
+            job.enabled = new_enabled
+            config_db.update_job(job)
             self.refresh()
             DialogHelper.info(
                 tr("job_status_changed").format(status=new_status),
@@ -277,3 +322,77 @@ class JobsManager(HierarchicalManagerView):
             )
         except Exception as e:
             DialogHelper.error(str(e), tr("error"), self)
+
+    def edit_job_by_obj(self, job: Job):
+        """
+        Open edit dialog for a specific job.
+
+        Args:
+            job: Job object to edit
+        """
+        dialog = JobDialog(self, job=job)
+        if dialog.exec() == JobDialog.DialogCode.Accepted:
+            self.refresh()
+            DialogHelper.info(tr("job_updated"), tr("edit_job_title"), self)
+
+    def delete_job_by_obj(self, job: Job):
+        """
+        Delete a specific job.
+
+        Args:
+            job: Job object to delete
+        """
+        if DialogHelper.confirm(
+            tr("confirm_delete_job").format(name=job.name),
+            tr("delete_job_title"),
+            self
+        ):
+            try:
+                config_db = get_config_db()
+                config_db.delete_job(job.id)
+                self.refresh()
+                DialogHelper.info(tr("job_deleted"), tr("delete_job_title"), self)
+            except Exception as e:
+                DialogHelper.error(str(e), tr("error"), self)
+
+    def get_job_context_actions(self, job: Job, parent, target_viewer=None) -> list:
+        """
+        Get context menu actions for a job.
+
+        Args:
+            job: Job object
+            parent: Parent widget for actions
+            target_viewer: Optional ObjectViewerWidget for display
+
+        Returns:
+            List of QAction objects
+        """
+        actions = []
+
+        # View action
+        view_action = QAction(tr("btn_view") if tr("btn_view") != "btn_view" else "View", parent)
+        view_action.triggered.connect(lambda: self.show_job(job, target_viewer))
+        actions.append(view_action)
+
+        # Run action
+        run_action = QAction(tr("btn_run_now"), parent)
+        run_action.triggered.connect(lambda: self.run_job_by_obj(job))
+        actions.append(run_action)
+
+        # Toggle action
+        toggle_text = tr("btn_disable") if job.enabled else tr("btn_enable")
+        toggle_action = QAction(toggle_text, parent)
+        toggle_action.triggered.connect(lambda: self.toggle_job_by_obj(job))
+        actions.append(toggle_action)
+
+        # Edit action
+        edit_action = QAction(tr("btn_edit"), parent)
+        edit_action.triggered.connect(lambda: self.edit_job_by_obj(job))
+        actions.append(edit_action)
+
+        # Delete action
+        delete_action = QAction(tr("btn_delete"), parent)
+        delete_action.triggered.connect(lambda: self.delete_job_by_obj(job))
+        actions.append(delete_action)
+
+        return actions

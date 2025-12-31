@@ -95,17 +95,18 @@ class ObjectViewerWidget(QWidget):
 
     # ==================== Database Methods ====================
 
-    def show_table(self, connection: Any, table_name: str, schema: str = None):
+    def show_table(self, connection: Any, table_name: str, schema: str = None, db_type: str = None):
         """
         Display a database table (exploration mode).
 
         Args:
             connection: Database connection object
             table_name: Name of the table
-            schema: Optional schema name
+            schema: Optional schema name (or db_name for SQL Server)
+            db_type: Database type (sqlite, sqlserver, postgresql, etc.)
         """
         self._current_type = "table"
-        self.data_viewer.show_table(connection, table_name, schema)
+        self.data_viewer.show_table(connection, table_name, schema, db_type)
         self.stack.setCurrentWidget(self.data_viewer)
         self.object_displayed.emit("table", {"connection": connection, "table": table_name})
 

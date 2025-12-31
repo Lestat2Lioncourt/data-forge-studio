@@ -290,8 +290,8 @@ class RootFolderManager(QWidget):
         elif data["type"] == "folder":
             self._show_folder_details(data)
         elif data["type"] == "file":
-            # Use ObjectViewerWidget to display file
-            self.object_viewer.show_file(Path(data["path"]))
+            # Use public API method
+            self.show_file(Path(data["path"]))
 
     def _on_tree_double_click(self, item: QTreeWidgetItem, column: int):
         """Handle double-click on tree item (open file)"""
@@ -300,8 +300,8 @@ class RootFolderManager(QWidget):
             return
 
         if data["type"] == "file":
-            # Same as single click for files - show in viewer
-            self.object_viewer.show_file(Path(data["path"]))
+            # Use public API method
+            self.show_file(Path(data["path"]))
 
     def _show_rootfolder_details(self, rootfolder: FileRoot):
         """Show root folder details in the viewer"""
@@ -331,6 +331,67 @@ class RootFolderManager(QWidget):
             path=data.get("path", "-"),
             modified="-"
         )
+
+    # ==================== Public API (for WorkspaceManager) ====================
+
+    def show_file(self, file_path: Path, target_viewer=None):
+        """
+        Display a file in the viewer.
+
+        Args:
+            file_path: Path to the file
+            target_viewer: Optional ObjectViewerWidget (default: self.object_viewer)
+        """
+        viewer = target_viewer if target_viewer else self.object_viewer
+        viewer.show_file(file_path)
+
+    def show_folder(self, name: str, path: str, modified: str = "-", target_viewer=None):
+        """
+        Display folder details in the viewer.
+
+        Args:
+            name: Folder name
+            path: Folder path
+            modified: Last modified date
+            target_viewer: Optional ObjectViewerWidget (default: self.object_viewer)
+        """
+        viewer = target_viewer if target_viewer else self.object_viewer
+        viewer.show_folder(name, path, modified)
+
+    def open_file_location(self, file_path: Path):
+        """Open file location in system file explorer."""
+        self._open_file_location(file_path)
+
+    def get_file_context_actions(self, data: dict, parent, target_viewer=None):
+        """
+        Get context menu actions for a file.
+
+        Args:
+            data: File data dict with 'path' key
+            parent: Parent widget for actions
+            target_viewer: Optional ObjectViewerWidget for "Open" action
+
+        Returns:
+            List of QAction objects
+        """
+        actions = []
+        file_path = Path(data.get("path", ""))
+
+        # Open action
+        open_action = QAction("Open", parent)
+        open_action.triggered.connect(
+            lambda: self.show_file(file_path, target_viewer)
+        )
+        actions.append(open_action)
+
+        # Open File Location action
+        open_location_action = QAction("Open File Location", parent)
+        open_location_action.triggered.connect(
+            lambda: self.open_file_location(file_path)
+        )
+        actions.append(open_location_action)
+
+        return actions
 
     # ==================== Context Menu ====================
 
@@ -373,13 +434,9 @@ class RootFolderManager(QWidget):
                 menu.addMenu(workspace_menu)
 
         elif data["type"] == "file":
-            open_action = QAction("Open", self)
-            open_action.triggered.connect(lambda: self.object_viewer.show_file(Path(data["path"])))
-            menu.addAction(open_action)
-
-            open_location_action = QAction("Open File Location", self)
-            open_location_action.triggered.connect(lambda: self._open_file_location(Path(data["path"])))
-            menu.addAction(open_location_action)
+            # Use public API methods
+            for action in self.get_file_context_actions(data, self):
+                menu.addAction(action)
 
         menu.exec(self.file_tree.viewport().mapToGlobal(position))
 

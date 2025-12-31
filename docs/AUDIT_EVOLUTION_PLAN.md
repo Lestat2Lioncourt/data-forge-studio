@@ -339,16 +339,66 @@ Imports lourds avec progress updates
 - Historique des valeurs utilisees
 - Templates de parametres reutilisables
 
-### PHASE 4: QUALITE CODE (v1.0 - Post-POC)
+### PHASE 4: THEMING AND APP ICONS (Post-POC)
+
+**Objectif**: Système d'icônes dynamiques adaptées aux thèmes clair/sombre.
+
+#### Concept
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ICONES SOURCE (noir)  →  GENERATION  →  ICONES THEMEES (cache)    │
+│  icons/base/*.png         au lancement   icons/generated/light/    │
+│                                          icons/generated/dark/     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Architecture proposée
+
+| Composant | Description |
+|-----------|-------------|
+| **Icônes source** | Un seul jeu d'icônes en couleur de base (noir) |
+| **Configuration thème** | `icon_color_light` et `icon_color_dark` dans chaque thème |
+| **Générateur** | Utilitaire de recoloration (PIL pour PNG ou XML pour SVG) |
+| **Cache** | Icônes générées stockées dans `icons/generated/{theme}/` |
+| **Loader** | `image_loader.py` vérifie le cache, génère si nécessaire |
+
+#### Fonctionnement
+
+| # | Étape | Description |
+|---|-------|-------------|
+| 4.1 | **Vérification au lancement** | Comparer timestamps source vs cache |
+| 4.2 | **Génération si nécessaire** | Remplacer couleur base par couleur thème |
+| 4.3 | **Chargement depuis cache** | Utiliser icônes pré-générées |
+| 4.4 | **Régénération sur changement** | Si thème modifié ou icônes source mises à jour |
+
+#### Implémentation
+
+| # | Action | Description | Effort |
+|---|--------|-------------|--------|
+| 4.1 | Créer `icon_generator.py` | Utilitaire recoloration PNG (PIL) | 3h |
+| 4.2 | Modifier `image_loader.py` | Intégrer vérification cache + génération | 2h |
+| 4.3 | Étendre format thème | Ajouter `icon_color_light`, `icon_color_dark` | 1h |
+| 4.4 | Convertir icônes existantes | Créer versions monochromes (base noire) | 4h |
+| 4.5 | Gestion SVG (optionnel) | Support SVG avec manipulation XML | 3h |
+
+#### Avantages
+
+- **Maintenance simplifiée**: Un seul jeu d'icônes à gérer
+- **Thèmes personnalisables**: Couleur d'icônes configurable par thème
+- **Performance**: Génération une seule fois, puis cache
+- **Cohérence visuelle**: Icônes adaptées automatiquement au thème actif
+
+### PHASE 5: QUALITE CODE (v1.0 - Post-POC)
 
 | # | Action | Justification | Priorite |
 |---|--------|---------------|----------|
-| 4.1 | Refactorer DatabaseManager | Maintenabilite long terme | v1.0 |
-| 4.2 | Creer constants.py | Clean code | v1.0 |
-| 4.3 | Deduplication code connexion | DRY | v1.0 |
-| 4.4 | Parametrer requetes schema | Bonnes pratiques | v1.0 |
-| 4.5 | Augmenter couverture tests (60%) | Qualite | v1.0 |
-| 4.6 | Thread-safe singletons | Robustesse | v1.0 |
+| 5.1 | Refactorer DatabaseManager | Maintenabilite long terme | v1.0 |
+| 5.2 | Creer constants.py | Clean code | v1.0 |
+| 5.3 | Deduplication code connexion | DRY | v1.0 |
+| 5.4 | Parametrer requetes schema | Bonnes pratiques | v1.0 |
+| 5.5 | Augmenter couverture tests (60%) | Qualite | v1.0 |
+| 5.6 | Thread-safe singletons | Robustesse | v1.0 |
 
 ---
 
@@ -386,22 +436,102 @@ MOYENNE (P2) - Nice to have pour POC
 ├── Gestion erreurs DB amelioree
 └── Parametres scripts (fonctionnalite alpha)
 
-POST-POC (v1.0) - Qualite technique
-├── Refactorer DatabaseManager
-├── Creer constants.py
-├── Parametrer requetes schema
-├── Augmenter couverture tests
-└── Thread-safe singletons
+POST-POC (v1.0) - Theming & Qualite technique
+├── Phase 4: Theming and App Icons
+│   ├── Icônes monochromes (source noire)
+│   ├── Générateur de couleurs par thème
+│   ├── Cache icônes générées
+│   └── Régénération automatique si changement
+├── Phase 5: Qualite Code
+│   ├── Refactorer DatabaseManager
+│   ├── Creer constants.py
+│   ├── Parametrer requetes schema
+│   ├── Augmenter couverture tests
+│   └── Thread-safe singletons
 
 VISION (v1.x+) - Selon demandes utilisateurs
 ├── Jobs enrichis (planification, notifications)
 ├── MongoDB/Oracle support
-└── Integration externe
+├── Integration externe
+└── Phase 6: Système de Plugins Externes (voir détail)
 ```
+
+### PHASE 6: SYSTÈME DE PLUGINS EXTERNES (Vision v2.0)
+
+> **Note**: Cette phase est un mémo pour la v2.0. L'architecture actuelle (v0.5.x)
+> prépare déjà le terrain avec le pattern `target_*` pour l'injection de dépendances.
+
+#### Concept
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    ARCHITECTURE PLUGINS EXTERNES                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│   │   Plugin     │  │   Plugin     │  │   Plugin     │  │   Plugin     │   │
+│   │  Database    │  │  RootFolder  │  │   Script     │  │  [Custom]    │   │
+│   ├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤   │
+│   │ • Icônes     │  │ • Icônes     │  │ • Icônes     │  │ • Icônes     │   │
+│   │ • Méthodes   │  │ • Méthodes   │  │ • Méthodes   │  │ • Méthodes   │   │
+│   │ • Viewers    │  │ • Viewers    │  │ • Viewers    │  │ • Viewers    │   │
+│   │ • API target_│  │ • API target_│  │ • API target_│  │ • API target_│   │
+│   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘   │
+│          │                 │                 │                 │            │
+│          └─────────────────┴─────────────────┴─────────────────┘            │
+│                                    │                                         │
+│                      ┌─────────────▼─────────────┐                          │
+│                      │    WorkspaceManager       │                          │
+│                      │    (Host / Conteneur)     │                          │
+│                      │    - Liens vers ressources│                          │
+│                      │    - Délègue aux plugins  │                          │
+│                      │    - Injecte ses widgets  │                          │
+│                      └───────────────────────────┘                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Préparation actuelle (v0.5.x)
+
+| Composant | Pattern implémenté | Prêt pour externalisation |
+|-----------|-------------------|---------------------------|
+| DatabaseManager | `target_tab_widget` | ✓ |
+| RootFolderManager | `target_viewer` | ✓ |
+| ScriptsManager | `target_viewer` | ✓ |
+| JobsManager | `target_viewer` | ✓ |
+
+#### Vision future
+
+| # | Fonctionnalité | Description |
+|---|----------------|-------------|
+| 6.1 | **Plugin Manager externe** | Application séparée pour gérer les plugins |
+| 6.2 | **Format plugin standardisé** | Structure de package (icônes, méthodes, config) |
+| 6.3 | **Découverte dynamique** | Scan et chargement de plugins au démarrage |
+| 6.4 | **Marketplace** | Repository de plugins communautaires |
+| 6.5 | **API plugin versionnée** | Contrat d'interface stable |
+
+#### Avantages attendus
+
+- **Extensibilité**: Nouveaux types de ressources sans modifier le core
+- **Communauté**: Plugins tiers (ex: connecteur Salesforce, SAP, etc.)
+- **Maintenance**: Mises à jour indépendantes par plugin
+- **Personnalisation**: Chaque utilisateur choisit ses plugins
+
+**Statut**: MEMO pour v2.0 - Non planifié. L'architecture v0.5.x prépare cette évolution.
 
 ---
 
 ## 10. CHANGELOG
+
+### v5.3 (2025-12-31) - Phase 6 Plugin Externes
+- Ajout Phase 6: Système de Plugins Externes (vision long terme, cible v2.0)
+- Documentation de l'architecture plugin-ready préparée en v0.5.x
+
+### v5.2 (2025-12-31) - Phase 4 Theming
+- Ajout Phase 4: Theming and App Icons
+- Système d'icônes dynamiques adaptées aux thèmes
+- Génération automatique des icônes colorées depuis source monochrome
+- Renommage Phase 4 → Phase 5 (Qualité Code)
 
 ### v5.1 (2025-12-29) - Analyse Contextualisee
 - Recontextualisation pour Beta/POC destine a professionnels DATA

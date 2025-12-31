@@ -145,27 +145,33 @@ class DataViewerWidget(QWidget):
 
         layout.addWidget(self.splitter)
 
-    def show_table(self, connection: Any, table_name: str, schema: str = None):
+    def show_table(self, connection: Any, table_name: str, schema: str = None, db_type: str = None):
         """
         Show table exploration mode.
 
         Args:
             connection: Database connection
             table_name: Table name
-            schema: Optional schema name
+            schema: Optional schema name (or db_name for SQL Server)
+            db_type: Database type (sqlite, sqlserver, postgresql, etc.)
         """
         self._current_connection = connection
         self._current_table = table_name
         self._current_query = None
         self._is_saved_query = False
 
-        # Build SQL
-        if schema:
+        # Build SQL based on database type
+        if db_type == "sqlserver" and schema:
+            # SQL Server: [database].[schema].[table] format
+            full_table = f"[{schema}].{table_name}"
+            sql = f"SELECT TOP 100 * FROM {full_table}"
+        elif db_type == "sqlserver":
+            sql = f"SELECT TOP 100 * FROM {table_name}"
+        elif schema:
             full_table = f"{schema}.{table_name}"
+            sql = f"SELECT * FROM {full_table} LIMIT 100"
         else:
-            full_table = table_name
-
-        sql = f"SELECT * FROM {full_table} LIMIT 100"
+            sql = f"SELECT * FROM {table_name} LIMIT 100"
 
         # Update Query tab
         self.sql_editor.setPlainText(sql)

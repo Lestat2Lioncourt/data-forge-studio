@@ -221,6 +221,106 @@ class ScriptsManager(HierarchicalManagerView):
             DialogHelper.warning(tr("select_script_first"), tr("run_script_title"), self)
             return
 
+        self.run_script_by_obj(self._current_item)
+
+    # ==================== Public API (for WorkspaceManager) ====================
+
+    def show_script(self, script: Script, target_viewer=None):
+        """
+        Display script details in a viewer.
+
+        Args:
+            script: Script object to display
+            target_viewer: Optional ObjectViewerWidget (default: internal display)
+        """
+        if target_viewer:
+            # Use external viewer for basic details
+            target_viewer.show_details(
+                name=script.name,
+                obj_type=f"Script ({script.script_type or 'other'})",
+                description=script.description or "",
+                created=script.created_at or "",
+                updated=script.updated_at or ""
+            )
+        else:
+            # Use internal display
+            self._display_item(script)
+
+    def run_script_by_obj(self, script: Script):
+        """
+        Run a specific script.
+
+        Args:
+            script: Script object to run
+        """
         self.log_panel.clear()
         self.log_panel.add_message(tr("script_execution_started"), "INFO")
         DialogHelper.info(tr("feature_coming_soon"), tr("run_script_title"), self)
+
+    def edit_script_by_obj(self, script: Script):
+        """
+        Open edit dialog for a specific script.
+
+        Args:
+            script: Script object to edit
+        """
+        dialog = ScriptDialog(self, script=script)
+        if dialog.exec() == ScriptDialog.DialogCode.Accepted:
+            self.refresh()
+            DialogHelper.info(tr("script_updated"), tr("edit_script_title"), self)
+
+    def delete_script_by_obj(self, script: Script):
+        """
+        Delete a specific script.
+
+        Args:
+            script: Script object to delete
+        """
+        if DialogHelper.confirm(
+            tr("confirm_delete_script").format(name=script.name),
+            tr("delete_script_title"),
+            self
+        ):
+            try:
+                config_db = get_config_db()
+                config_db.delete_script(script.id)
+                self.refresh()
+                DialogHelper.info(tr("script_deleted"), tr("delete_script_title"), self)
+            except Exception as e:
+                DialogHelper.error(str(e), tr("error"), self)
+
+    def get_script_context_actions(self, script: Script, parent, target_viewer=None) -> list:
+        """
+        Get context menu actions for a script.
+
+        Args:
+            script: Script object
+            parent: Parent widget for actions
+            target_viewer: Optional ObjectViewerWidget for display
+
+        Returns:
+            List of QAction objects
+        """
+        actions = []
+
+        # View action
+        view_action = QAction(tr("btn_view") if tr("btn_view") != "btn_view" else "View", parent)
+        view_action.triggered.connect(lambda: self.show_script(script, target_viewer))
+        actions.append(view_action)
+
+        # Run action
+        run_action = QAction(tr("btn_run"), parent)
+        run_action.triggered.connect(lambda: self.run_script_by_obj(script))
+        actions.append(run_action)
+
+        # Edit action
+        edit_action = QAction(tr("btn_edit"), parent)
+        edit_action.triggered.connect(lambda: self.edit_script_by_obj(script))
+        actions.append(edit_action)
+
+        # Delete action
+        delete_action = QAction(tr("btn_delete"), parent)
+        delete_action.triggered.connect(lambda: self.delete_script_by_obj(script))
+        actions.append(delete_action)
+
+        return actions

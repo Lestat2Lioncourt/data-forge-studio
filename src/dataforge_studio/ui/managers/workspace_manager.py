@@ -5,10 +5,10 @@ Uses ObjectViewerWidget for unified content display (same as RootFolderManager).
 """
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Any
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
-    QLabel, QMenu, QFileDialog
+    QLabel, QMenu, QFileDialog, QTabWidget
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from .database_manager import DatabaseManager
     from .rootfolder_manager import RootFolderManager
+    from .scripts_manager import ScriptsManager
+    from .jobs_manager import JobsManager
 
 
 class WorkspaceManager(QWidget):
@@ -56,17 +58,23 @@ class WorkspaceManager(QWidget):
 
         self._database_manager: Optional["DatabaseManager"] = None
         self._rootfolder_manager: Optional["RootFolderManager"] = None
+        self._scripts_manager: Optional["ScriptsManager"] = None
+        self._jobs_manager: Optional["JobsManager"] = None
 
         self._setup_ui()
 
     def set_managers(
         self,
         database_manager: Optional["DatabaseManager"] = None,
-        rootfolder_manager: Optional["RootFolderManager"] = None
+        rootfolder_manager: Optional["RootFolderManager"] = None,
+        scripts_manager: Optional["ScriptsManager"] = None,
+        jobs_manager: Optional["JobsManager"] = None
     ):
         """Set references to managers for delegation."""
         self._database_manager = database_manager
         self._rootfolder_manager = rootfolder_manager
+        self._scripts_manager = scripts_manager
+        self._jobs_manager = jobs_manager
 
     def showEvent(self, event):
         """Lazy-load data on first show."""
@@ -143,9 +151,18 @@ class WorkspaceManager(QWidget):
 
         self.main_splitter.addWidget(left_widget)
 
-        # Right panel: ObjectViewerWidget (unified display)
+        # Right panel: Tab widget for queries (like DatabaseManager)
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(True)
+        self.tab_widget.setMovable(True)
+        self.tab_widget.tabCloseRequested.connect(self._close_tab)
+        self.tab_widget.setMinimumWidth(200)
+
+        # Add welcome/preview tab with ObjectViewerWidget
         self.object_viewer = ObjectViewerWidget()
-        self.main_splitter.addWidget(self.object_viewer)
+        self.tab_widget.addTab(self.object_viewer, "Preview")
+
+        self.main_splitter.addWidget(self.tab_widget)
 
         # Set splitter proportions
         self.main_splitter.setSizes([350, 850])
@@ -153,6 +170,18 @@ class WorkspaceManager(QWidget):
         self.main_splitter.setStretchFactor(1, 1)
 
         layout.addWidget(self.main_splitter)
+
+    def _close_tab(self, index: int):
+        """Close a tab (but not the Preview tab)."""
+        if index == 0:  # Don't close Preview tab
+            return
+
+        widget = self.tab_widget.widget(index)
+        self.tab_widget.removeTab(index)
+        if widget:
+            if hasattr(widget, 'cleanup'):
+                widget.cleanup()
+            widget.deleteLater()
 
     # ==================== Tree Loading ====================
 
@@ -206,6 +235,11 @@ class WorkspaceManager(QWidget):
         scripts = self.config_db.get_workspace_scripts(workspace_id)
         if scripts:
             self._add_scripts_grouped_by_type(ws_item, scripts)
+
+        # Jobs
+        jobs = self.config_db.get_workspace_jobs(workspace_id)
+        if jobs:
+            self._add_jobs_grouped_by_type(ws_item, jobs)
 
         # RootFolders
         ws_file_roots = self.config_db.get_workspace_file_roots_with_context(workspace_id)
@@ -295,6 +329,40 @@ class WorkspaceManager(QWidget):
                     "resource_obj": script
                 })
 
+    def _add_jobs_grouped_by_type(self, parent: QTreeWidgetItem, jobs: list):
+        """Add jobs grouped by type."""
+        types = {}
+        for j in jobs:
+            jtype = j.job_type or "script"
+            if jtype not in types:
+                types[jtype] = []
+            types[jtype].append(j)
+
+        for type_name, type_jobs in sorted(types.items()):
+            type_item = QTreeWidgetItem(parent)
+            type_icon = get_icon("folder.png", size=16)
+            if type_icon:
+                type_item.setIcon(0, type_icon)
+            type_item.setText(0, f"Jobs: {type_name} ({len(type_jobs)})")
+            type_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "job_type",
+                "name": type_name
+            })
+
+            for job in type_jobs:
+                j_item = QTreeWidgetItem(type_item)
+                j_icon = get_icon("jobs.png", size=16)
+                if j_icon:
+                    j_item.setIcon(0, j_icon)
+                # Include status indicator
+                status_icon = "✓" if job.enabled else "✗"
+                j_item.setText(0, f"{status_icon} {job.name}")
+                j_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "job",
+                    "id": job.id,
+                    "resource_obj": job
+                })
+
     def _on_item_expanded(self, item: QTreeWidgetItem):
         """Handle item expansion (lazy loading)."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -336,7 +404,7 @@ class WorkspaceManager(QWidget):
         connection = self._database_manager.connections.get(db_id)
         if not connection:
             try:
-                connection = self._database_manager.connect_to_database(db_id)
+                connection = self._database_manager.reconnect_database(db_id)
             except Exception as e:
                 logger.error(f"Failed to connect: {e}")
                 return
@@ -551,6 +619,7 @@ class WorkspaceManager(QWidget):
                 created=ws.created_at or "",
                 updated=ws.updated_at or ""
             )
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type == "database":
             db = data.get("resource_obj")
@@ -559,14 +628,24 @@ class WorkspaceManager(QWidget):
                 self.object_viewer.show_details(db_name, f"Database on {db.name}", db.description or "")
             else:
                 self.object_viewer.show_details(db.name, f"Server ({db.db_type})", db.description or "")
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type == "query":
             query = data["resource_obj"]
             self.object_viewer.show_details(query.name, "Query", query.description or "")
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type == "script":
             script = data["resource_obj"]
-            self.object_viewer.show_details(script.name, f"Script ({script.script_type})", script.description or "")
+            if self._scripts_manager:
+                self._scripts_manager.show_script(script, target_viewer=self.object_viewer)
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+
+        elif item_type == "job":
+            job = data["resource_obj"]
+            if self._jobs_manager:
+                self._jobs_manager.show_job(job, target_viewer=self.object_viewer)
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type == "rootfolder":
             fr = data.get("resource_obj")
@@ -576,24 +655,32 @@ class WorkspaceManager(QWidget):
                 self.object_viewer.show_details(Path(subfolder).name, "Subfolder", full_path)
             else:
                 self.object_viewer.show_details(fr.name or fr.path, "RootFolder", fr.path)
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type == "folder":
             path = data.get("path", "")
-            self.object_viewer.show_folder(Path(path).name, path)
+            if self._rootfolder_manager:
+                self._rootfolder_manager.show_folder(
+                    Path(path).name, path, target_viewer=self.object_viewer
+                )
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type == "file":
             file_path = data.get("path")
-            if file_path:
-                self.object_viewer.show_file(Path(file_path))
+            if file_path and self._rootfolder_manager:
+                self._rootfolder_manager.show_file(Path(file_path), target_viewer=self.object_viewer)
+                self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type in ["table", "view"]:
             name = data.get("name", "")
             db_name = data.get("db_name", "")
             self.object_viewer.show_details(name, item_type.title(), f"Database: {db_name}" if db_name else "")
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
-        elif item_type in ["query_category", "script_type", "tables_folder", "views_folder"]:
+        elif item_type in ["query_category", "script_type", "job_type", "tables_folder", "views_folder"]:
             name = data.get("name", item_type)
             self.object_viewer.show_details(name, item_type.replace("_", " ").title(), "")
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
     def _on_tree_double_click(self, item: QTreeWidgetItem, column: int):
         """Handle double-click - display content or expand."""
@@ -604,39 +691,19 @@ class WorkspaceManager(QWidget):
         item_type = data.get("type", "")
 
         if item_type in ["table", "view"]:
-            self._execute_select_query(data, limit=100)
+            # Use DatabaseManager method with QueryTab in WorkspaceManager's tab_widget
+            if self._database_manager:
+                self._database_manager._generate_select_query(
+                    data, limit=100, target_tab_widget=self.tab_widget
+                )
         elif item_type == "file":
             file_path = data.get("path")
-            if file_path:
-                self.object_viewer.show_file(Path(file_path))
+            if file_path and self._rootfolder_manager:
+                self._rootfolder_manager.show_file(Path(file_path), target_viewer=self.object_viewer)
+                self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
         elif item_type in ["workspace", "database", "rootfolder", "folder",
                            "tables_folder", "views_folder", "query_category", "script_type"]:
             item.setExpanded(not item.isExpanded())
-
-    def _execute_select_query(self, data: dict, limit: Optional[int] = None):
-        """Execute SELECT query using DataViewerWidget."""
-        if not self._database_manager:
-            DialogHelper.warning("Database manager not available")
-            return
-
-        db_id = data.get("db_id")
-        db_name = data.get("db_name")
-        table_name = data.get("name")
-
-        if not db_id or not table_name:
-            return
-
-        connection = self._database_manager.connections.get(db_id)
-        if not connection:
-            DialogHelper.warning("Not connected. Please expand the database first.")
-            return
-
-        db_conn = self._database_manager._get_connection_by_id(db_id)
-        if not db_conn:
-            return
-
-        # Build and execute query via ObjectViewerWidget
-        self.object_viewer.show_table(connection, table_name, db_name)
 
     # ==================== Context Menu ====================
 
@@ -670,15 +737,101 @@ class WorkspaceManager(QWidget):
             export_action.triggered.connect(lambda: self._export_workspace(data["id"], data.get("workspace_obj").name))
             menu.addAction(export_action)
 
-        elif item_type in ["database", "query", "rootfolder", "script"]:
+        elif item_type == "script":
+            # Use ScriptsManager's context actions
+            if self._scripts_manager:
+                script = data.get("resource_obj")
+                if script:
+                    script_actions = self._scripts_manager.get_script_context_actions(
+                        script, self, target_viewer=self.object_viewer
+                    )
+                    for action in script_actions:
+                        menu.addAction(action)
+                    menu.addSeparator()
+
+            remove_action = QAction("Remove from Workspace", self)
+            remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
+            menu.addAction(remove_action)
+
+        elif item_type == "job":
+            # Use JobsManager's context actions
+            if self._jobs_manager:
+                job = data.get("resource_obj")
+                if job:
+                    job_actions = self._jobs_manager.get_job_context_actions(
+                        job, self, target_viewer=self.object_viewer
+                    )
+                    for action in job_actions:
+                        menu.addAction(action)
+                    menu.addSeparator()
+
+            remove_action = QAction("Remove from Workspace", self)
+            remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
+            menu.addAction(remove_action)
+
+        elif item_type in ["database", "query", "rootfolder"]:
             remove_action = QAction("Remove from Workspace", self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
         elif item_type in ["table", "view"]:
-            select_action = QAction("SELECT *", self)
-            select_action.triggered.connect(lambda: self._execute_select_query(data, limit=100))
-            menu.addAction(select_action)
+            # Use DatabaseManager methods with WorkspaceManager's tab_widget
+            if self._database_manager:
+                # SELECT * action
+                select_all_action = QAction("SELECT *", self)
+                select_all_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._generate_select_query(
+                        d, limit=None, target_tab_widget=self.tab_widget
+                    )
+                )
+                menu.addAction(select_all_action)
+
+                # SELECT TOP 100 action
+                select_top_action = QAction("SELECT TOP 100 *", self)
+                select_top_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._generate_select_query(
+                        d, limit=100, target_tab_widget=self.tab_widget
+                    )
+                )
+                menu.addAction(select_top_action)
+
+                # SELECT COLUMNS action
+                select_cols_action = QAction("SELECT COLUMNS...", self)
+                select_cols_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._generate_select_columns_query(
+                        d, target_tab_widget=self.tab_widget
+                    )
+                )
+                menu.addAction(select_cols_action)
+
+                menu.addSeparator()
+
+                # Edit Code for views only
+                if item_type == "view":
+                    edit_code_action = QAction("Edit Code (ALTER VIEW)", self)
+                    edit_code_action.triggered.connect(
+                        lambda checked, d=data: self._database_manager._load_view_code(
+                            d, target_tab_widget=self.tab_widget
+                        )
+                    )
+                    menu.addAction(edit_code_action)
+                    menu.addSeparator()
+
+                # Distribution Analysis (opens dialog, works from anywhere)
+                dist_action = QAction("Distribution Analysis", self)
+                dist_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._show_distribution_analysis(d)
+                )
+                menu.addAction(dist_action)
+
+        elif item_type == "file":
+            # Use RootFolderManager's context actions
+            if self._rootfolder_manager:
+                file_actions = self._rootfolder_manager.get_file_context_actions(
+                    data, self, target_viewer=self.object_viewer
+                )
+                for action in file_actions:
+                    menu.addAction(action)
 
         if menu.actions():
             menu.exec(self.workspace_tree.viewport().mapToGlobal(position))
@@ -717,6 +870,8 @@ class WorkspaceManager(QWidget):
                 self.config_db.remove_file_root_from_workspace(workspace_id, resource_id)
             elif item_type == "script":
                 self.config_db.remove_script_from_workspace(workspace_id, resource_id)
+            elif item_type == "job":
+                self.config_db.remove_job_from_workspace(workspace_id, resource_id)
 
             parent.removeChild(item)
             logger.info(f"Removed {item_type} {resource_id} from workspace {workspace_id}")
