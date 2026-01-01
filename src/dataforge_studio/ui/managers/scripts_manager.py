@@ -3,12 +3,17 @@ Scripts Manager - Manager for Python scripts with hierarchical TreeView
 Provides interface to view, edit, and execute Python scripts organized by type
 """
 
+import json
+import os
+import subprocess
 from typing import List, Optional, TYPE_CHECKING
 from PySide6.QtWidgets import (
-    QVBoxLayout, QTextEdit, QLabel, QMenu, QSplitter
+    QVBoxLayout, QWidget, QMenu, QSplitter, QTabWidget,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtCore import QUrl
 
 if TYPE_CHECKING:
     from .workspace_manager import WorkspaceManager
@@ -17,10 +22,11 @@ from .base import HierarchicalManagerView
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.form_builder import FormBuilder
 from ..widgets.log_panel import LogPanel
+from ..widgets.code_viewer import CodeViewerWidget
 from ..widgets.dialog_helper import DialogHelper
-from ..utils.ui_helper import UIHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, Script
+from ...core.script_template_loader import get_template_loader
 from ..dialogs.script_dialog import ScriptDialog
 
 import logging
@@ -68,35 +74,96 @@ class ScriptsManager(HierarchicalManagerView):
         builder.add_button(tr("btn_run"), self._run_script, icon="play.png")
 
     def _setup_detail_fields(self, form_builder: FormBuilder):
-        """Add script detail fields."""
+        """Add script detail fields - called by _setup_right_panel."""
         form_builder.add_field(tr("field_name"), "name")
         form_builder.add_field(tr("field_type"), "script_type")
+        form_builder.add_field(tr("field_file_path") if tr("field_file_path") != "field_file_path" else "File", "file_path")
         form_builder.add_field(tr("field_description"), "description")
         form_builder.add_field(tr("field_created"), "created")
         form_builder.add_field(tr("field_modified"), "modified")
 
     def _setup_content_widgets(self, layout: QVBoxLayout):
-        """Add code editor and log panel to content panel."""
-        # Code editor
-        code_label = QLabel(tr("script_code"))
-        code_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(code_label)
+        """Not used - layout handled by _setup_right_panel."""
+        pass
 
-        # Create splitter for code and log
-        content_splitter = QSplitter(Qt.Orientation.Vertical)
+    def _setup_right_panel(self):
+        """
+        Override base class to create tabbed Details/Parameters layout.
 
-        self.code_editor = QTextEdit()
-        self.code_editor.setReadOnly(True)
-        self.code_editor.setPlaceholderText(tr("code_placeholder"))
-        UIHelper.apply_monospace_font(self.code_editor)
-        content_splitter.addWidget(self.code_editor)
+        Layout:
+        - Top: QTabWidget with "Details" and "Parameters" tabs
+        - Bottom: Code viewer (JSON schema) + Log panel
+        """
+        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # Log panel
+        # === Top: Tabbed panel (Details + Parameters) ===
+        self.info_tabs = QTabWidget()
+
+        # Tab 1: Details
+        details_widget = QWidget()
+        details_layout = QVBoxLayout(details_widget)
+        details_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.details_form = FormBuilder(title=tr("script_details"))
+        self._setup_detail_fields(self.details_form)
+        details_layout.addWidget(self.details_form.container)
+        details_layout.addStretch()
+
+        self.info_tabs.addTab(details_widget, tr("tab_details") if tr("tab_details") != "tab_details" else "Details")
+
+        # Tab 2: Parameters (read-only table)
+        params_widget = QWidget()
+        params_layout = QVBoxLayout(params_widget)
+        params_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.params_table = QTableWidget()
+        self.params_table.setColumnCount(4)
+        self.params_table.setHorizontalHeaderLabels([
+            tr("param_name") if tr("param_name") != "param_name" else "Name",
+            tr("param_type") if tr("param_type") != "param_type" else "Type",
+            tr("param_label") if tr("param_label") != "param_label" else "Label",
+            tr("param_required") if tr("param_required") != "param_required" else "Required"
+        ])
+        self.params_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.params_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.params_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.params_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.params_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.params_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.params_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        params_layout.addWidget(self.params_table)
+
+        self.info_tabs.addTab(params_widget, tr("tab_parameters") if tr("tab_parameters") != "tab_parameters" else "Parameters")
+
+        self.right_splitter.addWidget(self.info_tabs)
+
+        # === Bottom: Tabbed panel (Source + Log) ===
+        self.content_tabs = QTabWidget()
+
+        # Tab 1: Source (read-only code viewer)
+        source_widget = QWidget()
+        source_layout = QVBoxLayout(source_widget)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.code_viewer = CodeViewerWidget(show_header=False)
+        source_layout.addWidget(self.code_viewer)
+
+        self.content_tabs.addTab(source_widget, tr("tab_source") if tr("tab_source") != "tab_source" else "Source")
+
+        # Tab 2: Log panel
+        log_widget = QWidget()
+        log_layout = QVBoxLayout(log_widget)
+        log_layout.setContentsMargins(0, 0, 0, 0)
+
         self.log_panel = LogPanel(with_filters=True)
-        content_splitter.addWidget(self.log_panel)
+        log_layout.addWidget(self.log_panel)
 
-        content_splitter.setSizes([400, 200])
-        layout.addWidget(content_splitter)
+        self.content_tabs.addTab(log_widget, tr("tab_log") if tr("tab_log") != "tab_log" else "Log")
+
+        self.right_splitter.addWidget(self.content_tabs)
+
+        # Set proportions: info tabs smaller, content larger
+        self.right_splitter.setSizes([200, 400])
 
     def _load_items(self) -> List[Script]:
         """Load scripts from database."""
@@ -110,36 +177,117 @@ class ScriptsManager(HierarchicalManagerView):
         return item.name
 
     def _display_item(self, script: Script):
-        """Display script details and code."""
+        """Display script details, parameters table, and source code."""
         if not script:
             self._clear_item_display()
             return
 
+        # === Tab 1: Details form ===
         self.details_form.set_value("name", script.name)
         self.details_form.set_value("script_type", script.script_type or "")
+        self.details_form.set_value("file_path", script.file_path or "")
         self.details_form.set_value("description", script.description or "")
         self.details_form.set_value("created", script.created_at or "")
         self.details_form.set_value("modified", script.updated_at or "")
 
-        # Update code editor (parameters_schema contains the code or schema)
-        self.code_editor.setPlainText(script.parameters_schema or "")
+        # === Tab 2: Parameters table ===
+        self._populate_parameters_table(script)
+
+        # === Bottom Source tab: Read and display file with syntax highlighting ===
+        # Try to get source code from script's file_path first
+        source_code = script.get_source_code()
+        file_path = script.file_path
+
+        # If no file_path in script, try to find it from template
+        if not source_code and not file_path:
+            loader = get_template_loader()
+            template = loader.get_template_by_name(script.name)
+            if template and template.has_file:
+                file_path = template.file_path
+                source_code = template.get_source_code()
+
+        if source_code:
+            # Get file extension for syntax highlighting
+            if file_path:
+                import os
+                _, ext = os.path.splitext(file_path)
+                file_ext = ext.lstrip(".").lower() if ext else "python"
+            else:
+                file_ext = script.get_file_extension() or "python"
+            self.code_viewer.set_code(source_code, file_ext)
+        elif file_path:
+            # File path set but file not found
+            self.code_viewer.set_code(
+                f"# File not found: {file_path}\n"
+                f"# Fichier non trouvé: {file_path}",
+                "python"
+            )
+        else:
+            # No file path set - show informative message
+            self.code_viewer.set_code(
+                "# No file path configured for this script.\n"
+                "# Edit the script to set a file path.\n"
+                "#\n"
+                "# Aucun chemin de fichier configuré pour ce script.\n"
+                "# Modifiez le script pour définir un chemin de fichier.",
+                "python"
+            )
 
         # Clear log
         self.log_panel.clear()
 
+    def _populate_parameters_table(self, script: Script):
+        """Populate the parameters table from script.parameters_schema."""
+        self.params_table.setRowCount(0)
+
+        if not script.parameters_schema:
+            return
+
+        try:
+            params = json.loads(script.parameters_schema)
+            if not isinstance(params, list):
+                return
+
+            self.params_table.setRowCount(len(params))
+
+            for row, param in enumerate(params):
+                # Name
+                name_item = QTableWidgetItem(param.get("name", ""))
+                self.params_table.setItem(row, 0, name_item)
+
+                # Type
+                type_item = QTableWidgetItem(param.get("type", "string"))
+                self.params_table.setItem(row, 1, type_item)
+
+                # Label
+                label_item = QTableWidgetItem(param.get("label", ""))
+                self.params_table.setItem(row, 2, label_item)
+
+                # Required
+                required = tr("yes") if param.get("required", True) else tr("no")
+                required_item = QTableWidgetItem(required)
+                self.params_table.setItem(row, 3, required_item)
+
+        except json.JSONDecodeError:
+            logger.warning(f"Invalid parameters_schema JSON for script {script.name}")
+
     def _clear_item_display(self):
-        """Clear all details fields."""
+        """Clear all details fields, parameters table, and code viewer."""
         self.details_form.set_value("name", "")
         self.details_form.set_value("script_type", "")
+        self.details_form.set_value("file_path", "")
         self.details_form.set_value("description", "")
         self.details_form.set_value("created", "")
         self.details_form.set_value("modified", "")
-        self.code_editor.clear()
+        self.params_table.setRowCount(0)
+        self.code_viewer.clear()
         self.log_panel.clear()
 
     def _on_item_action(self, item: Script):
-        """Run script on double-click."""
-        self._run_script()
+        """Display script code on double-click."""
+        # The script is already displayed via _display_item when selected
+        # Just ensure focus is on the code viewer
+        self.code_viewer.setFocus()
 
     # ==================== Context Menu ====================
 
@@ -151,6 +299,13 @@ class ScriptsManager(HierarchicalManagerView):
 
     def _build_item_context_menu(self, menu: QMenu, script: Script):
         """Build context menu for a script."""
+        # Open in external editor action
+        open_external_action = QAction(tr("open_in_editor") if tr("open_in_editor") != "open_in_editor" else "Open in External Editor", self)
+        open_external_action.triggered.connect(lambda: self._open_in_external_editor(script))
+        menu.addAction(open_external_action)
+
+        menu.addSeparator()
+
         # Run action
         run_action = QAction(tr("btn_run"), self)
         run_action.triggered.connect(self._run_script)
@@ -228,6 +383,50 @@ class ScriptsManager(HierarchicalManagerView):
                 DialogHelper.info(tr("script_deleted"), tr("delete_script_title"), self)
             except Exception as e:
                 DialogHelper.error(str(e), tr("error"), self)
+
+    def _open_in_external_editor(self, script: Script):
+        """
+        Open script file in external editor.
+
+        Opens the script's file_path directly in the external editor.
+        """
+        if not script or not script.file_path:
+            DialogHelper.warning(
+                tr("no_file_to_edit") if tr("no_file_to_edit") != "no_file_to_edit" else "No file path defined",
+                tr("open_in_editor") if tr("open_in_editor") != "open_in_editor" else "Open in Editor",
+                self
+            )
+            return
+
+        if not os.path.isfile(script.file_path):
+            DialogHelper.warning(
+                tr("file_not_found") if tr("file_not_found") != "file_not_found" else f"File not found: {script.file_path}",
+                tr("open_in_editor") if tr("open_in_editor") != "open_in_editor" else "Open in Editor",
+                self
+            )
+            return
+
+        try:
+            # Try VS Code first, then fall back to system default
+            try:
+                # Try to open with VS Code
+                subprocess.Popen(["code", script.file_path], shell=True)
+                logger.info(f"Opened script in VS Code: {script.file_path}")
+            except Exception:
+                # Fall back to system default
+                if os.name == "nt":  # Windows
+                    os.startfile(script.file_path)
+                else:
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(script.file_path))
+                logger.info(f"Opened script in default editor: {script.file_path}")
+
+        except Exception as e:
+            logger.error(f"Error opening script in external editor: {e}")
+            DialogHelper.error(
+                tr("error_opening_editor") if tr("error_opening_editor") != "error_opening_editor" else "Error opening editor",
+                details=str(e),
+                parent=self
+            )
 
     def _run_script(self):
         """Run selected script."""
@@ -316,6 +515,11 @@ class ScriptsManager(HierarchicalManagerView):
             List of QAction objects
         """
         actions = []
+
+        # Open in external editor action
+        open_external_action = QAction(tr("open_in_editor") if tr("open_in_editor") != "open_in_editor" else "Open in External Editor", parent)
+        open_external_action.triggered.connect(lambda: self._open_in_external_editor(script))
+        actions.append(open_external_action)
 
         # View action
         view_action = QAction(tr("btn_view") if tr("btn_view") != "btn_view" else "View", parent)

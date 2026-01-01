@@ -4,12 +4,13 @@ Script Dialog - Dialog for creating/editing Scripts with parameter schema editor
 from typing import Optional, List, Dict, Any
 import json
 
+import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QTextEdit, QComboBox, QPushButton,
     QDialogButtonBox, QGroupBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QCheckBox, QSpinBox, QAbstractItemView,
-    QWidget, QLabel, QMessageBox
+    QWidget, QLabel, QMessageBox, QFileDialog
 )
 from PySide6.QtCore import Qt
 
@@ -29,13 +30,29 @@ logger = logging.getLogger(__name__)
 
 # Script types available
 SCRIPT_TYPES = [
-    ("file_operation", "Operations fichiers"),
-    ("data_import", "Import de donnees"),
-    ("data_export", "Export de donnees"),
-    ("data_transform", "Transformation"),
-    ("maintenance", "Maintenance"),
-    ("custom", "Personnalise"),
+    ("python", "Python"),
+    ("powershell", "PowerShell"),
+    ("bash", "Bash/Shell"),
+    ("batch", "Batch/CMD"),
+    ("sql", "SQL"),
+    ("javascript", "JavaScript"),
+    ("custom", "Autre"),
 ]
+
+# Map file extensions to script types
+EXTENSION_TO_SCRIPT_TYPE = {
+    ".py": "python",
+    ".ps1": "powershell",
+    ".psm1": "powershell",
+    ".psd1": "powershell",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
+    ".bat": "batch",
+    ".cmd": "batch",
+    ".sql": "sql",
+    ".js": "javascript",
+}
 
 
 class ParameterEditorDialog(QDialog):
@@ -266,6 +283,19 @@ class ScriptDialog(QDialog):
         self.description_edit.setPlaceholderText("Description du script...")
         info_layout.addRow("Description:", self.description_edit)
 
+        # File path selector
+        file_path_layout = QHBoxLayout()
+        self.file_path_edit = QLineEdit()
+        self.file_path_edit.setPlaceholderText("Chemin vers le fichier script...")
+        self.file_path_edit.textChanged.connect(self._on_file_path_changed)
+        file_path_layout.addWidget(self.file_path_edit)
+
+        browse_btn = QPushButton("Parcourir...")
+        browse_btn.clicked.connect(self._browse_file)
+        file_path_layout.addWidget(browse_btn)
+
+        info_layout.addRow("Fichier:", file_path_layout)
+
         # Template selector (for new scripts)
         if not self.is_editing:
             template_layout = QHBoxLayout()
@@ -352,9 +382,53 @@ class ScriptDialog(QDialog):
 
         self.description_edit.setPlainText(self.script.description or "")
 
+        # Set file path
+        self.file_path_edit.setText(self.script.file_path or "")
+
         # Load parameters
         self.parameters = self.script.get_parameters()
         self._refresh_parameters_table()
+
+    def _browse_file(self):
+        """Open file browser to select script file."""
+        file_filter = (
+            "Scripts (*.py *.ps1 *.sh *.bash *.bat *.cmd *.sql *.js);;"
+            "Python (*.py);;"
+            "PowerShell (*.ps1 *.psm1 *.psd1);;"
+            "Shell (*.sh *.bash *.zsh);;"
+            "Batch (*.bat *.cmd);;"
+            "SQL (*.sql);;"
+            "JavaScript (*.js);;"
+            "Tous les fichiers (*.*)"
+        )
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Sélectionner un fichier script",
+            "",
+            file_filter
+        )
+        if file_path:
+            self.file_path_edit.setText(file_path)
+
+    def _on_file_path_changed(self, file_path: str):
+        """Auto-detect script type from file extension."""
+        if not file_path:
+            return
+
+        _, ext = os.path.splitext(file_path)
+        ext = ext.lower()
+
+        script_type = EXTENSION_TO_SCRIPT_TYPE.get(ext)
+        if script_type:
+            idx = self.type_combo.findData(script_type)
+            if idx >= 0:
+                self.type_combo.setCurrentIndex(idx)
+
+        # Auto-fill name from filename if empty
+        if not self.name_edit.text().strip():
+            basename = os.path.basename(file_path)
+            name_without_ext = os.path.splitext(basename)[0]
+            self.name_edit.setText(name_without_ext)
 
     def _apply_template(self):
         """Apply selected template."""
@@ -383,9 +457,18 @@ class ScriptDialog(QDialog):
         if idx >= 0:
             self.type_combo.setCurrentIndex(idx)
 
-        # Get parameters from schema function
-        schema_func = info.get("get_schema")
-        if schema_func:
+        # Set file path if provided
+        file_path = info.get("file_path", "")
+        if file_path:
+            self.file_path_edit.setText(file_path)
+
+        # Get parameters - either from list or schema function (backward compat)
+        if "parameters" in info:
+            self.parameters = info["parameters"]
+            self._refresh_parameters_table()
+        elif "get_schema" in info:
+            # Legacy: get_schema function
+            schema_func = info["get_schema"]
             self.parameters = schema_func()
             self._refresh_parameters_table()
 
@@ -506,6 +589,11 @@ class ScriptDialog(QDialog):
             DialogHelper.warning("Le nom est requis", parent=self)
             return
 
+        file_path = self.file_path_edit.text().strip()
+        if file_path and not os.path.isfile(file_path):
+            DialogHelper.warning(f"Le fichier n'existe pas: {file_path}", parent=self)
+            return
+
         script_type = self.type_combo.currentData()
         description = self.description_edit.toPlainText().strip()
 
@@ -520,6 +608,7 @@ class ScriptDialog(QDialog):
                 self.script.name = name
                 self.script.script_type = script_type
                 self.script.description = description
+                self.script.file_path = file_path
                 self.script.parameters_schema = parameters_schema
                 config_db.update_script(self.script)
             else:
@@ -529,6 +618,7 @@ class ScriptDialog(QDialog):
                     name=name,
                     script_type=script_type,
                     description=description,
+                    file_path=file_path,
                     parameters_schema=parameters_schema
                 )
                 config_db.add_script(self.script)

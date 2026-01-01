@@ -1,0 +1,35 @@
+id: file_dispatcher
+name: File Dispatcher
+aliases:
+  - Dispatch Files
+  - file dispatcher
+version: 1.0.0
+description: |
+  Dispatch files from a root folder to their respective contract/dataset subfolders.
+
+  Files are matched based on their filename pattern:
+  - Format: ContractName_DatasetName_*.extension
+  - Files that cannot be matched are moved to _InvalidFiles folder
+
+  Prerequisites:
+  - Root folder must exist with contract/dataset folder structure
+  - _InvalidFiles folder must exist in root folder
+
+author: DataForge Studio
+entry_point: run
+
+requires:
+  - rootfolders
+
+parameters:
+  - name: root_folder
+    type: rootfolder
+    label: Root Folder
+    description: Root folder containing files to dispatch and contract/dataset subfolders
+    required: true
+
+  - name: dry_run
+    type: bool
+    label: Dry Run
+    description: Simulate the operation without moving files
+    default: false

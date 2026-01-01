@@ -744,6 +744,44 @@ class WorkspaceManager(QWidget):
                 )
                 menu.addAction(dist_action)
 
+        elif item_type == "procedure":
+            # Stored procedure context menu - delegate to DatabaseManager
+            if self._database_manager:
+                view_code_action = QAction("View Code", self)
+                view_code_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._load_routine_code(
+                        d, target_tab_widget=self.tab_widget
+                    )
+                )
+                menu.addAction(view_code_action)
+
+                exec_action = QAction("Generate EXEC Template", self)
+                exec_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._generate_exec_template(
+                        d, target_tab_widget=self.tab_widget
+                    )
+                )
+                menu.addAction(exec_action)
+
+        elif item_type == "function":
+            # Function context menu - delegate to DatabaseManager
+            if self._database_manager:
+                view_code_action = QAction("View Code", self)
+                view_code_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._load_routine_code(
+                        d, target_tab_widget=self.tab_widget
+                    )
+                )
+                menu.addAction(view_code_action)
+
+                select_action = QAction("Generate SELECT", self)
+                select_action.triggered.connect(
+                    lambda checked, d=data: self._database_manager._generate_select_function(
+                        d, target_tab_widget=self.tab_widget
+                    )
+                )
+                menu.addAction(select_action)
+
         elif item_type == "file":
             # Use RootFolderManager's context actions
             if self._rootfolder_manager:

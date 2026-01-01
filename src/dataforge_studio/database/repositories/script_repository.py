@@ -23,25 +23,25 @@ class ScriptRepository(BaseRepository[Script]):
     def _get_insert_sql(self) -> str:
         return """
             INSERT INTO scripts
-            (id, name, description, script_type, parameters_schema, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (id, name, description, script_type, file_path, parameters_schema, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     def _get_update_sql(self) -> str:
         return """
             UPDATE scripts
-            SET name = ?, description = ?, script_type = ?,
+            SET name = ?, description = ?, script_type = ?, file_path = ?,
                 parameters_schema = ?, updated_at = ?
             WHERE id = ?
         """
 
     def _model_to_insert_tuple(self, model: Script) -> tuple:
         return (model.id, model.name, model.description, model.script_type,
-                model.parameters_schema, model.created_at, model.updated_at)
+                model.file_path, model.parameters_schema, model.created_at, model.updated_at)
 
     def _model_to_update_tuple(self, model: Script) -> tuple:
         model.updated_at = datetime.now().isoformat()
-        return (model.name, model.description, model.script_type,
+        return (model.name, model.description, model.script_type, model.file_path,
                 model.parameters_schema, model.updated_at, model.id)
 
     def get_all_scripts(self) -> List[Script]:

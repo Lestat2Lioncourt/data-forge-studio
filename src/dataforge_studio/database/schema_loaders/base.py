@@ -211,6 +211,6 @@ class SchemaLoader(ABC):
                 "db_id": self.db_id,
                 "db_name": self.db_name,
                 "schema": schema_name,
-                "procedure": proc_name
+                "proc_name": proc_name
             }
         )

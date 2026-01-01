@@ -28,6 +28,7 @@ from ..widgets.pinnable_panel import PinnablePanel
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, DatabaseConnection
 from ...database.schema_loaders import SchemaLoaderFactory, SchemaNode, SchemaNodeType
+from ...database.dialects import DialectFactory, DatabaseDialect
 from ...utils.image_loader import get_database_icon, get_icon
 from ...utils.credential_manager import CredentialManager
 from ...utils.network_utils import check_server_reachable
@@ -237,6 +238,7 @@ class DatabaseManager(QWidget):
         super().__init__(parent)
 
         self.connections: Dict[str, Union[pyodbc.Connection, sqlite3.Connection]] = {}
+        self._dialects: Dict[str, DatabaseDialect] = {}  # Database-specific SQL dialects
         self.tab_counter = 1
         self._expand_connected = False
         self._workspace_filter: Optional[str] = None
@@ -250,6 +252,79 @@ class DatabaseManager(QWidget):
     def set_workspace_manager(self, workspace_manager: "WorkspaceManager"):
         """Set reference to WorkspaceManager for auto-refresh on workspace changes."""
         self._workspace_manager = workspace_manager
+
+    def _get_dialect(self, db_id: str, db_name: Optional[str] = None) -> Optional[DatabaseDialect]:
+        """
+        Get or create a dialect for a database connection.
+
+        Args:
+            db_id: Database connection ID
+            db_name: Actual database name (important for SQL Server multi-db)
+
+        Returns:
+            DatabaseDialect instance or None if connection not available
+        """
+        db_conn = self._get_connection_by_id(db_id)
+        connection = self.connections.get(db_id)
+
+        if not db_conn or not connection:
+            return None
+
+        # For SQL Server, db_name must be the actual database name, not the connection name
+        actual_db_name = db_name or db_conn.name
+
+        # Check cache - but update db_name if provided (SQL Server may switch databases)
+        if db_id in self._dialects:
+            dialect = self._dialects[db_id]
+            if db_name:
+                dialect.db_name = db_name
+            return dialect
+
+        dialect = DialectFactory.create(db_conn.db_type, connection, actual_db_name)
+        if dialect:
+            self._dialects[db_id] = dialect
+
+        return dialect
+
+    def _load_template_into_tab(
+        self,
+        db_id: str,
+        db_name: Optional[str],
+        template: str,
+        tab_name: str,
+        target_tab_widget: Optional[QTabWidget] = None
+    ):
+        """Load a SQL template into a query tab.
+
+        Args:
+            db_id: Database connection ID
+            db_name: Database name
+            template: SQL template to load
+            tab_name: Name for the tab
+            target_tab_widget: Optional QTabWidget (default: self.tab_widget)
+        """
+        connection = self.connections.get(db_id)
+
+        if target_tab_widget:
+            # Create new tab in target widget
+            db_conn = self._get_connection_by_id(db_id)
+            query_tab = QueryTab(
+                parent=self,
+                connection=connection,
+                db_connection=db_conn,
+                tab_name=tab_name,
+                database_manager=self,
+                target_database=db_name
+            )
+            query_tab.query_saved.connect(self.query_saved.emit)
+            index = target_tab_widget.addTab(query_tab, tab_name)
+            target_tab_widget.setCurrentIndex(index)
+            query_tab.set_query_text(template)
+        else:
+            # Use existing method for self.tab_widget
+            current_tab = self._get_or_create_query_tab(db_id)
+            if current_tab:
+                current_tab.set_query_text(template)
 
     def _setup_ui(self):
         """Setup UI components"""
@@ -1283,46 +1358,26 @@ class DatabaseManager(QWidget):
         if not all([db_id, db_name, view_name]):
             return
 
+        # Get dialect for database-specific operations
+        dialect = self._get_dialect(db_id, db_name)
+        if not dialect:
+            DialogHelper.warning("Database not connected", parent=self)
+            return
+
         # Parse schema and view name
         parts = view_name.split(".")
         if len(parts) == 2:
             schema, name = parts
         else:
-            schema = "dbo"
+            schema = dialect.default_schema or "dbo"
             name = view_name
 
-        # Get connection
-        connection = self.connections.get(db_id)
-        if not connection:
-            DialogHelper.warning("Database not connected", parent=self)
-            return
-
         try:
-            cursor = connection.cursor()
+            # Use dialect to get view definition
+            code = dialect.get_alter_view_statement(name, schema)
 
-            # Get view definition from sys.sql_modules
-            cursor.execute(f"""
-                SELECT m.definition
-                FROM [{db_name}].sys.sql_modules m
-                INNER JOIN [{db_name}].sys.views v ON m.object_id = v.object_id
-                INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
-                WHERE v.name = ? AND s.name = ?
-            """, (name, schema))
-
-            result = cursor.fetchone()
-
-            if result and result[0]:
-                code = result[0]
-
-                # Convert CREATE VIEW to ALTER VIEW
-                # Match CREATE VIEW (case insensitive) and replace with ALTER VIEW
-                code = re.sub(
-                    r'\bCREATE\s+VIEW\b',
-                    'ALTER VIEW',
-                    code,
-                    count=1,
-                    flags=re.IGNORECASE
-                )
+            if code:
+                connection = self.connections.get(db_id)
 
                 # Determine target tab widget
                 tab_widget = target_tab_widget if target_tab_widget else self.tab_widget
@@ -1366,8 +1421,13 @@ class DatabaseManager(QWidget):
                 details=str(e)
             )
 
-    def _load_routine_code(self, data: dict):
-        """Load stored procedure or function code into query editor"""
+    def _load_routine_code(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+        """Load stored procedure or function code into query editor.
+
+        Args:
+            data: Dict with routine info
+            target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+        """
         db_id = data.get("db_id")
         db_name = data.get("db_name")
         schema = data.get("schema")
@@ -1378,38 +1438,45 @@ class DatabaseManager(QWidget):
         else:
             routine_name = data.get("func_name")
 
-        if not all([db_id, db_name, schema, routine_name]):
+        if not all([db_id, schema, routine_name]):
             return
 
-        # Get connection
-        connection = self.connections.get(db_id)
-        if not connection:
+        # Get dialect for database-specific operations
+        dialect = self._get_dialect(db_id, db_name)
+        if not dialect:
             DialogHelper.warning("Database not connected", parent=self)
             return
 
         try:
-            cursor = connection.cursor()
+            # Use dialect to get routine definition
+            code = dialect.get_routine_definition(routine_name, schema, routine_type)
 
-            # Get routine definition from sys.sql_modules
-            cursor.execute(f"""
-                SELECT m.definition
-                FROM [{db_name}].sys.sql_modules m
-                INNER JOIN [{db_name}].sys.objects o ON m.object_id = o.object_id
-                INNER JOIN [{db_name}].sys.schemas s ON o.schema_id = s.schema_id
-                WHERE o.name = ? AND s.name = ?
-            """, (routine_name, schema))
+            if code:
+                connection = self.connections.get(db_id)
 
-            result = cursor.fetchone()
-
-            if result and result[0]:
-                code = result[0]
-
-                # Get or create a query tab
-                current_tab = self._get_or_create_query_tab(db_id)
-
-                if current_tab:
-                    current_tab.set_query_text(code)
+                if target_tab_widget:
+                    # Create new tab in target widget
+                    db_conn = self._get_connection_by_id(db_id)
+                    tab_name = f"{routine_name} ({routine_type})"
+                    query_tab = QueryTab(
+                        parent=self,
+                        connection=connection,
+                        db_connection=db_conn,
+                        tab_name=tab_name,
+                        database_manager=self,
+                        target_database=db_name
+                    )
+                    query_tab.query_saved.connect(self.query_saved.emit)
+                    index = target_tab_widget.addTab(query_tab, tab_name)
+                    target_tab_widget.setCurrentIndex(index)
+                    query_tab.set_query_text(code)
                     logger.info(f"Loaded {routine_type} code: {schema}.{routine_name}")
+                else:
+                    # Use existing method for self.tab_widget
+                    current_tab = self._get_or_create_query_tab(db_id)
+                    if current_tab:
+                        current_tab.set_query_text(code)
+                        logger.info(f"Loaded {routine_type} code: {schema}.{routine_name}")
             else:
                 DialogHelper.warning(
                     f"Could not retrieve code for {schema}.{routine_name}\n"
@@ -1425,122 +1492,72 @@ class DatabaseManager(QWidget):
                 details=str(e)
             )
 
-    def _generate_exec_template(self, data: dict):
-        """Generate EXEC template for stored procedure"""
+    def _generate_exec_template(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+        """Generate EXEC/CALL template for stored procedure.
+
+        Args:
+            data: Dict with procedure info
+            target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+        """
         db_id = data.get("db_id")
         db_name = data.get("db_name")
         schema = data.get("schema")
         proc_name = data.get("proc_name")
 
-        if not all([db_id, db_name, schema, proc_name]):
+        if not all([db_id, schema, proc_name]):
             return
 
-        # Get connection to fetch parameters
-        connection = self.connections.get(db_id)
-        if not connection:
+        # Get dialect for database-specific operations
+        dialect = self._get_dialect(db_id, db_name)
+        if not dialect:
             DialogHelper.warning("Database not connected", parent=self)
             return
 
         try:
-            cursor = connection.cursor()
-
-            # Get procedure parameters
-            cursor.execute(f"""
-                SELECT p.name, t.name as type_name, p.max_length, p.is_output
-                FROM [{db_name}].sys.parameters p
-                INNER JOIN [{db_name}].sys.types t ON p.user_type_id = t.user_type_id
-                INNER JOIN [{db_name}].sys.procedures pr ON p.object_id = pr.object_id
-                INNER JOIN [{db_name}].sys.schemas s ON pr.schema_id = s.schema_id
-                WHERE pr.name = ? AND s.name = ?
-                ORDER BY p.parameter_id
-            """, (proc_name, schema))
-
-            params = cursor.fetchall()
-
-            # Build EXEC template
-            full_name = f"[{db_name}].[{schema}].[{proc_name}]"
-
-            if params:
-                param_list = []
-                for param_name, type_name, max_length, is_output in params:
-                    output_str = " OUTPUT" if is_output else ""
-                    param_list.append(f"    {param_name} = NULL{output_str}  -- {type_name}")
-
-                template = f"EXEC {full_name}\n" + ",\n".join(param_list)
-            else:
-                template = f"EXEC {full_name}"
+            # Use dialect to generate template
+            template = dialect.generate_exec_template(proc_name, schema, "procedure")
 
             # Load into editor
-            current_tab = self._get_or_create_query_tab(db_id)
-            if current_tab:
-                current_tab.set_query_text(template)
+            self._load_template_into_tab(db_id, db_name, template, f"{proc_name} (exec)", target_tab_widget)
 
         except Exception as e:
             logger.error(f"Error generating EXEC template: {e}")
             # Fallback to simple template
-            full_name = f"[{db_name}].[{schema}].[{proc_name}]"
-            current_tab = self._get_or_create_query_tab(db_id)
-            if current_tab:
-                current_tab.set_query_text(f"EXEC {full_name}")
+            template = dialect.generate_exec_template(proc_name, schema, "procedure")
+            self._load_template_into_tab(db_id, db_name, template, f"{proc_name} (exec)", target_tab_widget)
 
-    def _generate_select_function(self, data: dict):
-        """Generate SELECT template for function"""
+    def _generate_select_function(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+        """Generate SELECT template for function.
+
+        Args:
+            data: Dict with function info
+            target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+        """
         db_id = data.get("db_id")
         db_name = data.get("db_name")
         schema = data.get("schema")
         func_name = data.get("func_name")
         func_type = data.get("func_type", "")
 
-        if not all([db_id, db_name, schema, func_name]):
+        if not all([db_id, schema, func_name]):
             return
 
-        full_name = f"[{db_name}].[{schema}].[{func_name}]"
+        # Get dialect for database-specific operations
+        dialect = self._get_dialect(db_id, db_name)
+        if not dialect:
+            DialogHelper.warning("Database not connected", parent=self)
+            return
 
-        # Get connection to fetch parameters
-        connection = self.connections.get(db_id)
+        try:
+            # Use dialect to generate template
+            template = dialect.generate_select_function_template(func_name, schema, func_type)
+            self._load_template_into_tab(db_id, db_name, template, f"{func_name} (select)", target_tab_widget)
 
-        template = ""
-        if connection:
-            try:
-                cursor = connection.cursor()
-
-                # Get function parameters
-                cursor.execute(f"""
-                    SELECT p.name, t.name as type_name
-                    FROM [{db_name}].sys.parameters p
-                    INNER JOIN [{db_name}].sys.types t ON p.user_type_id = t.user_type_id
-                    INNER JOIN [{db_name}].sys.objects o ON p.object_id = o.object_id
-                    INNER JOIN [{db_name}].sys.schemas s ON o.schema_id = s.schema_id
-                    WHERE o.name = ? AND s.name = ? AND p.parameter_id > 0
-                    ORDER BY p.parameter_id
-                """, (func_name, schema))
-
-                params = cursor.fetchall()
-
-                if params:
-                    param_placeholders = ", ".join([f"NULL /* {p[0]}: {p[1]} */" for p in params])
-                else:
-                    param_placeholders = ""
-
-                # Table-valued function vs scalar function
-                if "TABLE" in func_type.upper():
-                    template = f"SELECT * FROM {full_name}({param_placeholders})"
-                else:
-                    template = f"SELECT {full_name}({param_placeholders})"
-
-            except Exception as e:
-                logger.warning(f"Could not get function parameters: {e}")
-
-        if not template:
+        except Exception as e:
+            logger.warning(f"Could not generate function template: {e}")
             # Fallback
-            if "TABLE" in func_type.upper():
-                template = f"SELECT * FROM {full_name}()"
-            else:
-                template = f"SELECT {full_name}()"
-
-        current_tab = self._get_or_create_query_tab(db_id)
-        if current_tab:
-            current_tab.set_query_text(template)
+            template = dialect.generate_select_function_template(func_name, schema, func_type)
+            self._load_template_into_tab(db_id, db_name, template, f"{func_name} (select)", target_tab_widget)
 
     def _show_distribution_analysis(self, data: dict):
         """Show distribution analysis for a table or view"""
@@ -1821,6 +1838,10 @@ class DatabaseManager(QWidget):
                 except Exception:
                     pass
                 del self.connections[db_conn.id]
+
+            # Clean up dialect
+            if db_conn.id in self._dialects:
+                del self._dialects[db_conn.id]
 
             # Remove from all workspaces first
             for ws in workspaces:

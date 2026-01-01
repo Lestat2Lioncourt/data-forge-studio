@@ -197,11 +197,18 @@ class ConfigDatabase:
                 name TEXT NOT NULL UNIQUE,
                 description TEXT,
                 script_type TEXT NOT NULL,
+                file_path TEXT DEFAULT '',
                 parameters_schema TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
         """)
+
+        # Migration: Add file_path column if missing (for existing databases)
+        cursor.execute("PRAGMA table_info(scripts)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "file_path" not in columns:
+            cursor.execute("ALTER TABLE scripts ADD COLUMN file_path TEXT DEFAULT ''")
 
         # Jobs table
         cursor.execute("""
@@ -728,11 +735,11 @@ class ConfigDatabase:
 
             cursor.execute("""
                 UPDATE scripts
-                SET name = ?, description = ?, script_type = ?,
+                SET name = ?, description = ?, script_type = ?, file_path = ?,
                     parameters_schema = ?, updated_at = ?
                 WHERE id = ?
             """, (script.name, script.description, script.script_type,
-                  script.parameters_schema, script.updated_at, script.id))
+                  script.file_path, script.parameters_schema, script.updated_at, script.id))
 
             db_conn.commit()
             db_conn.close()

@@ -1,0 +1,44 @@
+id: data_loader
+name: Data Loader
+aliases:
+  - Load to Database
+  - data loader
+version: 1.0.0
+description: |
+  Import files from contract/dataset folders into SQL Server database tables.
+
+  Features:
+  - Automatic file format detection (CSV, Excel, JSON, TXT)
+  - Automatic encoding detection for CSV files
+  - Creates tables if they don't exist
+  - Adds missing columns to existing tables
+  - Moves processed files to _Imported or _Error folders
+
+  Table naming convention:
+  - Table name = ContractName_DatasetName
+
+author: DataForge Studio
+entry_point: run
+
+requires:
+  - rootfolders
+  - databases
+
+parameters:
+  - name: root_folder
+    type: rootfolder
+    label: Root Folder
+    description: Root folder containing contract/dataset folder structure
+    required: true
+
+  - name: connection_string
+    type: database
+    label: Target Database
+    description: Database where data will be imported
+    required: true
+
+  - name: dry_run
+    type: bool
+    label: Dry Run
+    description: Simulate the operation without importing data
+    default: false

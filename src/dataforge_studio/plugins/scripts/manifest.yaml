@@ -1,0 +1,20 @@
+id: scripts
+name: Scripts
+version: 1.0.0
+description: |
+  Script execution and management plugin.
+
+  Provides:
+  - Script discovery from available/ folder
+  - Script registration and configuration
+  - Script execution runtime
+  - Parameter validation
+
+author: DataForge Studio
+
+requires:
+  - databases
+  - rootfolders
+
+provides:
+  - script_runtime

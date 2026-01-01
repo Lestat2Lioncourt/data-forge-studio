@@ -35,7 +35,7 @@ class SchemaManager:
     CONFIG_DB_NAME = "Configuration Database"
 
     # Current schema version (increment when adding migrations)
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     def __init__(self, db_path: Path):
         """
@@ -190,6 +190,7 @@ class SchemaManager:
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
                     script_type TEXT NOT NULL,
+                    file_path TEXT DEFAULT '',
                     parameters_schema TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -362,6 +363,9 @@ class SchemaManager:
             # Migration 3: Update saved_images table structure
             self._migrate_saved_images_structure(cursor, conn)
 
+            # Migration 4: Add 'file_path' column to scripts
+            self._migrate_scripts_file_path(cursor, conn)
+
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
 
@@ -471,6 +475,19 @@ class SchemaManager:
 
             conn.commit()
             logger.info(f"[OK] Migration complete: saved_images updated, {len(old_categories)} categories migrated")
+
+    def _migrate_scripts_file_path(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 4: Add 'file_path' column to scripts if it doesn't exist."""
+        cursor.execute("PRAGMA table_info(scripts)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'file_path' not in columns:
+            logger.info("[MIGRATION] Adding 'file_path' column to scripts table...")
+
+            cursor.execute("ALTER TABLE scripts ADD COLUMN file_path TEXT DEFAULT ''")
+
+            conn.commit()
+            logger.info("[OK] Migration complete: scripts now supports file_path")
 
     def _ensure_image_indexes(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Ensure image indexes exist (for fresh installs or post-migration)."""

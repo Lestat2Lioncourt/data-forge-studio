@@ -23,6 +23,7 @@ class Script:
         name: Human-readable name
         description: Description of what the script does
         script_type: Type identifier (e.g., 'dispatch', 'import')
+        file_path: Path to the script source file
         parameters_schema: JSON string defining required parameters
         created_at: Creation timestamp
         updated_at: Last update timestamp
@@ -31,7 +32,8 @@ class Script:
     name: str
     description: str
     script_type: str
-    parameters_schema: str
+    file_path: str = ""
+    parameters_schema: str = ""
     created_at: str = None
     updated_at: str = None
 
@@ -100,3 +102,34 @@ class Script:
             True if parameters_schema contains parameters
         """
         return len(self.get_parameters()) > 0
+
+    def get_file_extension(self) -> str:
+        """
+        Get the file extension from file_path.
+
+        Returns:
+            File extension without dot (e.g., 'py', 'ps1', 'sh')
+        """
+        if not self.file_path:
+            return ""
+        import os
+        _, ext = os.path.splitext(self.file_path)
+        return ext.lstrip(".").lower() if ext else ""
+
+    def get_source_code(self) -> Optional[str]:
+        """
+        Read and return the source code from file_path.
+
+        Returns:
+            Source code content or None if file doesn't exist
+        """
+        if not self.file_path:
+            return None
+        import os
+        if not os.path.isfile(self.file_path):
+            return None
+        try:
+            with open(self.file_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return None

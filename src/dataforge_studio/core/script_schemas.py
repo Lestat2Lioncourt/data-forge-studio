@@ -12,7 +12,11 @@ Example usage:
     schema = get_dispatch_schema()
     script.parameters_schema = create_parameters_schema(schema)
 """
+from pathlib import Path
 from .parameter_types import ParameterType, create_parameter
+
+# Base path for built-in scripts
+_SCRIPTS_DIR = Path(__file__).parent.parent / "plugins" / "scripts" / "available"
 
 
 def get_dispatch_schema():
@@ -272,33 +276,74 @@ def get_backup_schema():
     ]
 
 
-# Registry of all built-in script schemas
-BUILTIN_SCRIPTS = {
-    "dispatch": {
-        "name": "Dispatch",
-        "description": "Dispatcher les fichiers vers des sous-dossiers selon leur prefixe",
-        "script_type": "file_operation",
-        "get_schema": get_dispatch_schema
-    },
-    "import_csv": {
-        "name": "Import CSV",
-        "description": "Importer des fichiers CSV dans une table de base de donnees",
-        "script_type": "data_import",
-        "get_schema": get_import_csv_schema
-    },
-    "export_query": {
-        "name": "Export Requete",
-        "description": "Exporter les resultats d'une requete vers un fichier",
-        "script_type": "data_export",
-        "get_schema": get_export_query_schema
-    },
-    "backup": {
-        "name": "Backup",
-        "description": "Sauvegarder des fichiers avec compression",
-        "script_type": "file_operation",
-        "get_schema": get_backup_schema
-    },
-}
+def get_builtin_scripts() -> dict:
+    """
+    Get all built-in scripts from YAML templates.
+
+    Returns:
+        Dict mapping script_id to script info dict
+    """
+    from .script_template_loader import get_template_loader
+
+    loader = get_template_loader()
+    templates = loader.get_all_templates()
+
+    result = {}
+    for template in templates:
+        result[template.id] = {
+            "name": template.name,
+            "description": template.description,
+            "script_type": template.script_type,
+            "file_path": template.file_path,
+            "parameters": template.parameters,
+        }
+
+    return result
+
+
+# For backward compatibility - lazily loaded
+class _BuiltinScriptsProxy(dict):
+    """Proxy dict that loads templates on first access."""
+
+    def __init__(self):
+        self._loaded = False
+
+    def _ensure_loaded(self):
+        if not self._loaded:
+            super().clear()
+            super().update(get_builtin_scripts())
+            self._loaded = True
+
+    def __getitem__(self, key):
+        self._ensure_loaded()
+        return super().__getitem__(key)
+
+    def __contains__(self, key):
+        self._ensure_loaded()
+        return super().__contains__(key)
+
+    def __iter__(self):
+        self._ensure_loaded()
+        return super().__iter__()
+
+    def items(self):
+        self._ensure_loaded()
+        return super().items()
+
+    def keys(self):
+        self._ensure_loaded()
+        return super().keys()
+
+    def values(self):
+        self._ensure_loaded()
+        return super().values()
+
+    def get(self, key, default=None):
+        self._ensure_loaded()
+        return super().get(key, default)
+
+
+BUILTIN_SCRIPTS = _BuiltinScriptsProxy()
 
 
 def get_builtin_script_info(script_key: str) -> dict:
