@@ -933,7 +933,7 @@ class ResourcesManager(BaseManagerView):
             db_config = data.get("config") or data.get("obj")
             if db_config and self._database_manager:
                 # New Query Tab option
-                new_tab_action = QAction("➕ " + tr("btn_new_query_tab"), self)
+                new_tab_action = QAction(tr("btn_new_query_tab"), self)
                 new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_config.id))
                 menu.addAction(new_tab_action)
 
@@ -960,7 +960,7 @@ class ResourcesManager(BaseManagerView):
 
             # New Query Tab option
             if db_id:
-                new_tab_action = QAction("➕ " + tr("btn_new_query_tab"), self)
+                new_tab_action = QAction(tr("btn_new_query_tab"), self)
                 new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_id))
                 menu.addAction(new_tab_action)
                 menu.addSeparator()

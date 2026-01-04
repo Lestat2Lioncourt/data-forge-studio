@@ -53,7 +53,7 @@ class FileBasedConnectionDialog(BaseConnectionDialog):
         file_layout.addLayout(path_layout)
 
         # Create new database button
-        create_btn = QPushButton(f"➕ Create New {self._get_db_type().upper()} Database")
+        create_btn = QPushButton(f"+ Create New {self._get_db_type().upper()} Database")
         create_btn.clicked.connect(self._create_new_database)
         file_layout.addWidget(create_btn)
 

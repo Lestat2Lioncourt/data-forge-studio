@@ -14,7 +14,7 @@ from typing import List, Optional, Any, Tuple, TYPE_CHECKING
 from PySide6.QtWidgets import (QWidget, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QHBoxLayout, QPushButton, QHeaderView,
                                QFileDialog, QApplication, QDialog, QLabel, QFrame,
-                               QProgressBar, QTableView, QAbstractItemView)
+                               QProgressBar, QTableView, QAbstractItemView, QMenu)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
 import csv
@@ -124,11 +124,16 @@ class CustomDataGridView(QWidget):
         # Table widget (standard mode)
         self.table = QTableWidget()
         self.table.setSortingEnabled(False)  # We'll handle sorting manually for multi-column support
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectItems)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setToolTip("Click to sort (▲▼), Ctrl+Click to add column to multi-sort (with numbers)")
         self.table.verticalHeader().setVisible(True)  # Show row numbers
+
+        # Context menu
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
 
         # Compact row height - can be manually resized if needed for multi-line content
         self.table.verticalHeader().setDefaultSectionSize(16)
@@ -382,7 +387,8 @@ class CustomDataGridView(QWidget):
             self._table_view.setModel(self._table_model)
 
             # Configure view
-            self._table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            self._table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+            self._table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             self._table_view.setAlternatingRowColors(True)
             self._table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
             self._table_view.horizontalHeader().setToolTip(
@@ -391,6 +397,10 @@ class CustomDataGridView(QWidget):
             self._table_view.verticalHeader().setVisible(True)
             self._table_view.verticalHeader().setDefaultSectionSize(16)
             self._table_view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+
+            # Context menu
+            self._table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self._table_view.customContextMenuRequested.connect(self._show_virtual_context_menu)
 
             # Connect signals
             self._table_view.selectionModel().selectionChanged.connect(self._on_virtual_selection_changed)
@@ -822,7 +832,7 @@ class CustomDataGridView(QWidget):
             DialogHelper.error("Export failed", "Export Error", self, details=str(e))
 
     def _copy_to_clipboard(self):
-        """Copy selected rows to clipboard (tab-separated)."""
+        """Copy selected cells to clipboard (tab-separated)."""
         if self._virtual_mode and self._table_view:
             selection = self._table_view.selectedIndexes()
         else:
@@ -831,21 +841,99 @@ class CustomDataGridView(QWidget):
         if not selection:
             return
 
+        # Build set of actually selected (row, col) pairs
+        selected_cells = {(index.row(), index.column()) for index in selection}
+
         # Get unique rows and columns from selection
         rows = sorted(set(index.row() for index in selection))
         cols = sorted(set(index.column() for index in selection))
 
-        # Build tab-separated text
+        # Build tab-separated text - only include actually selected cells
         text_rows = []
         for row in rows:
-            row_text = '\t'.join(
-                self.get_cell_value(row, col) for col in cols
-            )
-            text_rows.append(row_text)
+            row_values = []
+            for col in cols:
+                if (row, col) in selected_cells:
+                    row_values.append(self.get_cell_value(row, col))
+            if row_values:
+                text_rows.append('\t'.join(row_values))
 
         # Copy to clipboard
         clipboard = QApplication.clipboard()
         clipboard.setText('\n'.join(text_rows))
+
+    def _show_context_menu(self, position):
+        """Show context menu at position."""
+        menu = QMenu(self)
+
+        # Copy action
+        copy_action = menu.addAction(tr("copy"))
+        copy_action.triggered.connect(self._copy_to_clipboard)
+
+        # Copy with headers action
+        copy_headers_action = menu.addAction(tr("copy_with_headers"))
+        copy_headers_action.triggered.connect(self._copy_with_headers)
+
+        menu.exec(self.table.viewport().mapToGlobal(position))
+
+    def _copy_with_headers(self):
+        """Copy selected cells to clipboard with column headers."""
+        if self._virtual_mode and self._table_view:
+            selection = self._table_view.selectedIndexes()
+        else:
+            selection = self.table.selectedIndexes()
+
+        if not selection:
+            return
+
+        # Build set of actually selected (row, col) pairs
+        selected_cells = {(index.row(), index.column()) for index in selection}
+
+        # Get unique rows and columns from selection
+        rows = sorted(set(index.row() for index in selection))
+        cols = sorted(set(index.column() for index in selection))
+
+        # Build tab-separated text with headers
+        text_rows = []
+
+        # Add header row - only for columns that have at least one selected cell
+        headers = []
+        for col in cols:
+            if col < len(self.columns):
+                headers.append(self.columns[col])
+            else:
+                headers.append(f"Column {col}")
+        text_rows.append('\t'.join(headers))
+
+        # Add data rows - only include actually selected cells
+        for row in rows:
+            row_values = []
+            for col in cols:
+                if (row, col) in selected_cells:
+                    row_values.append(self.get_cell_value(row, col))
+            if row_values:
+                text_rows.append('\t'.join(row_values))
+
+        # Copy to clipboard
+        clipboard = QApplication.clipboard()
+        clipboard.setText('\n'.join(text_rows))
+
+    def _show_virtual_context_menu(self, position):
+        """Show context menu for virtual mode table."""
+        if not self._table_view:
+            return
+
+        menu = QMenu(self)
+
+        # Copy action
+        copy_action = menu.addAction(tr("copy"))
+        copy_action.triggered.connect(self._copy_to_clipboard)
+
+        # Copy with headers action
+        copy_headers_action = menu.addAction(tr("copy_with_headers"))
+        copy_headers_action.triggered.connect(self._copy_with_headers)
+
+        menu.exec(self._table_view.viewport().mapToGlobal(position))
 
     def apply_theme_style(self, stylesheet: str):
         """

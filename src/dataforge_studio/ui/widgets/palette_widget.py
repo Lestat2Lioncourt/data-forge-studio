@@ -1,63 +1,147 @@
 """
-Palette Widget - Shows unique colors used in theme for quick reuse
+Palette Widget - Shows palette colors for quick reuse (pipette workflow).
 
-Displays a grid of color swatches that can be clicked to copy the color.
+Click on a color to load it (cursor becomes brush), then click on a theme property to apply it.
+Click again on the same color or press Escape to cancel.
 """
 
-from typing import Dict
+from typing import Dict, Optional
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QPushButton, QLabel
 from PySide6.QtCore import Qt, Signal
 
 
-class PaletteWidget(QWidget):
-    """Shows unique colors used in theme for quick reuse."""
+# Palette source keys to display
+PALETTE_KEYS = [
+    ("background", "Fond"),
+    ("surface", "Surface"),
+    ("border", "Bordure"),
+    ("accent", "Accent"),
+    ("text", "Texte"),
+    ("text_secondary", "Texte 2"),
+    ("icon", "Icône"),
+    ("info", "Info"),
+    ("warning", "Alerte"),
+    ("error", "Erreur"),
+    ("important", "Important"),
+]
 
-    color_selected = Signal(str)
+
+class PaletteWidget(QWidget):
+    """Shows palette source colors for quick reuse via pipette workflow."""
+
+    color_selected = Signal(str)  # Emitted when a color is loaded
+    color_cleared = Signal()  # Emitted when selection is cleared
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._colors = []
+        self._colors: Dict[str, str] = {}
+        self._loaded_color: Optional[str] = None
+        self._color_buttons: Dict[str, QPushButton] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(6)
 
-        title = QLabel("Palette (couleurs utilisees)")
-        title.setStyleSheet("font-weight: bold; font-size: 9pt; color: #808080;")
-        layout.addWidget(title)
+        self.title = QLabel("Palette source")
+        self.title.setStyleSheet("font-weight: bold; font-size: 10pt;")
+        layout.addWidget(self.title)
+
+        self.subtitle = QLabel("Cliquer pour charger une couleur")
+        self.subtitle.setStyleSheet("font-size: 8pt; color: #808080;")
+        layout.addWidget(self.subtitle)
 
         self.grid_widget = QWidget()
         self.grid_layout = QGridLayout(self.grid_widget)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
-        self.grid_layout.setSpacing(3)
+        self.grid_layout.setSpacing(4)
+
+        # Create color buttons for each palette key
+        for i, (key, label) in enumerate(PALETTE_KEYS):
+            btn = QPushButton()
+            btn.setFixedSize(24, 24)
+            btn.setToolTip(f"{label} - Cliquer pour charger")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda checked, k=key: self._on_color_clicked(k))
+            self._color_buttons[key] = btn
+
+            lbl = QLabel(label)
+            lbl.setStyleSheet("font-size: 9pt;")
+
+            self.grid_layout.addWidget(btn, i, 0)
+            self.grid_layout.addWidget(lbl, i, 1)
+
         layout.addWidget(self.grid_widget)
         layout.addStretch()
 
+    @property
+    def loaded_color(self) -> Optional[str]:
+        """Get the currently loaded color, or None if no color is loaded."""
+        return self._loaded_color
+
+    def clear_loaded_color(self):
+        """Clear the loaded color."""
+        if self._loaded_color:
+            self._loaded_color = None
+            self._update_button_styles()
+            self.subtitle.setText("Cliquer pour charger une couleur")
+            self.subtitle.setStyleSheet("font-size: 8pt; color: #808080;")
+            self.color_cleared.emit()
+
     def update_colors(self, colors_dict: Dict[str, str]):
-        """Update palette with unique colors from theme."""
-        # Clear grid
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        """Update palette with colors from theme data."""
+        self._colors = {}
 
-        # Get unique colors
-        unique_colors = sorted(set(v for v in colors_dict.values() if isinstance(v, str) and v.startswith('#')))
-        self._colors = unique_colors
+        for key, label in PALETTE_KEYS:
+            color = colors_dict.get(key, "#808080")
+            self._colors[key] = color
 
-        # Create color buttons (6 per row)
-        cols = 6
-        for i, color in enumerate(unique_colors):
-            btn = QPushButton()
-            btn.setFixedSize(22, 22)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {color};
-                    border: 1px solid #404040;
-                    border-radius: 2px;
-                }}
-                QPushButton:hover {{ border: 2px solid #0078d7; }}
-            """)
-            btn.setToolTip(color)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda checked, c=color: self.color_selected.emit(c))
-            self.grid_layout.addWidget(btn, i // cols, i % cols)
+        self._update_button_styles()
+
+    def _on_color_clicked(self, key: str):
+        """Handle click on a palette color."""
+        color = self._colors.get(key, "#808080")
+
+        if self._loaded_color == color:
+            # Clicking same color again clears the selection
+            self.clear_loaded_color()
+        else:
+            # Load the new color
+            self._loaded_color = color
+            self._update_button_styles()
+            self.subtitle.setText(f"Chargé: {color}")
+            self.subtitle.setStyleSheet("font-size: 8pt; color: #2ecc71; font-weight: bold;")
+            self.color_selected.emit(color)
+
+    def _update_button_styles(self):
+        """Update button styles to show which color is loaded."""
+        for key, btn in self._color_buttons.items():
+            color = self._colors.get(key, "#808080")
+
+            if color == self._loaded_color:
+                # Selected color - highlight with thick border
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {color};
+                        border: 3px solid #2ecc71;
+                        border-radius: 3px;
+                    }}
+                """)
+                btn.setToolTip(f"{color} - CHARGÉ (cliquer pour annuler)")
+            else:
+                # Normal color
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {color};
+                        border: 1px solid #505050;
+                        border-radius: 3px;
+                    }}
+                    QPushButton:hover {{ border: 2px solid #0078d7; }}
+                """)
+                btn.setToolTip(f"{color} - Cliquer pour charger")
+
+    def keyPressEvent(self, event):
+        """Handle Escape key to clear loaded color."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.clear_loaded_color()
+        else:
+            super().keyPressEvent(event)

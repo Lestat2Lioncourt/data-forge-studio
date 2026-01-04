@@ -75,36 +75,67 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
     """
     is_dark = palette.get("is_dark", True)
 
+    # Default colors based on dark/light mode
+    if is_dark:
+        defaults = {
+            "topbar_bg": "#2b2b2b", "topbar_fg": "#ffffff",
+            "menubar_bg": "#3d3d3d", "menubar_fg": "#ffffff",
+            "statusbar_bg": "#2b2b2b", "statusbar_fg": "#ffffff",
+            "frame_bg": "#252525", "frame_fg": "#e0e0e0", "frame_fg_secondary": "#808080",
+            "data_bg": "#2d2d2d", "data_fg": "#e0e0e0", "data_border": "#3d3d3d",
+            "hover_bg": "#383838", "selected_bg": "#0078d7", "selected_fg": "#ffffff",
+            "accent": "#0078d7", "normal_fg": "#ffffff",
+            "success_fg": "#2ecc71", "warning_fg": "#f39c12", "error_fg": "#e74c3c", "info_fg": "#3498db",
+        }
+    else:
+        defaults = {
+            "topbar_bg": "#e8e8e8", "topbar_fg": "#1a1a1a",
+            "menubar_bg": "#f0f0f0", "menubar_fg": "#1a1a1a",
+            "statusbar_bg": "#e8e8e8", "statusbar_fg": "#1a1a1a",
+            "frame_bg": "#f5f5f5", "frame_fg": "#1a1a1a", "frame_fg_secondary": "#666666",
+            "data_bg": "#ffffff", "data_fg": "#1a1a1a", "data_border": "#d0d0d0",
+            "hover_bg": "#e0e0e0", "selected_bg": "#0078d7", "selected_fg": "#ffffff",
+            "accent": "#0078d7", "normal_fg": "#1a1a1a",
+            "success_fg": "#27ae60", "warning_fg": "#d68910", "error_fg": "#c0392b", "info_fg": "#2980b9",
+        }
+
+    # Helper to get a value with multiple fallback keys
+    def get_color(keys, default_key):
+        for key in keys:
+            if key in palette:
+                return palette[key]
+        return defaults.get(default_key, "#808080")
+
     # Get global opacity settings (0-100, default 30% for selected, 15% for hover)
     selected_opacity = palette.get("Selected_Opacity", 30)
     hover_opacity = palette.get("Hover_Opacity", 15)
 
-    # Extract palette colors
-    topbar_bg = palette["TopBar_BG"]
-    topbar_fg = palette["TopBar_FG"]
-    menubar_bg = palette["MenuBar_BG"]
-    menubar_fg = palette["MenuBar_FG"]
-    statusbar_bg = palette["StatusBar_BG"]
-    statusbar_fg = palette["StatusBar_FG"]
+    # Extract palette colors with multiple key fallbacks (PascalCase, snake_case, short names)
+    topbar_bg = get_color(["TopBar_BG", "topbar_bg", "header_bg"], "topbar_bg")
+    topbar_fg = get_color(["TopBar_FG", "topbar_fg", "header_fg"], "topbar_fg")
+    menubar_bg = get_color(["MenuBar_BG", "menubar_bg", "toolbar_bg"], "menubar_bg")
+    menubar_fg = get_color(["MenuBar_FG", "menubar_fg"], "menubar_fg")
+    statusbar_bg = get_color(["StatusBar_BG", "statusbar_bg", "status_bg"], "statusbar_bg")
+    statusbar_fg = get_color(["StatusBar_FG", "statusbar_fg", "status_fg"], "statusbar_fg")
 
-    frame_bg = palette["Frame_BG"]
-    frame_fg = palette["Frame_FG"]
-    frame_fg_secondary = palette["Frame_FG_Secondary"]
+    frame_bg = get_color(["Frame_BG", "frame_bg", "panel_bg", "bg"], "frame_bg")
+    frame_fg = get_color(["Frame_FG", "frame_fg", "fg"], "frame_fg")
+    frame_fg_secondary = get_color(["Frame_FG_Secondary", "frame_fg_secondary", "text_secondary"], "frame_fg_secondary")
 
-    data_bg = palette["Data_BG"]
-    data_fg = palette["Data_FG"]
-    data_border = palette["Data_Border"]
+    data_bg = get_color(["Data_BG", "data_bg", "tree_bg", "grid_bg"], "data_bg")
+    data_fg = get_color(["Data_FG", "data_fg", "tree_fg", "grid_fg"], "data_fg")
+    data_border = get_color(["Data_Border", "data_border", "border_color", "grid_border"], "data_border")
 
-    hover_bg = palette["Hover_BG"]
-    selected_bg = palette["Selected_BG"]
-    selected_fg = palette["Selected_FG"]
-    accent = palette["Accent"]
+    hover_bg = get_color(["Hover_BG", "hover_bg"], "hover_bg")
+    selected_bg = get_color(["Selected_BG", "selected_bg", "select_bg", "tree_select_bg"], "selected_bg")
+    selected_fg = get_color(["Selected_FG", "selected_fg", "select_fg", "tree_select_fg"], "selected_fg")
+    accent = get_color(["Accent", "accent"], "accent")
 
-    normal_fg = palette["Normal_FG"]
-    success_fg = palette["Success_FG"]
-    warning_fg = palette["Warning_FG"]
-    error_fg = palette["Error_FG"]
-    info_fg = palette["Info_FG"]
+    normal_fg = get_color(["Normal_FG", "normal_fg", "fg"], "normal_fg")
+    success_fg = get_color(["Success_FG", "success_fg"], "success_fg")
+    warning_fg = get_color(["Warning_FG", "warning_fg"], "warning_fg")
+    error_fg = get_color(["Error_FG", "error_fg"], "error_fg")
+    info_fg = get_color(["Info_FG", "info_fg"], "info_fg")
 
     # Derive additional colors
     if is_dark:
@@ -125,34 +156,39 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         window_bg = _darken_color(frame_bg, 5)
 
     # Get MenuBar hover/selected colors (optional, with defaults)
-    menubar_hover_bg = palette.get("MenuBar_Hover_BG", default_menu_hover_bg)
-    menubar_hover_fg = palette.get("MenuBar_Hover_FG", menubar_fg)
-    menubar_selected_bg = palette.get("MenuBar_Selected_BG", default_menu_selected_bg)
-    menubar_selected_fg = palette.get("MenuBar_Selected_FG", menubar_fg)
+    # Support both old PascalCase and new snake_case keys
+    menubar_hover_bg = palette.get("MenuBar_Hover_BG", palette.get("menubar_hover_bg", default_menu_hover_bg))
+    menubar_hover_fg = palette.get("MenuBar_Hover_FG", palette.get("menubar_hover_fg", menubar_fg))
+    menubar_selected_bg = palette.get("MenuBar_Selected_BG", palette.get("menubar_selected_bg", default_menu_selected_bg))
+    menubar_selected_fg = palette.get("MenuBar_Selected_FG", palette.get("menubar_selected_fg", menubar_fg))
 
     # Get Dropdown menu colors (optional, with defaults)
-    dd_menu_bg = palette.get("DD_Menu_BG", data_bg)
-    dd_menu_fg = palette.get("DD_Menu_FG", data_fg)
-    dd_menu_hover_bg = palette.get("DD_Menu_Hover_BG", menubar_hover_bg)
-    dd_menu_hover_fg = palette.get("DD_Menu_Hover_FG", data_fg)
-    dd_menu_selected_bg = palette.get("DD_Menu_Selected_BG", selected_bg)
-    dd_menu_selected_fg = palette.get("DD_Menu_Selected_FG", selected_fg)
+    # Support both dd_menu_* (legacy) and menu_* (new generator) key formats
+    dd_menu_bg = palette.get("DD_Menu_BG", palette.get("dd_menu_bg", palette.get("menu_bg", data_bg)))
+    dd_menu_fg = palette.get("DD_Menu_FG", palette.get("dd_menu_fg", palette.get("menu_fg", data_fg)))
+    dd_menu_hover_bg = palette.get("DD_Menu_Hover_BG", palette.get("dd_menu_hover_bg", palette.get("menu_hover_bg", menubar_hover_bg)))
+    dd_menu_hover_fg = palette.get("DD_Menu_Hover_FG", palette.get("dd_menu_hover_fg", palette.get("menu_hover_fg", data_fg)))
+    dd_menu_selected_bg = palette.get("DD_Menu_Selected_BG", palette.get("dd_menu_selected_bg", palette.get("menu_selected_bg", selected_bg)))
+    dd_menu_selected_fg = palette.get("DD_Menu_Selected_FG", palette.get("dd_menu_selected_fg", palette.get("menu_selected_fg", selected_fg)))
+    dd_menu_separator = palette.get("DD_Menu_Separator", palette.get("dd_menu_separator", palette.get("menu_separator", data_border)))
 
     # Get Toolbar Button colors (optional, with defaults)
-    toolbarbtn_bg = palette.get("ToolbarBtn_BG", frame_bg)
-    toolbarbtn_fg = palette.get("ToolbarBtn_FG", frame_fg)
-    toolbarbtn_hover_bg = palette.get("ToolbarBtn_Hover_BG", hover_bg)
-    toolbarbtn_hover_fg = palette.get("ToolbarBtn_Hover_FG", normal_fg)
-    toolbarbtn_pressed_bg = palette.get("ToolbarBtn_Pressed_BG", selected_bg)
-    toolbarbtn_border = palette.get("ToolbarBtn_Border", frame_bg)
+    # Support both ToolbarBtn_* (legacy), toolbarbtn_* and toolbar_button_* (new generator) formats
+    toolbarbtn_bg = palette.get("ToolbarBtn_BG", palette.get("toolbarbtn_bg", palette.get("toolbar_button_bg", frame_bg)))
+    toolbarbtn_fg = palette.get("ToolbarBtn_FG", palette.get("toolbarbtn_fg", palette.get("toolbar_button_fg", frame_fg)))
+    toolbarbtn_hover_bg = palette.get("ToolbarBtn_Hover_BG", palette.get("toolbarbtn_hover_bg", palette.get("toolbar_button_hover_bg", hover_bg)))
+    toolbarbtn_hover_fg = palette.get("ToolbarBtn_Hover_FG", palette.get("toolbarbtn_hover_fg", palette.get("toolbar_button_hover_fg", normal_fg)))
+    toolbarbtn_pressed_bg = palette.get("ToolbarBtn_Pressed_BG", palette.get("toolbarbtn_pressed_bg", palette.get("toolbar_button_pressed_bg", selected_bg)))
+    toolbarbtn_border = palette.get("ToolbarBtn_Border", palette.get("toolbarbtn_border", palette.get("toolbar_button_border", frame_bg)))
 
     # Get Button colors (optional, with defaults) - for panels/dialogs
-    button_bg = palette.get("Button_BG", data_bg)
-    button_fg = palette.get("Button_FG", normal_fg)
-    button_hover_bg = palette.get("Button_Hover_BG", hover_bg)
-    button_hover_fg = palette.get("Button_Hover_FG", normal_fg)
-    button_pressed_bg = palette.get("Button_Pressed_BG", selected_bg)
-    button_border = palette.get("Button_Border", data_border)
+    # Support both Button_* (PascalCase) and button_* (snake_case) formats
+    button_bg = palette.get("Button_BG", palette.get("button_bg", data_bg))
+    button_fg = palette.get("Button_FG", palette.get("button_fg", normal_fg))
+    button_hover_bg = palette.get("Button_Hover_BG", palette.get("button_hover_bg", hover_bg))
+    button_hover_fg = palette.get("Button_Hover_FG", palette.get("button_hover_fg", normal_fg))
+    button_pressed_bg = palette.get("Button_Pressed_BG", palette.get("button_pressed_bg", selected_bg))
+    button_border = palette.get("Button_Border", palette.get("button_border", data_border))
 
     # Get Grid alternating row colors (optional, with defaults)
     grid_line1_bg = palette.get("Grid_Line1_BG", data_bg)
@@ -187,6 +223,9 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
     groupbox_border = palette.get("GroupBox_Border", data_border)
     groupbox_title_fg = palette.get("GroupBox_Title_FG", normal_fg)
 
+    # Get Icon color (optional, defaults to frame_fg for good contrast)
+    icon_color = palette.get("Icon_Color", palette.get("icon_color", frame_fg))
+
     # Get Tab/Onglet colors (optional, with defaults)
     tab_bg = palette.get("Tab_BG", frame_bg)
     tab_fg = palette.get("Tab_FG", frame_fg_secondary)
@@ -200,25 +239,47 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
     sectionheader_hover_bg = palette.get("SectionHeader_Hover_BG", hover_bg)
 
     # Get IconSidebar colors (optional, with defaults)
+    # Support both PascalCase (legacy) and snake_case (generator) keys
     # Default to a nice blue (#6496FF) that looks good with transparency
-    iconsidebar_bg = palette.get("IconSidebar_BG", frame_bg)
-    iconsidebar_selected_color = palette.get("IconSidebar_Selected", "#6496FF")
-    iconsidebar_hover_color = palette.get("IconSidebar_Hover", "#ffffff")
-    # Apply opacity to generate rgba values
-    iconsidebar_selected_bg = _hex_to_rgba(iconsidebar_selected_color, selected_opacity)
-    iconsidebar_hover_bg = _hex_to_rgba(iconsidebar_hover_color, hover_opacity)
-    iconsidebar_pressed_bg = _hex_to_rgba(iconsidebar_hover_color, hover_opacity + 10)
+    iconsidebar_bg = palette.get("IconSidebar_BG", palette.get("iconsidebar_bg", frame_bg))
+
+    # For selected/hover, check if pre-computed rgba values exist (from generator)
+    # Otherwise compute from color + opacity
+    iconsidebar_selected_bg_raw = palette.get("iconsidebar_selected_bg")
+    iconsidebar_hover_bg_raw = palette.get("iconsidebar_hover_bg")
+    iconsidebar_pressed_bg_raw = palette.get("iconsidebar_pressed_bg")
+
+    if iconsidebar_selected_bg_raw:
+        # Use pre-computed value from generator
+        iconsidebar_selected_bg = iconsidebar_selected_bg_raw
+        iconsidebar_hover_bg = iconsidebar_hover_bg_raw or _hex_to_rgba("#ffffff", hover_opacity)
+        iconsidebar_pressed_bg = iconsidebar_pressed_bg_raw or _hex_to_rgba("#ffffff", hover_opacity + 10)
+    else:
+        # Compute from color + opacity (legacy)
+        iconsidebar_selected_color = palette.get("IconSidebar_Selected", "#6496FF")
+        iconsidebar_hover_color = palette.get("IconSidebar_Hover", "#ffffff")
+        iconsidebar_selected_bg = _hex_to_rgba(iconsidebar_selected_color, selected_opacity)
+        iconsidebar_hover_bg = _hex_to_rgba(iconsidebar_hover_color, hover_opacity)
+        iconsidebar_pressed_bg = _hex_to_rgba(iconsidebar_hover_color, hover_opacity + 10)
 
     # ========== Apply global opacity to selection/hover colors ==========
     # These rgba versions are used for transparent overlays
 
-    # MenuBar with opacity
-    menubar_hover_bg_rgba = _hex_to_rgba(accent, hover_opacity + 10)
-    menubar_selected_bg_rgba = _hex_to_rgba(accent, selected_opacity)
+    # MenuBar - use custom colors if provided, otherwise calculate from accent
+    # If the color is already hex (from new generator), use it directly
+    # If we need rgba, convert it
+    if menubar_hover_bg.startswith('#'):
+        menubar_hover_bg_final = menubar_hover_bg  # Use hex directly
+    else:
+        menubar_hover_bg_final = menubar_hover_bg  # Already rgba
+    if menubar_selected_bg.startswith('#'):
+        menubar_selected_bg_final = menubar_selected_bg  # Use hex directly
+    else:
+        menubar_selected_bg_final = menubar_selected_bg  # Already rgba
 
-    # Dropdown menus with opacity
-    dd_menu_hover_bg_rgba = _hex_to_rgba(accent, hover_opacity + 10)
-    dd_menu_selected_bg_rgba = _hex_to_rgba(accent, selected_opacity)
+    # Dropdown menus - use custom colors or calculate from accent
+    dd_menu_hover_bg_final = dd_menu_hover_bg if dd_menu_hover_bg.startswith('#') or dd_menu_hover_bg.startswith('rgba') else _hex_to_rgba(accent, hover_opacity + 10)
+    dd_menu_selected_bg_final = dd_menu_selected_bg if dd_menu_selected_bg.startswith('#') or dd_menu_selected_bg.startswith('rgba') else _hex_to_rgba(accent, selected_opacity)
 
     # Tree/Grid selection with opacity
     tree_selected_bg_rgba = _hex_to_rgba(selected_bg, selected_opacity + 20)
@@ -236,6 +297,7 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
 
         # Base palette
         "window_bg": window_bg,
+        "window_border": data_border,
         "panel_bg": frame_bg,
         "data_bg": data_bg,
         "border_color": data_border,
@@ -268,22 +330,22 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "button_pressed_bg": button_pressed_bg,
         "button_border": button_border,
 
-        # Menus (window-template) - using rgba for transparency effect
+        # Menus (window-template) - using custom colors or calculated from accent
         "main_menu_bar_bg": topbar_bg,
         "main_menu_bar_fg": topbar_fg,
         "feature_menu_bar_bg": menubar_bg,
         "feature_menu_bar_fg": menubar_fg,
-        "feature_menu_bar_hover_bg": menubar_hover_bg_rgba,
+        "feature_menu_bar_hover_bg": menubar_hover_bg_final,
         "feature_menu_bar_hover_fg": menubar_hover_fg,
-        "feature_menu_bar_selected_bg": menubar_selected_bg_rgba,
+        "feature_menu_bar_selected_bg": menubar_selected_bg_final,
         "feature_menu_bar_selected_fg": menubar_selected_fg,
         "dd_menu_bg": dd_menu_bg,
         "dd_menu_fg": dd_menu_fg,
-        "dd_menu_hover_bg": dd_menu_hover_bg_rgba,
+        "dd_menu_hover_bg": dd_menu_hover_bg_final,
         "dd_menu_hover_fg": dd_menu_hover_fg,
-        "dd_menu_selected_bg": dd_menu_selected_bg_rgba,
+        "dd_menu_selected_bg": dd_menu_selected_bg_final,
         "dd_menu_selected_fg": dd_menu_selected_fg,
-        "dd_menu_separator": data_border,
+        "dd_menu_separator": dd_menu_separator,
 
         # Status bar
         "status_bar_bg": statusbar_bg,
@@ -359,14 +421,14 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         "log_success_fg": success_fg,
         "log_debug_fg": frame_fg_secondary,
 
-        # SQL syntax highlighting (derived from semantic colors)
-        "sql_keyword": accent,
-        "sql_string": success_fg,
-        "sql_comment": frame_fg_secondary,
-        "sql_number": info_fg,
-        "sql_function": warning_fg,
-        "sql_operator": data_fg,
-        "sql_identifier": info_fg,
+        # SQL syntax highlighting (customizable, with computed defaults)
+        "sql_keyword": palette.get("sql_keyword", accent),
+        "sql_string": palette.get("sql_string", success_fg),
+        "sql_comment": palette.get("sql_comment", frame_fg_secondary),
+        "sql_number": palette.get("sql_number", info_fg),
+        "sql_function": palette.get("sql_function", warning_fg),
+        "sql_operator": palette.get("sql_operator", data_fg),
+        "sql_identifier": palette.get("sql_identifier", info_fg),
 
         # Tabs / Onglets - using rgba for hover transparency
         "tab_bg": tab_bg,
@@ -419,6 +481,10 @@ def _expand_minimal_palette(palette: Dict[str, str]) -> Dict[str, str]:
         # Global opacity settings (for reference/debugging)
         "selected_opacity": selected_opacity,
         "hover_opacity": hover_opacity,
+
+        # Icon theming
+        "icon_color": icon_color,
+        "frame_fg": frame_fg,
     }
 
     return colors
@@ -666,7 +732,7 @@ class ThemeManager:
 
         # Apply to panels (override hardcoded inline styles)
         if hasattr(window, 'left_panel'):
-            window.left_panel.setStyleSheet(f"background-color: {colors['panel_bg']};")
+            window.left_panel.setStyleSheet(f"background-color: {colors.get('iconsidebar_bg', colors['panel_bg'])};")
         if hasattr(window, 'right_top_panel'):
             window.right_top_panel.setStyleSheet(f"background-color: {colors['panel_bg']};")
         if hasattr(window, 'right_bottom_panel'):

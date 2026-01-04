@@ -183,11 +183,10 @@ class ToolbarBuilder:
 
     def _get_icon_path(self, icon_name: str) -> Optional[Path]:
         """
-        Get path to icon file.
+        Get path to icon file with theme-aware recoloring.
 
-        Searches in multiple locations:
-        1. templates/window/icons/
-        2. ui/icons/ (if created later)
+        Uses the theme's icon_color to recolor base icons.
+        Falls back to templates/window/icons/ or ui/icons/ if not found.
 
         Args:
             icon_name: Icon filename
@@ -195,7 +194,25 @@ class ToolbarBuilder:
         Returns:
             Path to icon or None if not found
         """
-        # Try templates/window icons first
+        # Try themed icon first (from assets/icons/base/, recolored)
+        # Use toolbar button text color for icon (same color as text)
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            from ..core.theme_image_generator import get_themed_icon_path
+
+            theme_bridge = ThemeBridge.get_instance()
+            theme_colors = theme_bridge.get_theme_colors(theme_bridge.current_theme)
+            # Use toolbar button fg color for icons (matches text color)
+            icon_color = theme_colors.get('toolbarbtn_fg', theme_colors.get('toolbar_button_fg', theme_colors.get('text_primary', '#e0e0e0')))
+            is_dark = theme_colors.get('is_dark', True)
+
+            themed_path = get_themed_icon_path(icon_name, is_dark, icon_color)
+            if themed_path:
+                return Path(themed_path)
+        except Exception:
+            pass
+
+        # Try templates/window icons
         try:
             from ..templates.window import get_icon_path
             path = get_icon_path(icon_name)

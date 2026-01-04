@@ -5,13 +5,13 @@ A minimal sidebar with icons for each manager type:
 - Database, RootFolders, Queries, Jobs, Scripts, Images
 """
 
-from pathlib import Path
-
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton, QSizePolicy
 )
 from PySide6.QtCore import Signal, Qt, QSize
 from PySide6.QtGui import QIcon
+
+from ...utils.image_loader import get_icon
 
 
 class IconSidebar(QWidget):
@@ -33,12 +33,19 @@ class IconSidebar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("IconSidebar")
         self._current_selection = None
         self._buttons = {}
-        self._assets_path = Path(__file__).parent.parent / "assets" / "images"
+        self._icon_files = {}  # Store icon filenames for theme refresh
         self._theme_colors = self._load_theme_colors()
         self._setup_ui()
+        self._apply_background()
         self._register_theme_observer()
+
+    def _apply_background(self):
+        """Apply sidebar background color."""
+        bg = self._theme_colors.get("bg", "#252525")
+        self.setStyleSheet(f"#IconSidebar {{ background-color: {bg}; }}")
 
     def _load_theme_colors(self) -> dict:
         """Load theme colors for IconSidebar."""
@@ -71,16 +78,23 @@ class IconSidebar(QWidget):
             pass
 
     def _on_theme_changed(self, theme_colors: dict):
-        """Handle theme change - update colors."""
+        """Handle theme change - update colors and icons."""
         self._theme_colors = {
             "bg": theme_colors.get("iconsidebar_bg", "#252525"),
             "selected_bg": theme_colors.get("iconsidebar_selected_bg", "rgba(100, 150, 255, 0.3)"),
             "hover_bg": theme_colors.get("iconsidebar_hover_bg", "rgba(255, 255, 255, 0.15)"),
             "pressed_bg": theme_colors.get("iconsidebar_pressed_bg", "rgba(255, 255, 255, 0.25)"),
         }
-        # Re-apply styles to all buttons
+        # Apply sidebar background
+        self._apply_background()
+        # Re-apply styles and icons to all buttons
         for mid, btn in self._buttons.items():
             btn.setStyleSheet(self._get_button_style(selected=(mid == self._current_selection)))
+            # Refresh icon with new theme colors
+            if mid in self._icon_files:
+                icon = get_icon(self._icon_files[mid], size=24)
+                if icon:
+                    btn.setIcon(icon)
 
     def _setup_ui(self):
         """Setup the icon sidebar UI."""
@@ -104,15 +118,16 @@ class IconSidebar(QWidget):
             btn.setFixedSize(40, 40)
             btn.setIconSize(QSize(24, 24))
 
-            # Load icon from assets
-            icon_path = self._assets_path / icon_file
-            if icon_path.exists():
-                btn.setIcon(QIcon(str(icon_path)))
+            # Load icon via ImageLoader (supports theming)
+            icon = get_icon(icon_file, size=24)
+            if icon:
+                btn.setIcon(icon)
 
             btn.setStyleSheet(self._get_button_style(selected=False))
             btn.clicked.connect(lambda checked, mid=manager_id: self._on_button_clicked(mid))
             layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
             self._buttons[manager_id] = btn
+            self._icon_files[manager_id] = icon_file  # Store for theme refresh
 
         # Add stretch to push buttons to top
         layout.addStretch()

@@ -25,46 +25,59 @@ class ThemePreview(QWidget):
         self.setMinimumSize(350, 280)
         self.setMaximumHeight(350)
 
-        # Default colors (dark theme)
+        # Default colors (dark theme) - using snake_case keys
         self._colors = {
             # Window
-            "TopBar_BG": "#2b2b2b",
-            "TopBar_FG": "#ffffff",
-            "MenuBar_BG": "#3d3d3d",
-            "MenuBar_FG": "#ffffff",
-            "StatusBar_BG": "#2b2b2b",
-            "StatusBar_FG": "#ffffff",
+            "topbar_bg": "#2b2b2b",
+            "topbar_fg": "#ffffff",
+            "menubar_bg": "#3d3d3d",
+            "menubar_fg": "#ffffff",
+            "statusbar_bg": "#2b2b2b",
+            "statusbar_fg": "#ffffff",
             # Frame
-            "Frame_BG": "#252525",
-            "Frame_FG": "#e0e0e0",
+            "panel_bg": "#252525",
+            "text_primary": "#e0e0e0",
+            "text_secondary": "#808080",
             # Data
-            "Data_BG": "#2d2d2d",
-            "Data_FG": "#e0e0e0",
-            "Data_Border": "#3d3d3d",
+            "surface_bg": "#2d2d2d",
+            "border_color": "#3d3d3d",
+            "window_border": "#3d3d3d",
             # Interactive
-            "Hover_BG": "#383838",
-            "Selected_BG": "#0078d7",
-            "Selected_FG": "#ffffff",
-            "Accent": "#0078d7",
+            "hover_bg": "#383838",
+            "selected_bg": "#0078d7",
+            "selected_fg": "#ffffff",
+            "accent": "#0078d7",
             # Semantic
-            "Normal_FG": "#ffffff",
-            "Success_FG": "#2ecc71",
-            "Warning_FG": "#f39c12",
-            "Error_FG": "#e74c3c",
-            "Info_FG": "#3498db",
+            "info": "#3498db",
+            "warning": "#f39c12",
+            "error": "#e74c3c",
+            "important": "#9b59b6",
             # Log panel
-            "Log_BG": "#2d2d2d",
+            "log_bg": "#2d2d2d",
+            "log_fg": "#e0e0e0",
+            "log_info": "#3498db",
+            "log_warning": "#f39c12",
+            "log_error": "#e74c3c",
+            "log_important": "#9b59b6",
             # Toolbar buttons
-            "ToolbarBtn_BG": "#3d3d3d",
-            "ToolbarBtn_FG": "#e0e0e0",
-            "ToolbarBtn_Border": "#3d3d3d",
-            # Panel buttons
-            "Button_BG": "#2d2d2d",
-            "Button_FG": "#ffffff",
-            "Button_Border": "#505050",
+            "toolbar_button_bg": "#3d3d3d",
+            "toolbar_button_fg": "#e0e0e0",
+            "toolbar_button_border": "#3d3d3d",
+            # Buttons
+            "button_bg": "#2d2d2d",
+            "button_fg": "#ffffff",
+            "button_border": "#505050",
             # Splitter
-            "Splitter_BG": "#4d4d4d",
-            "Splitter_Hover_BG": "#0078d7",
+            "splitter_bg": "#4d4d4d",
+            "splitter_hover_bg": "#0078d7",
+            # Tree
+            "tree_header_bg": "#3d3d3d",
+            "tree_header_fg": "#ffffff",
+            "tree_selected_bg": "#0078d7",
+            "tree_selected_fg": "#ffffff",
+            # Grid
+            "grid_header_bg": "#3d3d3d",
+            "grid_header_fg": "#ffffff",
         }
 
     def set_colors(self, colors: Dict[str, str]):
@@ -145,16 +158,16 @@ class ThemePreview(QWidget):
         self._draw_statusbar(painter, QRect(0, h - statusbar_h, w, statusbar_h))
 
         # ===== Border around entire preview =====
-        painter.setPen(QPen(QColor(self._colors.get("Data_Border", "#3d3d3d")), 1))
+        painter.setPen(QPen(QColor(self._colors.get("window_border", "#3d3d3d")), 1))
         painter.drawRect(0, 0, w - 1, h - 1)
 
     def _draw_topbar(self, painter: QPainter, rect: QRect):
         """Draw the TopBar area."""
         # Background
-        painter.fillRect(rect, QColor(self._colors.get("TopBar_BG", "#2b2b2b")))
+        painter.fillRect(rect, QColor(self._colors.get("topbar_bg", "#2b2b2b")))
 
         # Title text
-        painter.setPen(QColor(self._colors.get("TopBar_FG", "#ffffff")))
+        painter.setPen(QColor(self._colors.get("topbar_fg", "#ffffff")))
         font = QFont()
         font.setPointSize(9)
         font.setBold(True)
@@ -172,15 +185,15 @@ class ThemePreview(QWidget):
         # Maximize
         painter.fillRect(btn_start + btn_spacing, btn_y, btn_size, btn_size, QColor("#606060"))
         # Close
-        painter.fillRect(btn_start + 2 * btn_spacing, btn_y, btn_size, btn_size, QColor(self._colors.get("Error_FG", "#e74c3c")))
+        painter.fillRect(btn_start + 2 * btn_spacing, btn_y, btn_size, btn_size, QColor(self._colors.get("error", "#e74c3c")))
 
     def _draw_menubar(self, painter: QPainter, rect: QRect):
         """Draw the MenuBar area."""
         # Background
-        painter.fillRect(rect, QColor(self._colors.get("MenuBar_BG", "#3d3d3d")))
+        painter.fillRect(rect, QColor(self._colors.get("menubar_bg", "#3d3d3d")))
 
         # Menu items
-        painter.setPen(QColor(self._colors.get("MenuBar_FG", "#ffffff")))
+        painter.setPen(QColor(self._colors.get("menubar_fg", "#ffffff")))
         font = QFont()
         font.setPointSize(8)
         painter.setFont(font)
@@ -197,17 +210,17 @@ class ThemePreview(QWidget):
     def _draw_treeview(self, painter: QPainter, rect: QRect):
         """Draw the TreeView (left panel) area."""
         # Background
-        painter.fillRect(rect, QColor(self._colors.get("Data_BG", "#2d2d2d")))
+        painter.fillRect(rect, QColor(self._colors.get("surface_bg", "#2d2d2d")))
 
         # Border
-        painter.setPen(QPen(QColor(self._colors.get("Data_Border", "#3d3d3d")), 1))
+        painter.setPen(QPen(QColor(self._colors.get("border_color", "#3d3d3d")), 1))
         painter.drawRect(rect)
 
         # Header
         header_h = 18
         painter.fillRect(rect.x(), rect.y(), rect.width(), header_h,
-                        QColor(self._colors.get("MenuBar_BG", "#3d3d3d")))
-        painter.setPen(QColor(self._colors.get("MenuBar_FG", "#ffffff")))
+                        QColor(self._colors.get("tree_header_bg", "#3d3d3d")))
+        painter.setPen(QColor(self._colors.get("tree_header_fg", "#ffffff")))
         font = QFont()
         font.setPointSize(8)
         painter.setFont(font)
@@ -231,31 +244,31 @@ class ThemePreview(QWidget):
         for i, (text, selected) in enumerate(items):
             item_rect = QRect(rect.x() + 2, items_y + i * item_h, rect.width() - 4, item_h)
             if selected:
-                painter.fillRect(item_rect, QColor(self._colors.get("Selected_BG", "#0078d7")))
-                painter.setPen(QColor(self._colors.get("Selected_FG", "#ffffff")))
+                painter.fillRect(item_rect, QColor(self._colors.get("tree_selected_bg", "#0078d7")))
+                painter.setPen(QColor(self._colors.get("tree_selected_fg", "#ffffff")))
             else:
-                painter.setPen(QColor(self._colors.get("Data_FG", "#e0e0e0")))
+                painter.setPen(QColor(self._colors.get("text_primary", "#e0e0e0")))
             painter.drawText(item_rect.adjusted(4, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter, text)
 
     def _draw_grid(self, painter: QPainter, rect: QRect):
         """Draw the Grid (right panel) area."""
         # Background
-        painter.fillRect(rect, QColor(self._colors.get("Data_BG", "#2d2d2d")))
+        painter.fillRect(rect, QColor(self._colors.get("surface_bg", "#2d2d2d")))
 
         # Border
-        painter.setPen(QPen(QColor(self._colors.get("Data_Border", "#3d3d3d")), 1))
+        painter.setPen(QPen(QColor(self._colors.get("border_color", "#3d3d3d")), 1))
         painter.drawRect(rect)
 
-        # Calculate colors for alternating rows
-        data_bg = self._colors.get("Data_BG", "#2d2d2d")
-        hover_bg = self._colors.get("Hover_BG", "#383838")
-
-        # Calculate alternate row color (slightly darker/lighter than data_bg)
-        bg_color = QColor(data_bg)
-        if bg_color.lightness() > 128:  # Light theme
-            alt_bg = bg_color.darker(105).name()
-        else:  # Dark theme
-            alt_bg = bg_color.lighter(110).name()
+        # Get alternating row colors from theme or calculate
+        line1_bg = self._colors.get("grid_line1_bg", self._colors.get("surface_bg", "#2d2d2d"))
+        line2_bg = self._colors.get("grid_line2_bg")
+        if not line2_bg:
+            # Calculate alternate row color (slightly darker/lighter than line1)
+            bg_color = QColor(line1_bg)
+            if bg_color.lightness() > 128:  # Light theme
+                line2_bg = bg_color.darker(105).name()
+            else:  # Dark theme
+                line2_bg = bg_color.lighter(110).name()
 
         # Header
         header_h = 18
@@ -263,8 +276,8 @@ class ThemePreview(QWidget):
         headers = ["Nom", "Type", "Valeur"]
 
         painter.fillRect(rect.x(), rect.y(), rect.width(), header_h,
-                        QColor(self._colors.get("MenuBar_BG", "#3d3d3d")))
-        painter.setPen(QColor(self._colors.get("MenuBar_FG", "#ffffff")))
+                        QColor(self._colors.get("grid_header_bg", "#3d3d3d")))
+        painter.setPen(QColor(self._colors.get("grid_header_fg", "#ffffff")))
         font = QFont()
         font.setPointSize(8)
         font.setBold(True)
@@ -275,7 +288,8 @@ class ThemePreview(QWidget):
                            Qt.AlignmentFlag.AlignVCenter, header)
 
         # Grid lines for header
-        painter.setPen(QPen(QColor(self._colors.get("Data_Border", "#3d3d3d")), 1))
+        gridline_color = self._colors.get("grid_gridline", self._colors.get("border_color", "#3d3d3d"))
+        painter.setPen(QPen(QColor(gridline_color), 1))
         for i in range(1, 3):
             x = rect.x() + i * col_w
             painter.drawLine(x, rect.y(), x, rect.y() + header_h)
@@ -299,11 +313,11 @@ class ThemePreview(QWidget):
 
             # Alternating row colors (Line1/Line2)
             if row_idx % 2 == 0:
-                painter.fillRect(row_rect, QColor(data_bg))
+                painter.fillRect(row_rect, QColor(line1_bg))
             else:
-                painter.fillRect(row_rect, QColor(alt_bg))
+                painter.fillRect(row_rect, QColor(line2_bg))
 
-            painter.setPen(QColor(self._colors.get("Data_FG", "#e0e0e0")))
+            painter.setPen(QColor(self._colors.get("text_primary", "#e0e0e0")))
 
             for col_idx, cell_value in enumerate(row_data):
                 cell_rect = QRect(rect.x() + col_idx * col_w + 5, row_rect.y(),
@@ -311,7 +325,7 @@ class ThemePreview(QWidget):
                 painter.drawText(cell_rect, Qt.AlignmentFlag.AlignVCenter, cell_value)
 
         # Grid lines
-        painter.setPen(QPen(QColor(self._colors.get("Data_Border", "#3d3d3d")), 1))
+        painter.setPen(QPen(QColor(gridline_color), 1))
         # Vertical
         for i in range(1, 3):
             x = rect.x() + i * col_w
@@ -323,17 +337,17 @@ class ThemePreview(QWidget):
 
     def _draw_toolbar(self, painter: QPainter, rect: QRect):
         """Draw toolbar with buttons."""
-        # Background (same as frame)
-        painter.fillRect(rect, QColor(self._colors.get("Frame_BG", "#252525")))
+        # Background (same as panel)
+        painter.fillRect(rect, QColor(self._colors.get("panel_bg", "#252525")))
 
-        # Draw toolbar buttons (use ToolbarBtn_* colors)
+        # Draw toolbar buttons
         btn_x = 5
         btn_h = 16
         btn_y = rect.y() + (rect.height() - btn_h) // 2
-        btn_bg = self._colors.get("ToolbarBtn_BG", self._colors.get("Frame_BG", "#252525"))
-        btn_border = self._colors.get("ToolbarBtn_Border", self._colors.get("Frame_BG", "#3d3d3d"))
-        btn_fg = self._colors.get("ToolbarBtn_FG", self._colors.get("Frame_FG", "#e0e0e0"))
-        accent = self._colors.get("Accent", "#0078d7")
+        btn_bg = self._colors.get("toolbar_button_bg", self._colors.get("panel_bg", "#252525"))
+        btn_border = self._colors.get("toolbar_button_border", self._colors.get("border_color", "#3d3d3d"))
+        btn_fg = self._colors.get("toolbar_button_fg", self._colors.get("text_primary", "#e0e0e0"))
+        accent = self._colors.get("accent", "#0078d7")
 
         buttons = [("Nouveau", False), ("Ouvrir", False), ("Sauver", True), ("Executer", False)]
         font = QFont()
@@ -361,35 +375,35 @@ class ThemePreview(QWidget):
         # Draw an input field on the right
         input_w = 80
         input_x = rect.width() - input_w - 10
-        input_bg = self._colors.get("Data_BG", "#2d2d2d")
-        input_border = self._colors.get("Data_Border", "#3d3d3d")
+        input_bg = self._colors.get("input_bg", self._colors.get("surface_bg", "#2d2d2d"))
+        input_border = self._colors.get("input_border", self._colors.get("border_color", "#3d3d3d"))
 
         painter.fillRect(input_x, btn_y, input_w, btn_h, QColor(input_bg))
         painter.setPen(QPen(QColor(input_border), 1))
         painter.drawRect(input_x, btn_y, input_w, btn_h)
-        painter.setPen(QColor(self._colors.get("Frame_FG_Secondary", "#808080")))
+        painter.setPen(QColor(self._colors.get("text_secondary", "#808080")))
         painter.drawText(input_x + 4, btn_y, input_w - 8, btn_h,
                         Qt.AlignmentFlag.AlignVCenter, "Rechercher...")
 
     def _draw_log_panel(self, painter: QPainter, rect: QRect):
         """Draw log panel with colored messages."""
-        # Background - use Log_BG if available, fallback to Data_BG
-        log_bg = self._colors.get("Log_BG", self._colors.get("Data_BG", "#2d2d2d"))
+        # Background
+        log_bg = self._colors.get("log_bg", self._colors.get("surface_bg", "#2d2d2d"))
         painter.fillRect(rect, QColor(log_bg))
 
         # Border
-        painter.setPen(QPen(QColor(self._colors.get("Data_Border", "#3d3d3d")), 1))
+        painter.setPen(QPen(QColor(self._colors.get("border_color", "#3d3d3d")), 1))
         painter.drawRect(rect)
 
         # Header
         header_h = 14
         painter.fillRect(rect.x(), rect.y(), rect.width(), header_h,
-                        QColor(self._colors.get("MenuBar_BG", "#3d3d3d")))
+                        QColor(self._colors.get("menubar_bg", "#3d3d3d")))
         font = QFont()
         font.setPointSize(7)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor(self._colors.get("MenuBar_FG", "#ffffff")))
+        painter.setPen(QColor(self._colors.get("menubar_fg", "#ffffff")))
         painter.drawText(rect.x() + 5, rect.y(), rect.width(), header_h,
                         Qt.AlignmentFlag.AlignVCenter, "Logs")
 
@@ -401,11 +415,11 @@ class ThemePreview(QWidget):
         painter.setFont(font)
 
         logs = [
-            (self._colors.get("Info_FG", "#3498db"), "[INFO] Application demarree"),
-            (self._colors.get("Normal_FG", "#ffffff"), "[LOG] Chargement des modules..."),
-            (self._colors.get("Success_FG", "#2ecc71"), "[OK] Connexion etablie"),
-            (self._colors.get("Warning_FG", "#f39c12"), "[WARN] Cache expire"),
-            (self._colors.get("Error_FG", "#e74c3c"), "[ERR] Fichier introuvable"),
+            (self._colors.get("log_info", "#3498db"), "[INFO] Application demarree"),
+            (self._colors.get("log_fg", "#ffffff"), "[LOG] Chargement des modules..."),
+            (self._colors.get("log_important", "#9b59b6"), "[OK] Connexion etablie"),
+            (self._colors.get("log_warning", "#f39c12"), "[WARN] Cache expire"),
+            (self._colors.get("log_error", "#e74c3c"), "[ERR] Fichier introuvable"),
         ]
 
         for i, (color, text) in enumerate(logs):
@@ -418,10 +432,10 @@ class ThemePreview(QWidget):
     def _draw_statusbar(self, painter: QPainter, rect: QRect):
         """Draw the StatusBar area."""
         # Background
-        painter.fillRect(rect, QColor(self._colors.get("StatusBar_BG", "#2b2b2b")))
+        painter.fillRect(rect, QColor(self._colors.get("statusbar_bg", "#2b2b2b")))
 
         # Status text
-        painter.setPen(QColor(self._colors.get("StatusBar_FG", "#ffffff")))
+        painter.setPen(QColor(self._colors.get("statusbar_fg", "#ffffff")))
         font = QFont()
         font.setPointSize(7)
         painter.setFont(font)
@@ -430,9 +444,9 @@ class ThemePreview(QWidget):
 
         # Semantic indicators on the right
         indicators = [
-            (self._colors.get("Success_FG", "#2ecc71"), "OK"),
-            (self._colors.get("Warning_FG", "#f39c12"), "!"),
-            (self._colors.get("Error_FG", "#e74c3c"), "X"),
+            (self._colors.get("important", "#9b59b6"), "OK"),
+            (self._colors.get("warning", "#f39c12"), "!"),
+            (self._colors.get("error", "#e74c3c"), "X"),
         ]
         x = rect.width() - 80
         for color, text in indicators:
@@ -443,5 +457,5 @@ class ThemePreview(QWidget):
 
     def _draw_splitter(self, painter: QPainter, rect: QRect, vertical: bool = True):
         """Draw a splitter bar."""
-        splitter_bg = self._colors.get("Splitter_BG", self._colors.get("Data_Border", "#4d4d4d"))
+        splitter_bg = self._colors.get("splitter_bg", self._colors.get("border_color", "#4d4d4d"))
         painter.fillRect(rect, QColor(splitter_bg))

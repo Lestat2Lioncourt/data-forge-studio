@@ -1,27 +1,38 @@
 """
 Image Loader for DataForge Studio
 Loads images and icons for PySide6 applications
+
+Supports themed icons:
+- Base icons (black + transparency) in ui/assets/icons/base/
+- Automatically recolored for light/dark themes
+- Falls back to legacy images in ui/assets/images/
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 import logging
 
 from PySide6.QtGui import QPixmap, QIcon
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import Qt
 
 logger = logging.getLogger(__name__)
 
 
 class ImageLoader:
-    """Singleton class for loading images and icons."""
+    """Singleton class for loading images and icons with theme support."""
 
     _instance = None
-    _images_cache = {}
+    _images_cache: Dict[str, QPixmap] = {}
+
+    # Theme state
+    _is_dark_theme: bool = True
+    _icon_color: str = "#e0e0e0"  # Default for dark theme
+    _theme_initialized: bool = False
 
     def __init__(self):
         # Get images directory path
         self.images_dir = Path(__file__).parent.parent / "ui" / "assets" / "images"
+        self.icons_dir = Path(__file__).parent.parent / "ui" / "assets" / "icons"
 
         if not self.images_dir.exists():
             logger.warning(f"Images directory not found: {self.images_dir}")
@@ -33,12 +44,36 @@ class ImageLoader:
             cls._instance = cls()
         return cls._instance
 
-    def get_image_path(self, image_name: str) -> Optional[Path]:
+    @classmethod
+    def update_theme(cls, theme_colors: dict):
+        """
+        Update theme settings from theme colors dict.
+
+        Called by ThemeBridge when theme changes.
+
+        Args:
+            theme_colors: Dict with theme color values
+        """
+        cls._is_dark_theme = theme_colors.get('is_dark', True)
+        # Icon color: use Icon_Color if defined, else derive from Frame_FG or text_primary
+        cls._icon_color = theme_colors.get(
+            'icon_color',
+            theme_colors.get('frame_fg', theme_colors.get('text_primary', '#e0e0e0'))
+        )
+        cls._theme_initialized = True
+        # Clear cache to force reload with new colors
+        cls._images_cache.clear()
+
+    def get_image_path(self, image_name: str, use_themed: bool = True) -> Optional[Path]:
         """
         Get full path to an image file.
 
+        Tries themed icons first (from icons/base/ recolored), then falls back
+        to legacy images folder.
+
         Args:
             image_name: Name of the image file (with or without extension)
+            use_themed: If True, try to use themed icon first
 
         Returns:
             Path to the image file, or None if not found
@@ -47,13 +82,24 @@ class ImageLoader:
         if not image_name.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
             image_name = f"{image_name}.png"
 
-        image_path = self.images_dir / image_name
+        # Try themed icon first
+        if use_themed:
+            from ..ui.core.theme_image_generator import get_themed_icon_path
+            themed_path = get_themed_icon_path(
+                image_name,
+                self._is_dark_theme,
+                self._icon_color
+            )
+            if themed_path:
+                return Path(themed_path)
 
+        # Fallback to legacy images folder
+        image_path = self.images_dir / image_name
         if image_path.exists():
             return image_path
-        else:
-            logger.warning(f"Image not found: {image_path}")
-            return None
+
+        logger.warning(f"Image not found: {image_name}")
+        return None
 
     def get_pixmap(self, image_name: str, width: Optional[int] = None,
                    height: Optional[int] = None) -> Optional[QPixmap]:
@@ -68,7 +114,9 @@ class ImageLoader:
         Returns:
             QPixmap object, or None if image not found
         """
-        cache_key = f"{image_name}_{width}_{height}"
+        # Include theme variant in cache key
+        theme_key = "dark" if self._is_dark_theme else "light"
+        cache_key = f"{image_name}_{width}_{height}_{theme_key}"
 
         # Check cache
         if cache_key in self._images_cache:

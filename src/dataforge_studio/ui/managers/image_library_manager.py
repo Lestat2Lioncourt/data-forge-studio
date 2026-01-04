@@ -95,7 +95,7 @@ class ImageLibraryManager(QWidget):
 
         # Action buttons
         action_layout = QHBoxLayout()
-        self.add_folder_btn = QPushButton("➕ " + tr("image_add_image_folder"))
+        self.add_folder_btn = QPushButton("+ " + tr("image_add_image_folder"))
         self.add_folder_btn.clicked.connect(self._add_rootfolder)
         action_layout.addWidget(self.add_folder_btn)
         action_layout.addStretch()
@@ -332,7 +332,7 @@ class ImageLibraryManager(QWidget):
             self._add_rootfolder_to_tree(rf, folders_item)
 
         # Add "Add folder" item
-        add_item = QTreeWidgetItem(folders_item, ["➕ " + tr("image_add_folder_hint")])
+        add_item = QTreeWidgetItem(folders_item, ["+" + tr("image_add_folder_hint")])
         add_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "add_rootfolder"
         })
@@ -435,7 +435,7 @@ class ImageLibraryManager(QWidget):
                 self._add_image_to_tree(img, cat_folder)
 
         # Add "Create category" item
-        add_item = QTreeWidgetItem(cat_item, ["➕ " + tr("image_create_category")])
+        add_item = QTreeWidgetItem(cat_item, ["+" + tr("image_create_category")])
         add_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "add_category"
         })
@@ -480,7 +480,7 @@ class ImageLibraryManager(QWidget):
 
         # If no item selected, show general menu
         if not item:
-            menu.addAction("➕ " + tr("image_add_folder_hint"), self._add_rootfolder)
+            menu.addAction("+" + tr("image_add_folder_hint"), self._add_rootfolder)
             menu.addSeparator()
             menu.addAction("🔄 " + tr("btn_refresh"), self.refresh)
             menu.exec(self.tree.viewport().mapToGlobal(position))
@@ -490,7 +490,7 @@ class ImageLibraryManager(QWidget):
         item_type = data.get("type", "")
 
         if item_type == "folders_root":
-            menu.addAction("➕ " + tr("image_add_folder_hint"), self._add_rootfolder)
+            menu.addAction("+" + tr("image_add_folder_hint"), self._add_rootfolder)
             menu.addSeparator()
             menu.addAction("🔄 " + tr("btn_refresh"), self.refresh)
 
@@ -511,7 +511,7 @@ class ImageLibraryManager(QWidget):
                 menu.addAction("📂 " + tr("image_open_explorer"), lambda: self._open_folder_in_explorer(str(full_path)))
 
         elif item_type == "categories_root":
-            menu.addAction("➕ " + tr("image_create_category"), self._create_category)
+            menu.addAction("+" + tr("image_create_category"), self._create_category)
             menu.addSeparator()
             menu.addAction("🔄 " + tr("btn_refresh"), self.refresh)
 

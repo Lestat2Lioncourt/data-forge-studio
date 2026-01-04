@@ -17,7 +17,7 @@ class LogPanel(QWidget):
     Reusable log panel with filtering.
 
     Provides a text area for displaying log messages with optional
-    filtering by log level (INFO, WARNING, ERROR, SUCCESS).
+    filtering by log level (INFO, WARNING, ERROR, IMPORTANT).
 
     Features:
     - Colored messages based on level (from theme)
@@ -53,11 +53,11 @@ class LogPanel(QWidget):
 
             # Map log levels to theme colors
             self.colors = {
-                "INFO": QColor(theme_colors.get("log_info_fg", "#ffffff")),
-                "WARNING": QColor(theme_colors.get("log_warning_fg", "#ffa500")),
-                "ERROR": QColor(theme_colors.get("log_error_fg", "#ff4444")),
-                "SUCCESS": QColor(theme_colors.get("log_success_fg", "#4ade80")),
-                "DEBUG": QColor(theme_colors.get("log_debug_fg", "#888888"))
+                "INFO": QColor(theme_colors.get("log_info", "#3498db")),
+                "WARNING": QColor(theme_colors.get("log_warning", "#f39c12")),
+                "ERROR": QColor(theme_colors.get("log_error", "#e74c3c")),
+                "IMPORTANT": QColor(theme_colors.get("log_important", "#9b59b6")),
+                "DEBUG": QColor(theme_colors.get("log_debug", "#808080"))
             }
 
             # Apply background from log_bg theme color
@@ -76,11 +76,11 @@ class LogPanel(QWidget):
         except Exception as e:
             # Fallback to default colors if theme not available
             self.colors = {
-                "INFO": QColor("#ffffff"),
-                "WARNING": QColor("#ffa500"),
-                "ERROR": QColor("#ff4444"),
-                "SUCCESS": QColor("#4ade80"),
-                "DEBUG": QColor("#888888")
+                "INFO": QColor("#3498db"),
+                "WARNING": QColor("#f39c12"),
+                "ERROR": QColor("#e74c3c"),
+                "IMPORTANT": QColor("#9b59b6"),
+                "DEBUG": QColor("#808080")
             }
 
     def _register_theme_observer(self):
@@ -120,13 +120,13 @@ class LogPanel(QWidget):
             self.error_cb = QCheckBox("ERROR")
             self.error_cb.setChecked(True)
 
-            self.success_cb = QCheckBox("SUCCESS")
-            self.success_cb.setChecked(True)
+            self.important_cb = QCheckBox("IMPORTANT")
+            self.important_cb.setChecked(True)
 
             filter_layout.addWidget(self.info_cb)
             filter_layout.addWidget(self.warning_cb)
             filter_layout.addWidget(self.error_cb)
-            filter_layout.addWidget(self.success_cb)
+            filter_layout.addWidget(self.important_cb)
             filter_layout.addStretch()
 
             layout.addLayout(filter_layout)
@@ -143,7 +143,7 @@ class LogPanel(QWidget):
 
         Args:
             message: Message text to log
-            level: Log level ("INFO", "WARNING", "ERROR", "SUCCESS", "DEBUG")
+            level: Log level ("INFO", "WARNING", "ERROR", "IMPORTANT", "DEBUG")
         """
         # Check if level is filtered
         if self.with_filters:
@@ -153,7 +153,7 @@ class LogPanel(QWidget):
                 return
             if level == "ERROR" and not self.error_cb.isChecked():
                 return
-            if level == "SUCCESS" and not self.success_cb.isChecked():
+            if level == "IMPORTANT" and not self.important_cb.isChecked():
                 return
 
         # Get color for this level
@@ -195,14 +195,14 @@ class LogPanel(QWidget):
         """
         self.add_message(message, "ERROR")
 
-    def add_success(self, message: str):
+    def add_important(self, message: str):
         """
-        Add SUCCESS level message.
+        Add IMPORTANT level message.
 
         Args:
             message: Message text
         """
-        self.add_message(message, "SUCCESS")
+        self.add_message(message, "IMPORTANT")
 
     def add_debug(self, message: str):
         """

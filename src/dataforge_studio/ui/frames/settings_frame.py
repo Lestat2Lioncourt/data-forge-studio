@@ -20,12 +20,13 @@ from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..widgets.theme_preview import ThemePreview
 from ..widgets.color_property_row import ColorPropertyRow
+from ..widgets.opacity_property_row import OpacityPropertyRow
 from ..widgets.palette_widget import PaletteWidget
 from ..core.theme_bridge import ThemeBridge
 from ..core.i18n_bridge import I18nBridge, tr
 from ...config.i18n import i18n_manager
 from ...config.user_preferences import UserPreferences
-from .quick_theme_frame import QuickThemeFrame
+from ...core.theme.models import Palette, PALETTE_COLOR_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -35,33 +36,41 @@ ICONS_PATH = Path(__file__).parent.parent / "assets" / "images"
 # Paths to config files
 LANGUAGES_PATH = Path(__file__).parent.parent.parent.parent.parent / "_AppConfig" / "languages"
 THEMES_PATH = Path(__file__).parent.parent.parent.parent.parent / "_AppConfig" / "themes"
+PALETTES_PATH = Path(__file__).parent.parent.parent.parent.parent / "_AppConfig" / "palettes"
 
-# Theme palette categories (user-friendly names)
+# Theme color categories for filtering
 THEME_CATEGORIES = {
-    "Barre de titre": ["TopBar_BG", "TopBar_FG"],
-    "Menu": ["MenuBar_BG", "MenuBar_FG", "MenuBar_Hover_BG", "MenuBar_Hover_FG",
-             "MenuBar_Selected_BG", "MenuBar_Selected_FG"],
-    "Sous-menus": ["DD_Menu_BG", "DD_Menu_FG", "DD_Menu_Hover_BG", "DD_Menu_Hover_FG",
-                   "DD_Menu_Selected_BG", "DD_Menu_Selected_FG"],
-    "Barre d'outils": ["ToolbarBtn_BG", "ToolbarBtn_FG", "ToolbarBtn_Hover_BG",
-                       "ToolbarBtn_Hover_FG", "ToolbarBtn_Pressed_BG", "ToolbarBtn_Border"],
-    "Boutons (panneaux)": ["Button_BG", "Button_FG", "Button_Hover_BG", "Button_Hover_FG",
-                           "Button_Pressed_BG", "Button_Border"],
-    "Barre d'état": ["StatusBar_BG", "StatusBar_FG"],
-    "Panneaux": ["Frame_BG", "Frame_FG", "Frame_FG_Secondary", "Frame_Border_Radius"],
-    "Séparateurs": ["Splitter_BG", "Splitter_Hover_BG"],
-    "Grilles": ["Grid_Header_BG", "Grid_Header_FG",
-                "Grid_Line1_BG", "Grid_Line1_FG",
-                "Grid_Line2_BG", "Grid_Line2_FG",
-                "Data_Border"],
-    "Arborescence": ["Tree_BG", "Tree_FG",
-                     "Tree_Header_BG", "Tree_Header_FG",
-                     "Tree_Line1_BG", "Tree_Line1_FG",
-                     "Tree_Line2_BG", "Tree_Line2_FG",
-                     "Tree_Branch_Color"],
-    "Sélection": ["Hover_BG", "Selected_BG", "Selected_FG", "Accent"],
-    "Messages (log)": ["Log_BG", "Normal_FG", "Success_FG", "Warning_FG", "Error_FG", "Info_FG"],
-    "Onglets": ["Tab_BG", "Tab_FG", "Tab_Selected_BG", "Tab_Selected_FG", "Tab_Hover_BG"],
+    "Barre de titre": ["topbar_bg", "topbar_fg"],
+    "Barre de menu": ["menubar_bg", "menubar_fg", "menubar_hover_bg", "menubar_hover_fg",
+                      "menubar_selected_bg", "menubar_selected_fg"],
+    "Menus déroulants": ["menu_bg", "menu_fg", "menu_hover_bg", "menu_hover_fg",
+                         "menu_selected_bg", "menu_selected_fg", "menu_separator"],
+    "Barre d'outils": ["toolbar_bg", "toolbar_button_bg", "toolbar_button_fg", "toolbar_button_hover_bg",
+                       "toolbar_button_hover_fg", "toolbar_button_pressed_bg", "toolbar_button_border"],
+    "Boutons": ["button_bg", "button_fg", "button_hover_bg", "button_hover_fg",
+                "button_pressed_bg", "button_border", "button_disabled_bg", "button_disabled_fg"],
+    "Barre d'état": ["statusbar_bg", "statusbar_fg"],
+    "Barre d'icônes": ["iconsidebar_bg", "iconsidebar_selected_bg", "iconsidebar_hover_bg",
+                       "iconsidebar_pressed_bg", "icon_color"],
+    "Panneaux": ["panel_bg", "surface_bg", "window_bg", "border_color", "window_border"],
+    "Sélection": ["hover_bg", "selected_bg", "selected_fg", "pressed_bg", "focus_border"],
+    "Grilles": ["grid_bg", "grid_fg", "grid_header_bg", "grid_header_fg",
+                "grid_line1_bg", "grid_line1_fg", "grid_line2_bg", "grid_line2_fg",
+                "grid_selected_bg", "grid_selected_fg", "grid_hover_bg", "grid_gridline"],
+    "Arborescence": ["tree_bg", "tree_fg", "tree_header_bg", "tree_header_fg",
+                     "tree_line1_bg", "tree_line1_fg", "tree_line2_bg", "tree_line2_fg",
+                     "tree_selected_bg", "tree_selected_fg", "tree_hover_bg", "tree_branch_color",
+                     "tree_icon_color"],
+    "Onglets": ["tab_bg", "tab_fg", "tab_selected_bg", "tab_selected_fg", "tab_hover_bg"],
+    "Champs de saisie": ["input_bg", "input_fg", "input_border", "input_focus_border",
+                         "input_placeholder", "input_disabled_bg", "input_disabled_fg"],
+    "Éditeur SQL": ["editor_bg", "editor_fg", "editor_selection_bg", "editor_selection_fg",
+                    "editor_current_line_bg", "editor_line_number_bg", "editor_line_number_fg",
+                    "sql_keyword", "sql_string", "sql_comment", "sql_number",
+                    "sql_function", "sql_operator", "sql_identifier"],
+    "Messages (log)": ["log_bg", "log_fg", "log_info", "log_warning", "log_error", "log_important", "log_debug"],
+    "Barres de défilement": ["scrollbar_bg", "scrollbar_handle", "scrollbar_handle_hover"],
+    "Infobulles": ["tooltip_bg", "tooltip_fg", "tooltip_border"],
 }
 
 
@@ -78,11 +87,7 @@ class SettingsFrame(BaseManagerView):
 
         # Current editing state
         self._current_lang_data: Dict[str, str] = {}
-        self._current_theme_data: Dict[str, str] = {}
-        self._theme_color_rows: Dict[str, ColorPropertyRow] = {}
         self._is_lang_modified = False
-        self._is_theme_modified = False
-        self._selected_category = None  # For theme category filtering
 
         super().__init__(parent, title="Preferences", enable_details_panel=False)
 
@@ -121,12 +126,6 @@ class SettingsFrame(BaseManagerView):
         self.debug_editor = self._create_debug_editor()
         self.editors_layout.addWidget(self.debug_editor)
         self.debug_editor.hide()
-
-        # Quick theme editor
-        self.quick_theme_editor = QuickThemeFrame()
-        self.quick_theme_editor.theme_applied.connect(self._on_quick_theme_applied)
-        self.editors_layout.addWidget(self.quick_theme_editor)
-        self.quick_theme_editor.hide()
 
         # Placeholder when nothing selected
         self.placeholder = QLabel(tr("settings_select_option"))
@@ -182,78 +181,101 @@ class SettingsFrame(BaseManagerView):
         return widget
 
     def _create_theme_editor(self) -> QWidget:
-        """Create theme editor: dropdown + categories + colors + palette + preview + actions."""
+        """Create theme editor with v2 system: palette + disposition + apply."""
         widget = QWidget()
-        # Store reference for dynamic styling
         self._theme_editor_widget = widget
-        # Apply theme-based styling
         self._apply_theme_editor_style()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        # === TOP: Dropdown + Actions ===
+        # === ROW 1: Palette + Disposition + Apply ===
         top_layout = QHBoxLayout()
-        top_layout.addWidget(QLabel(tr("settings_active_theme")))
 
-        self.theme_combo = QComboBox()
-        self.theme_combo.setMinimumWidth(200)
-        self.theme_combo.currentIndexChanged.connect(self._on_theme_selected)
-        top_layout.addWidget(self.theme_combo)
+        # Palette selector
+        top_layout.addWidget(QLabel("Palette:"))
+        self.palette_combo = QComboBox()
+        self.palette_combo.setMinimumWidth(150)
+        self.palette_combo.currentIndexChanged.connect(self._on_palette_changed)
+        top_layout.addWidget(self.palette_combo)
+
+        top_layout.addSpacing(20)
+
+        # Disposition selector
+        top_layout.addWidget(QLabel("Disposition:"))
+        self.disposition_combo = QComboBox()
+        self.disposition_combo.setMinimumWidth(150)
+        self.disposition_combo.currentIndexChanged.connect(self._on_disposition_changed)
+        top_layout.addWidget(self.disposition_combo)
+
+        top_layout.addSpacing(20)
+
+        # Category filter
+        top_layout.addWidget(QLabel("Catégorie:"))
+        self.category_combo = QComboBox()
+        self.category_combo.setMinimumWidth(150)
+        self.category_combo.addItem("Toutes", None)
+        for category_name in THEME_CATEGORIES.keys():
+            self.category_combo.addItem(category_name, category_name)
+        self.category_combo.currentIndexChanged.connect(self._on_category_changed)
+        top_layout.addWidget(self.category_combo)
+
         top_layout.addStretch()
 
-        # Actions
-        self.theme_duplicate_btn = QPushButton(tr("settings_duplicate"))
-        self.theme_duplicate_btn.clicked.connect(self._duplicate_theme)
-        top_layout.addWidget(self.theme_duplicate_btn)
-
-        self.theme_save_btn = QPushButton(tr("btn_save"))
-        self.theme_save_btn.clicked.connect(self._save_theme)
-        top_layout.addWidget(self.theme_save_btn)
-
+        # Apply button
         self.theme_apply_btn = QPushButton(tr("btn_apply"))
         self.theme_apply_btn.clicked.connect(self._apply_theme)
+        self.theme_apply_btn.setStyleSheet("font-weight: bold; padding: 8px 20px;")
         top_layout.addWidget(self.theme_apply_btn)
 
         layout.addLayout(top_layout)
 
-        # === MIDDLE: Splitter with categories, colors and palette/preview ===
+        # === MIDDLE: Splitter with palette colors, generated colors and preview ===
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Category tree removed - categories are now selected from the left panel tree
+        # Left: Palette colors (editable - modifies palette)
+        palette_group = QGroupBox("Palette (15 couleurs)")
+        palette_group_layout = QVBoxLayout(palette_group)
 
-        # Middle: Color properties (scrollable)
-        colors_scroll = QScrollArea()
-        colors_scroll.setWidgetResizable(True)
-        colors_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        palette_scroll = QScrollArea()
+        palette_scroll.setWidgetResizable(True)
+        palette_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        self.colors_container = QWidget()
-        self.colors_layout = QVBoxLayout(self.colors_container)
-        self.colors_layout.setContentsMargins(5, 5, 5, 5)
-        self.colors_layout.setSpacing(2)
-        colors_scroll.setWidget(self.colors_container)
-        splitter.addWidget(colors_scroll)
+        self.palette_colors_container = QWidget()
+        self.palette_colors_layout = QVBoxLayout(self.palette_colors_container)
+        self.palette_colors_layout.setContentsMargins(5, 5, 5, 5)
+        self.palette_colors_layout.setSpacing(2)
+        palette_scroll.setWidget(self.palette_colors_container)
+        palette_group_layout.addWidget(palette_scroll)
 
-        # Right: Palette + Preview
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(5, 5, 5, 5)
+        splitter.addWidget(palette_group)
 
-        self.palette_widget = PaletteWidget()
-        self.palette_widget.color_selected.connect(self._on_palette_color_selected)
-        right_layout.addWidget(self.palette_widget)
+        # Middle: Generated colors (editable - stored as overrides)
+        generated_group = QGroupBox("Couleurs générées (modifiable = override)")
+        generated_group_layout = QVBoxLayout(generated_group)
 
-        preview_label = QLabel(tr("settings_preview"))
-        preview_label.setStyleSheet("font-weight: bold; font-size: 9pt; color: #808080;")
-        right_layout.addWidget(preview_label)
+        generated_scroll = QScrollArea()
+        generated_scroll.setWidgetResizable(True)
+        generated_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self.generated_colors_container = QWidget()
+        self.generated_colors_layout = QVBoxLayout(self.generated_colors_container)
+        self.generated_colors_layout.setContentsMargins(5, 5, 5, 5)
+        self.generated_colors_layout.setSpacing(2)
+        generated_scroll.setWidget(self.generated_colors_container)
+        generated_group_layout.addWidget(generated_scroll)
+
+        splitter.addWidget(generated_group)
+
+        # Right: Preview
+        preview_group = QGroupBox("Aperçu")
+        preview_layout = QVBoxLayout(preview_group)
 
         self.theme_preview = ThemePreview()
-        self.theme_preview.setMaximumHeight(250)
-        right_layout.addWidget(self.theme_preview)
-        right_layout.addStretch()
+        preview_layout.addWidget(self.theme_preview)
 
-        splitter.addWidget(right_widget)
-        splitter.setSizes([400, 200])  # Colors, Palette/Preview (category tree removed)
+        splitter.addWidget(preview_group)
+        splitter.setSizes([200, 350, 250])
 
         layout.addWidget(splitter, 1)
 
@@ -262,26 +284,14 @@ class SettingsFrame(BaseManagerView):
         self.theme_status.setStyleSheet("color: #2ecc71;")
         layout.addWidget(self.theme_status)
 
-        # Track selected category
-        self._selected_category = None
+        # Internal state
+        self._current_palette_data: Dict[str, str] = {}
+        self._current_overrides: Dict[str, str] = {}  # User overrides for generated colors
+        self._palette_color_rows: Dict[str, ColorPropertyRow] = {}
+        self._generated_color_rows: Dict[str, ColorPropertyRow] = {}
+        self._loaded_color: Optional[str] = None  # Color loaded for paste mode
 
         return widget
-
-
-    def _update_color_display(self):
-        """Update which color rows are visible based on selected category."""
-        if not hasattr(self, '_theme_color_rows'):
-            return
-
-        # Get keys for selected category (None = show all)
-        if self._selected_category is None:
-            visible_keys = set(self._theme_color_rows.keys())
-        else:
-            visible_keys = set(THEME_CATEGORIES.get(self._selected_category, []))
-
-        # Show/hide rows
-        for key, row in self._theme_color_rows.items():
-            row.setVisible(key in visible_keys)
 
     def _create_debug_editor(self) -> QWidget:
         """Create debug options editor."""
@@ -423,29 +433,23 @@ class SettingsFrame(BaseManagerView):
         )
         lang_item.setIcon(0, option_icon)
 
-        # Quick theme (simplified Color Patch system)
-        quick_theme_item = self.tree_view.add_item(
+        # Themes section with individual themes as children
+        themes_parent = self.tree_view.add_item(
             parent=prefs_parent,
-            text=["Theme rapide"],
-            data={"type": "quick_theme"}
+            text=["Thèmes"],
+            data={"type": "category", "name": "themes"}
         )
-        quick_theme_item.setIcon(0, option_icon)
+        themes_parent.setIcon(0, category_icon)
 
-        theme_item = self.tree_view.add_item(
-            parent=prefs_parent,
-            text=["Theme avance"],
-            data={"type": "theme", "category": None}  # None = show all categories
-        )
-        theme_item.setIcon(0, option_icon)
-
-        # Add theme categories as children
-        for category_name in THEME_CATEGORIES.keys():
-            cat_item = self.tree_view.add_item(
-                parent=theme_item,
-                text=[category_name],
-                data={"type": "theme", "category": category_name}
+        # Add each theme as a child
+        themes = self.theme_bridge.get_themes_v2()
+        for theme_id, theme in sorted(themes.items()):
+            theme_item = self.tree_view.add_item(
+                parent=themes_parent,
+                text=[theme.name],
+                data={"type": "theme", "theme_id": theme_id}
             )
-            cat_item.setIcon(0, option_icon)
+            theme_item.setIcon(0, option_icon)
 
         # Debug section
         debug_parent = self.tree_view.add_item(
@@ -466,7 +470,9 @@ class SettingsFrame(BaseManagerView):
 
         # Populate dropdowns
         self._populate_lang_combo()
-        self._populate_theme_combo()
+        self._populate_palette_combo()
+        self._populate_disposition_combo()
+        self._load_current_palette()
 
     def _populate_lang_combo(self):
         """Populate language dropdown."""
@@ -485,36 +491,341 @@ class SettingsFrame(BaseManagerView):
         self.lang_combo.blockSignals(False)
         self._load_language_data(current)
 
-    def _populate_theme_combo(self):
-        """Populate theme dropdown."""
-        self.theme_combo.blockSignals(True)
-        self.theme_combo.clear()
+    def _populate_palette_combo(self):
+        """Populate palette dropdown with v2 palettes."""
+        self.palette_combo.blockSignals(True)
+        self.palette_combo.clear()
 
-        # Built-in themes
-        themes = self.theme_bridge.get_available_themes()
-        for theme_id, theme_name in themes.items():
-            self.theme_combo.addItem(theme_name, theme_id)
+        # Get palettes from theme bridge
+        palettes = self.theme_bridge.get_palettes()
+        for palette_id, palette in sorted(palettes.items()):
+            # Skip internal palettes (starting with _)
+            if not palette_id.startswith('_'):
+                self.palette_combo.addItem(palette.name, palette_id)
 
-        # Custom themes
-        if THEMES_PATH.exists():
-            for f in THEMES_PATH.glob("*.json"):
-                theme_id = f.stem
-                if theme_id not in themes:
-                    try:
-                        with open(f, 'r', encoding='utf-8') as file:
-                            data = json.load(file)
-                            name = data.get("name", theme_id)
-                            self.theme_combo.addItem(f"{name} (perso)", theme_id)
-                    except (json.JSONDecodeError, OSError) as e:
-                        logger.warning(f"Could not load theme file {f}: {e}")
-
-        current = self.theme_bridge.current_theme
-        idx = self.theme_combo.findData(current)
+        # Select "sombre" by default if available
+        idx = self.palette_combo.findData("sombre")
         if idx >= 0:
-            self.theme_combo.setCurrentIndex(idx)
+            self.palette_combo.setCurrentIndex(idx)
+        elif self.palette_combo.count() > 0:
+            self.palette_combo.setCurrentIndex(0)
 
-        self.theme_combo.blockSignals(False)
-        self._load_theme_data(current)
+        self.palette_combo.blockSignals(False)
+
+    def _populate_disposition_combo(self):
+        """Populate disposition dropdown."""
+        self.disposition_combo.blockSignals(True)
+        self.disposition_combo.clear()
+
+        # Get dispositions from theme bridge
+        dispositions = self.theme_bridge.get_dispositions()
+        for disp_id, disp in sorted(dispositions.items()):
+            self.disposition_combo.addItem(disp.name, disp_id)
+
+        # Select "standard" by default if available
+        idx = self.disposition_combo.findData("standard")
+        if idx >= 0:
+            self.disposition_combo.setCurrentIndex(idx)
+        elif self.disposition_combo.count() > 0:
+            self.disposition_combo.setCurrentIndex(0)
+
+        self.disposition_combo.blockSignals(False)
+
+    def _load_current_palette(self):
+        """Load the currently selected palette into the editor."""
+        palette_id = self.palette_combo.currentData()
+        if not palette_id:
+            return
+
+        palette = self.theme_bridge.get_palette(palette_id)
+        if not palette:
+            return
+
+        self._current_palette_data = dict(palette.colors)
+        self._rebuild_palette_color_rows()
+        self._update_preview()
+
+    def _rebuild_palette_color_rows(self):
+        """Rebuild the palette color rows from current palette data."""
+        # Clear existing rows
+        self._palette_color_rows.clear()
+        while self.palette_colors_layout.count():
+            item = self.palette_colors_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Create color rows for each palette color
+        for color_name in PALETTE_COLOR_NAMES:
+            color_value = self._current_palette_data.get(color_name, "#ff00ff")
+            row = ColorPropertyRow(color_name, color_value)
+            row.color_changed.connect(self._on_palette_color_changed)
+            row.color_clicked.connect(self._on_palette_color_clicked)
+            self.palette_colors_layout.addWidget(row)
+            self._palette_color_rows[color_name] = row
+
+        self.palette_colors_layout.addStretch()
+
+    def _update_preview(self):
+        """Update the theme preview and generated colors with current palette + disposition."""
+        palette_id = self.palette_combo.currentData()
+        disposition_id = self.disposition_combo.currentData()
+
+        if not palette_id or not disposition_id:
+            return
+
+        # Create a temporary palette with current edits
+        from ...core.theme.models import Palette
+        temp_palette = Palette(
+            id="temp",
+            name="Temp",
+            colors=self._current_palette_data
+        )
+
+        # Get disposition
+        disposition = self.theme_bridge.get_disposition(disposition_id)
+        if not disposition:
+            return
+
+        # Generate colors using the engine
+        generated_colors = self.theme_bridge._engine.apply(temp_palette, disposition)
+
+        # Apply overrides on top
+        final_colors = dict(generated_colors)
+        final_colors.update(self._current_overrides)
+
+        # Update preview
+        self.theme_preview.set_colors(final_colors)
+
+        # Rebuild generated colors rows
+        self._rebuild_generated_color_rows(generated_colors)
+
+    def _rebuild_generated_color_rows(self, generated_colors: Dict[str, str]):
+        """Rebuild the generated colors rows."""
+        # Clear existing rows
+        self._generated_color_rows.clear()
+        while self.generated_colors_layout.count():
+            item = self.generated_colors_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Get disposition vectors for source display
+        disposition_vectors = {}
+        disposition_id = self.disposition_combo.currentData()
+        if disposition_id:
+            disposition = self.theme_bridge.get_disposition(disposition_id)
+            if disposition:
+                disposition_vectors = disposition.vectors
+
+        # Skip palette colors (they're in the palette section)
+        palette_keys = set(PALETTE_COLOR_NAMES)
+
+        # Create color rows for generated colors (excluding palette colors)
+        for key in sorted(generated_colors.keys()):
+            if key in palette_keys or key == "is_dark":
+                continue
+
+            # Check if there's an override
+            if key in self._current_overrides:
+                color_value = self._current_overrides[key]
+                is_override = True
+            else:
+                color_value = generated_colors[key]
+                is_override = False
+
+            if isinstance(color_value, str) and color_value.startswith('#'):
+                # Get source vector from disposition
+                source = disposition_vectors.get(key)
+
+                row = ColorPropertyRow(key, color_value, source=source)
+                row.color_changed.connect(self._on_generated_color_changed)
+                row.color_pasted.connect(self._on_generated_color_pasted)
+
+                # Mark overridden colors visually
+                if is_override:
+                    row.setStyleSheet("background-color: rgba(0, 120, 215, 0.1);")
+
+                # Restore paste mode if a color was loaded
+                if self._loaded_color:
+                    row.set_paste_mode(self._loaded_color)
+
+                self.generated_colors_layout.addWidget(row)
+                self._generated_color_rows[key] = row
+
+        self.generated_colors_layout.addStretch()
+
+    def _on_generated_color_changed(self, key: str, color: str):
+        """Handle generated color change - store as override."""
+        self._current_overrides[key] = color
+
+        # Update the row styling to show it's an override
+        if key in self._generated_color_rows:
+            self._generated_color_rows[key].setStyleSheet("background-color: rgba(0, 120, 215, 0.1);")
+
+        # Update preview
+        self._update_preview_only()
+
+        self.theme_status.setText(f"Override: '{key}' = {color}")
+        self.theme_status.setStyleSheet("color: #f39c12;")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(2000, lambda: self.theme_status.setText(""))
+
+    def _on_generated_color_pasted(self, key: str, color: str):
+        """Handle color pasted from palette - show feedback then restore paste mode status."""
+        self.theme_status.setText(f"Couleur {color} appliquée à '{key}'")
+        self.theme_status.setStyleSheet("color: #2ecc71;")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1500, self._restore_paste_mode_status)
+
+    def _restore_paste_mode_status(self):
+        """Restore the paste mode status message if a color is still loaded."""
+        if self._loaded_color:
+            self.theme_status.setText(f"Couleur {self._loaded_color} chargée - cliquer sur une couleur générée pour appliquer")
+            self.theme_status.setStyleSheet("color: #2ecc71; font-weight: bold;")
+        else:
+            self.theme_status.setText("")
+            self.theme_status.setStyleSheet("")
+
+    def _update_preview_only(self):
+        """Update just the preview without rebuilding color rows."""
+        palette_id = self.palette_combo.currentData()
+        disposition_id = self.disposition_combo.currentData()
+
+        if not palette_id or not disposition_id:
+            return
+
+        from ...core.theme.models import Palette
+        temp_palette = Palette(
+            id="temp",
+            name="Temp",
+            colors=self._current_palette_data
+        )
+
+        disposition = self.theme_bridge.get_disposition(disposition_id)
+        if not disposition:
+            return
+
+        generated_colors = self.theme_bridge._engine.apply(temp_palette, disposition)
+        final_colors = dict(generated_colors)
+        final_colors.update(self._current_overrides)
+        self.theme_preview.set_colors(final_colors)
+
+    def _on_palette_changed(self, index: int):
+        """Handle palette selection change."""
+        # Clear overrides when changing palette (they may no longer make sense)
+        self._current_overrides.clear()
+        self._load_current_palette()
+
+    def _on_disposition_changed(self, index: int):
+        """Handle disposition selection change."""
+        # Clear overrides when changing disposition (different vectors = different keys)
+        self._current_overrides.clear()
+        self._update_preview()
+
+    def _on_category_changed(self, index: int):
+        """Handle category filter change."""
+        category = self.category_combo.currentData()
+        self._filter_generated_colors(category)
+
+
+    def _on_palette_color_changed(self, key: str, color: str):
+        """Handle palette color change from color row."""
+        self._current_palette_data[key] = color
+        self._update_preview()
+
+        self.theme_status.setText(f"Couleur '{key}' modifiée")
+        self.theme_status.setStyleSheet("color: #3498db;")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1500, lambda: self.theme_status.setText(""))
+
+    def _on_palette_color_clicked(self, key: str, color: str):
+        """Handle palette color click - load color for paste mode."""
+        # If same color clicked again, clear paste mode
+        if self._loaded_color == color:
+            self._clear_paste_mode()
+            return
+
+        # Load this color for paste mode
+        self._loaded_color = color
+
+        # Enable paste mode on all generated color rows
+        for row in self._generated_color_rows.values():
+            row.set_paste_mode(color)
+
+        self.theme_status.setText(f"Couleur {color} chargée - cliquer sur une couleur générée pour appliquer")
+        self.theme_status.setStyleSheet("color: #2ecc71; font-weight: bold;")
+
+    def _clear_paste_mode(self):
+        """Clear paste mode on all generated color rows."""
+        self._loaded_color = None
+        for row in self._generated_color_rows.values():
+            row.clear_paste_mode()
+        self.theme_status.setText("")
+        self.theme_status.setStyleSheet("")
+
+    def _save_palette(self):
+        """Save current palette colors to a new palette file."""
+        from PySide6.QtWidgets import QInputDialog
+
+        # Get palette name
+        name, ok = QInputDialog.getText(
+            self, "Sauvegarder la palette",
+            "Nom de la palette:"
+        )
+        if not ok or not name.strip():
+            return
+
+        name = name.strip()
+
+        # Generate palette ID from name
+        palette_id = name.lower().replace(" ", "_").replace("'", "")
+        for char in "éèêë":
+            palette_id = palette_id.replace(char, "e")
+        for char in "àâä":
+            palette_id = palette_id.replace(char, "a")
+
+        # Build palette data from current theme
+        palette_data = {
+            "name": name,
+            "background": self._current_theme_data.get("background", "#252525"),
+            "surface": self._current_theme_data.get("surface", "#2d2d2d"),
+            "border": self._current_theme_data.get("border", "#3d3d3d"),
+            "accent": self._current_theme_data.get("accent", "#0078d7"),
+            "text": self._current_theme_data.get("text", "#e0e0e0"),
+            "text_secondary": self._current_theme_data.get("text_secondary", "#808080"),
+            "icon": self._current_theme_data.get("icon", "#e0e0e0"),
+            "info": self._current_theme_data.get("info", "#3498db"),
+            "warning": self._current_theme_data.get("warning", "#f39c12"),
+            "error": self._current_theme_data.get("error", "#e74c3c"),
+            "important": self._current_theme_data.get("important", "#9b59b6"),
+            "hover_opacity": self._current_theme_data.get("hover_opacity", 15),
+            "selected_opacity": self._current_theme_data.get("selected_opacity", 30),
+        }
+
+        # Save to file
+        PALETTES_PATH.mkdir(parents=True, exist_ok=True)
+        palette_file = PALETTES_PATH / f"{palette_id}.json"
+
+        try:
+            with open(palette_file, 'w', encoding='utf-8') as f:
+                json.dump(palette_data, f, indent=2, ensure_ascii=False)
+
+            # Refresh palette combo
+            self._populate_palette_combo()
+
+            # Select the new palette
+            idx = self.palette_combo.findData(palette_id)
+            if idx >= 0:
+                self.palette_combo.setCurrentIndex(idx)
+
+            self.theme_status.setText(f"Palette '{name}' sauvegardée")
+            self.theme_status.setStyleSheet("color: #2ecc71;")
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(2000, lambda: self.theme_status.setText(""))
+
+        except Exception as e:
+            logger.error(f"Error saving palette: {e}")
+            from ..widgets.dialog_helper import DialogHelper
+            DialogHelper.error(f"Erreur de sauvegarde: {e}", parent=self)
 
     def _display_item(self, item_data: Any):
         """Show appropriate editor based on selection."""
@@ -527,23 +838,94 @@ class SettingsFrame(BaseManagerView):
         self.language_editor.hide()
         self.theme_editor.hide()
         self.debug_editor.hide()
-        self.quick_theme_editor.hide()
         self.placeholder.hide()
 
         if option_type == "language":
             self.language_editor.show()
-        elif option_type == "quick_theme":
-            self.quick_theme_editor.show()
         elif option_type == "theme":
             self.theme_editor.show()
-            # Apply category filter from tree selection
-            category = item_data.get("category")
-            self._selected_category = category
-            self._update_color_display()
+            # Load theme if theme_id is specified
+            theme_id = item_data.get("theme_id")
+            if theme_id:
+                self._load_theme_into_editor(theme_id)
+        elif option_type == "category" and item_data.get("name") == "themes":
+            # Clicked on "Thèmes" parent - show editor with current active theme
+            self.theme_editor.show()
+            current_theme = self.theme_bridge.current_theme
+            if current_theme:
+                self._load_theme_into_editor(current_theme)
+                self._select_theme_in_tree(current_theme)
         elif option_type == "debug_borders":
             self.debug_editor.show()
         else:
             self.placeholder.show()
+
+    def _select_theme_in_tree(self, theme_id: str):
+        """Select a theme in the tree view."""
+        # Find and select the theme item in the tree
+        root = self.tree_view.tree.invisibleRootItem()
+        self._find_and_select_theme(root, theme_id)
+
+    def _find_and_select_theme(self, parent, theme_id: str) -> bool:
+        """Recursively find and select theme in tree."""
+        for i in range(parent.childCount()):
+            item = parent.child(i)
+            data = self.tree_view.tree.itemWidget(item, 0)
+            # Get item data from the tree
+            item_data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(item_data, dict):
+                if item_data.get("type") == "theme" and item_data.get("theme_id") == theme_id:
+                    self.tree_view.tree.blockSignals(True)
+                    self.tree_view.tree.setCurrentItem(item)
+                    self.tree_view.tree.blockSignals(False)
+                    return True
+            # Recurse into children
+            if self._find_and_select_theme(item, theme_id):
+                return True
+        return False
+
+    def _load_theme_into_editor(self, theme_id: str):
+        """Load a theme into the editor by selecting its palette and disposition."""
+        theme = self.theme_bridge.get_theme_v2(theme_id)
+        if not theme:
+            return
+
+        # Select palette
+        palette_id = theme.palette_id
+        idx = self.palette_combo.findData(palette_id)
+        if idx >= 0:
+            self.palette_combo.blockSignals(True)
+            self.palette_combo.setCurrentIndex(idx)
+            self.palette_combo.blockSignals(False)
+
+        # Select disposition
+        idx = self.disposition_combo.findData(theme.disposition_id)
+        if idx >= 0:
+            self.disposition_combo.blockSignals(True)
+            self.disposition_combo.setCurrentIndex(idx)
+            self.disposition_combo.blockSignals(False)
+
+        # Load overrides if any
+        self._current_overrides = dict(theme.overrides) if theme.overrides else {}
+
+        # Reload palette and update preview
+        self._load_current_palette()
+
+        # Re-apply current category filter
+        current_category = self.category_combo.currentData()
+        self._filter_generated_colors(current_category)
+
+    def _filter_generated_colors(self, category: Optional[str]):
+        """Filter generated color rows by category."""
+        if category is None:
+            # Show all
+            for row in self._generated_color_rows.values():
+                row.setVisible(True)
+        else:
+            # Show only colors in this category
+            visible_keys = set(THEME_CATEGORIES.get(category, []))
+            for key, row in self._generated_color_rows.items():
+                row.setVisible(key in visible_keys)
 
     # === LANGUAGE METHODS ===
 
@@ -655,134 +1037,38 @@ class SettingsFrame(BaseManagerView):
 
     def _ensure_palette_keys(self, palette: Dict[str, str]) -> Dict[str, str]:
         """
-        Ensure all expected palette keys exist with sensible defaults.
+        Expand a minimal palette to full theme colors using ThemeGenerator.
+
+        Custom overrides in the original palette are preserved - they will
+        override the generated values.
 
         Args:
-            palette: Original palette dict
+            palette: Original palette dict (can be legacy or new format)
 
         Returns:
-            Palette with all expected keys
+            Full theme colors dict with all keys in snake_case
         """
-        # Define all expected keys with their default derivation
-        # Base keys that should always exist
-        required_keys = [
-            "TopBar_BG", "TopBar_FG",
-            "MenuBar_BG", "MenuBar_FG",
-            "MenuBar_Hover_BG", "MenuBar_Hover_FG",
-            "MenuBar_Selected_BG", "MenuBar_Selected_FG",
-            "StatusBar_BG", "StatusBar_FG",
-            "Frame_BG", "Frame_FG", "Frame_FG_Secondary",
-            "Data_BG", "Data_FG", "Data_Border",
-            "Hover_BG", "Selected_BG", "Selected_FG",
-            "Accent",
-            "Normal_FG", "Success_FG", "Warning_FG", "Error_FG", "Info_FG"
-        ]
+        # Convert legacy palette to new ThemePalette format
+        try:
+            theme_palette = legacy_to_palette(palette, name="Editing")
+        except (KeyError, TypeError):
+            # If conversion fails, create a default palette
+            from ...core.theme import DEFAULT_DARK_PALETTE
+            theme_palette = DEFAULT_DARK_PALETTE
 
-        result = dict(palette)
+        # Generate full theme using ThemeGenerator
+        generator = ThemeGenerator()
+        generated = generator.generate(theme_palette)
 
-        # Add MenuBar hover/selected defaults if missing
-        # Use Hover_BG as default for MenuBar_Hover_BG (visible difference)
-        if "MenuBar_Hover_BG" not in result:
-            result["MenuBar_Hover_BG"] = result.get("Hover_BG", "#4d4d4d")
-        if "MenuBar_Hover_FG" not in result:
-            result["MenuBar_Hover_FG"] = result.get("MenuBar_FG", "#ffffff")
-        # Use Accent as default for MenuBar_Selected_BG
-        if "MenuBar_Selected_BG" not in result:
-            result["MenuBar_Selected_BG"] = result.get("Accent", "#0078d7")
-        if "MenuBar_Selected_FG" not in result:
-            result["MenuBar_Selected_FG"] = "#ffffff"
+        # Start with generated colors
+        result = dict(generated.colors)
 
-        # Add Dropdown menu colors if missing
-        if "DD_Menu_BG" not in result:
-            result["DD_Menu_BG"] = result.get("Data_BG", "#2d2d2d")
-        if "DD_Menu_FG" not in result:
-            result["DD_Menu_FG"] = result.get("Data_FG", "#e0e0e0")
-        if "DD_Menu_Hover_BG" not in result:
-            result["DD_Menu_Hover_BG"] = result.get("Hover_BG", "#4d4d4d")
-        if "DD_Menu_Hover_FG" not in result:
-            result["DD_Menu_Hover_FG"] = result.get("Data_FG", "#e0e0e0")
-        if "DD_Menu_Selected_BG" not in result:
-            result["DD_Menu_Selected_BG"] = result.get("Selected_BG", "#0078d7")
-        if "DD_Menu_Selected_FG" not in result:
-            result["DD_Menu_Selected_FG"] = result.get("Selected_FG", "#ffffff")
-
-        # Add Toolbar Button colors if missing (buttons in toolbar at top of managers)
-        if "ToolbarBtn_BG" not in result:
-            result["ToolbarBtn_BG"] = result.get("Frame_BG", "#3d3d3d")
-        if "ToolbarBtn_FG" not in result:
-            result["ToolbarBtn_FG"] = result.get("Frame_FG", "#e0e0e0")
-        if "ToolbarBtn_Hover_BG" not in result:
-            result["ToolbarBtn_Hover_BG"] = result.get("Hover_BG", "#4d4d4d")
-        if "ToolbarBtn_Hover_FG" not in result:
-            result["ToolbarBtn_Hover_FG"] = result.get("Normal_FG", "#ffffff")
-        if "ToolbarBtn_Pressed_BG" not in result:
-            result["ToolbarBtn_Pressed_BG"] = result.get("Selected_BG", "#0078d7")
-        if "ToolbarBtn_Border" not in result:
-            result["ToolbarBtn_Border"] = result.get("Frame_BG", "#3d3d3d")
-
-        # Add Button colors if missing (buttons in panels/dialogs)
-        if "Button_BG" not in result:
-            result["Button_BG"] = result.get("Data_BG", "#2d2d2d")
-        if "Button_FG" not in result:
-            result["Button_FG"] = result.get("Normal_FG", "#ffffff")
-        if "Button_Hover_BG" not in result:
-            result["Button_Hover_BG"] = result.get("Hover_BG", "#4d4d4d")
-        if "Button_Hover_FG" not in result:
-            result["Button_Hover_FG"] = result.get("Normal_FG", "#ffffff")
-        if "Button_Pressed_BG" not in result:
-            result["Button_Pressed_BG"] = result.get("Selected_BG", "#0078d7")
-        if "Button_Border" not in result:
-            result["Button_Border"] = result.get("Data_Border", "#505050")
-
-        # Add Grid colors if missing (alternating rows)
-        if "Grid_Header_BG" not in result:
-            result["Grid_Header_BG"] = result.get("Frame_BG", "#3d3d3d")
-        if "Grid_Header_FG" not in result:
-            result["Grid_Header_FG"] = result.get("Normal_FG", "#ffffff")
-        if "Grid_Line1_BG" not in result:
-            result["Grid_Line1_BG"] = result.get("Data_BG", "#2d2d2d")
-        if "Grid_Line1_FG" not in result:
-            result["Grid_Line1_FG"] = result.get("Frame_FG", "#e0e0e0")
-        if "Grid_Line2_BG" not in result:
-            # Slightly different from Line1 for alternating effect
-            line1 = result.get("Grid_Line1_BG", result.get("Data_BG", "#2d2d2d"))
-            result["Grid_Line2_BG"] = line1  # Will be darkened/lightened by theme_manager
-        if "Grid_Line2_FG" not in result:
-            result["Grid_Line2_FG"] = result.get("Frame_FG", "#e0e0e0")
-
-        # Add TreeView colors if missing
-        if "Tree_BG" not in result:
-            result["Tree_BG"] = result.get("Data_BG", "#2d2d2d")
-        if "Tree_FG" not in result:
-            result["Tree_FG"] = result.get("Frame_FG", "#e0e0e0")
-        if "Tree_Header_BG" not in result:
-            result["Tree_Header_BG"] = result.get("Frame_BG", "#3d3d3d")
-        if "Tree_Header_FG" not in result:
-            result["Tree_Header_FG"] = result.get("Normal_FG", "#ffffff")
-        if "Tree_Line1_BG" not in result:
-            result["Tree_Line1_BG"] = result.get("Data_BG", "#2d2d2d")
-        if "Tree_Line1_FG" not in result:
-            result["Tree_Line1_FG"] = result.get("Frame_FG", "#e0e0e0")
-        if "Tree_Line2_BG" not in result:
-            result["Tree_Line2_BG"] = result.get("Tree_Line1_BG", "#2d2d2d")
-        if "Tree_Line2_FG" not in result:
-            result["Tree_Line2_FG"] = result.get("Frame_FG", "#e0e0e0")
-        if "Tree_Branch_Color" not in result:
-            result["Tree_Branch_Color"] = result.get("Frame_FG_Secondary", "#808080")
-
-        # Add Frame styling if missing
-        if "Frame_Border_Radius" not in result:
-            result["Frame_Border_Radius"] = "0"
-
-        # Add Splitter colors if missing (use visible colors by default)
-        if "Splitter_BG" not in result:
-            result["Splitter_BG"] = "#4d4d4d"  # Visible gray
-        if "Splitter_Hover_BG" not in result:
-            result["Splitter_Hover_BG"] = result.get("Accent", "#0078d7")
-
-        # Add Log panel colors if missing
-        if "Log_BG" not in result:
-            result["Log_BG"] = result.get("Data_BG", "#2d2d2d")
+        # Overlay original palette values to preserve custom overrides
+        # (e.g., user-edited menubar_hover_bg, menubar_selected_bg, etc.)
+        for key, value in palette.items():
+            if key not in PALETTE_SOURCE_KEYS and key in result:
+                # This is a derived color that was customized - preserve it
+                result[key] = value
 
         return result
 
@@ -833,6 +1119,7 @@ class SettingsFrame(BaseManagerView):
 
         # Clear colors layout
         self._theme_color_rows.clear()
+        self._opacity_rows.clear()
         while self.colors_layout.count():
             item = self.colors_layout.takeAt(0)
             if item.widget():
@@ -843,8 +1130,18 @@ class SettingsFrame(BaseManagerView):
             if isinstance(value, str) and value.startswith('#'):
                 row = ColorPropertyRow(key, value)
                 row.color_changed.connect(self._on_color_changed)
+                row.color_pasted.connect(self._on_color_pasted)
                 self.colors_layout.addWidget(row)
                 self._theme_color_rows[key] = row
+
+        # Create opacity rows (at the end, after all colors)
+        for key, label in OPACITY_SETTINGS.items():
+            value = palette.get(key, 15 if 'hover' in key else 30)
+            if isinstance(value, int):
+                row = OpacityPropertyRow(key, value, label)
+                row.value_changed.connect(self._on_opacity_changed)
+                self.colors_layout.addWidget(row)
+                self._opacity_rows[key] = row
 
         self.colors_layout.addStretch()
 
@@ -860,15 +1157,110 @@ class SettingsFrame(BaseManagerView):
         self._current_theme_data[key] = color
         self._is_theme_modified = True
         self._update_theme_save_btn()
+
+        # If a palette source color was changed, regenerate all derived colors
+        if key in PALETTE_SOURCE_KEYS:
+            self._regenerate_from_palette()
+        else:
+            self.palette_widget.update_colors(self._current_theme_data)
+            self.theme_preview.set_colors(self._current_theme_data)
+
+    def _on_opacity_changed(self, key: str, value: int):
+        """Handle opacity value change - regenerate affected colors."""
+        self._current_theme_data[key] = value
+        self._is_theme_modified = True
+        self._update_theme_save_btn()
+
+        # Regenerate the theme with new opacity values to update derived colors
+        self._regenerate_derived_colors()
+
+    def _regenerate_from_palette(self):
+        """Regenerate derived colors from the current palette source colors.
+
+        When regenerating, ALL derived colors are updated based on the new
+        source colors. If the user wants to customize a derived color, they
+        should do it AFTER modifying source colors.
+        """
+        # Build a ThemePalette from current source colors
+        palette = ThemePalette(
+            name="Editing",
+            background=self._current_theme_data.get("background", "#252525"),
+            surface=self._current_theme_data.get("surface", "#2d2d2d"),
+            border=self._current_theme_data.get("border", "#3d3d3d"),
+            accent=self._current_theme_data.get("accent", "#0078d7"),
+            text=self._current_theme_data.get("text", "#e0e0e0"),
+            text_secondary=self._current_theme_data.get("text_secondary", "#808080"),
+            icon=self._current_theme_data.get("icon", "#e0e0e0"),
+            info=self._current_theme_data.get("info", "#3498db"),
+            warning=self._current_theme_data.get("warning", "#f39c12"),
+            error=self._current_theme_data.get("error", "#e74c3c"),
+            important=self._current_theme_data.get("important", "#9b59b6"),
+            hover_opacity=self._current_theme_data.get("hover_opacity", 15),
+            selected_opacity=self._current_theme_data.get("selected_opacity", 30),
+        )
+
+        # Generate full theme
+        generator = ThemeGenerator()
+        generated = generator.generate(palette)
+
+        # Update current theme data with regenerated colors
+        self._current_theme_data.update(generated.colors)
+
+        # Update all color rows with new values
+        for key, row in self._theme_color_rows.items():
+            if key in self._current_theme_data:
+                new_color = self._current_theme_data[key]
+                if isinstance(new_color, str) and new_color.startswith('#'):
+                    row.set_color(new_color)
+
+        # Update palette widget and preview
         self.palette_widget.update_colors(self._current_theme_data)
         self.theme_preview.set_colors(self._current_theme_data)
 
-    def _on_palette_color_selected(self, color: str):
-        """Handle palette color click - copy to clipboard."""
-        QApplication.clipboard().setText(color)
-        self.theme_status.setText(f"Couleur {color} copiee!")
+        # Show feedback
+        self.theme_status.setText("Couleurs régénérées depuis la palette")
+        self.theme_status.setStyleSheet("color: #3498db;")
         from PySide6.QtCore import QTimer
         QTimer.singleShot(2000, lambda: self.theme_status.setText(""))
+
+    def _regenerate_derived_colors(self):
+        """Regenerate colors that depend on opacity settings."""
+        # Use the full regeneration since opacity affects all derived colors
+        self._regenerate_from_palette()
+
+    def _on_palette_color_selected(self, color: str):
+        """Handle palette color click - enable paste mode on all color rows."""
+        # Enable paste mode on all visible color rows
+        for row in self._theme_color_rows.values():
+            if row.isVisible():
+                row.set_paste_mode(color)
+
+        self.theme_status.setText(f"Couleur {color} chargee - cliquer sur une propriete pour appliquer")
+        self.theme_status.setStyleSheet("color: #2ecc71; font-weight: bold;")
+
+    def _on_palette_color_cleared(self):
+        """Handle palette color cleared - disable paste mode on all color rows."""
+        for row in self._theme_color_rows.values():
+            row.clear_paste_mode()
+
+        self.theme_status.setText("")
+        self.theme_status.setStyleSheet("")
+
+    def _on_color_pasted(self, key: str, color: str):
+        """Handle color pasted from palette - clear paste mode but keep color loaded for more pastes."""
+        # Show feedback
+        self.theme_status.setText(f"Couleur {color} appliquee a {key}")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(1500, lambda: self._restore_paste_mode_status())
+
+    def _restore_paste_mode_status(self):
+        """Restore the paste mode status message if a color is still loaded."""
+        if self._loaded_color:
+            self.theme_status.setText(f"Couleur {self._loaded_color} chargée - cliquer sur une couleur générée pour appliquer")
+            self.theme_status.setStyleSheet("color: #2ecc71; font-weight: bold;")
+        else:
+            self.theme_status.setText("")
+            self.theme_status.setStyleSheet("")
 
     def _update_theme_save_btn(self):
         """Update save button style."""
@@ -948,24 +1340,45 @@ class SettingsFrame(BaseManagerView):
             DialogHelper.error(f"Erreur: {e}", parent=self)
 
     def _apply_theme(self):
-        """Apply selected theme to application."""
-        theme_id = self.theme_combo.currentData()
+        """Apply current palette + disposition + overrides as theme. Saves everything."""
+        palette_id = self.palette_combo.currentData()
+        disposition_id = self.disposition_combo.currentData()
 
-        # If modified, ask to save first
-        if self._is_theme_modified:
-            reply = QMessageBox.question(self, tr("btn_apply"),
-                                         tr("settings_confirm_apply"),
-                                         QMessageBox.StandardButton.Yes |
-                                         QMessageBox.StandardButton.No |
-                                         QMessageBox.StandardButton.Cancel)
-            if reply == QMessageBox.StandardButton.Cancel:
-                return
-            if reply == QMessageBox.StandardButton.Yes:
-                self._save_theme()
+        if not palette_id or not disposition_id:
+            return
 
-        # Apply theme (clear cache first to ensure fresh colors)
+        # 1. Save palette modifications to file
+        self._save_current_palette(palette_id)
+
+        # 1b. Reload palette in theme bridge
+        self.theme_bridge.reload_palette(palette_id)
+
+        # 2. Build theme ID from disposition + palette
+        theme_id = f"{disposition_id}_{palette_id}"
+
+        # 3. Create/update the theme with the selected palette
+        from ...core.theme.models import Theme
+        theme = Theme(
+            id=theme_id,
+            name=f"{self.disposition_combo.currentText()} {self.palette_combo.currentText()}",
+            disposition_id=disposition_id,
+            palette_id=palette_id,
+            overrides=dict(self._current_overrides)
+        )
+
+        # Register in theme bridge
+        self.theme_bridge._themes_v2[theme_id] = theme
+
+        # Save theme to file
+        THEMES_PATH.mkdir(parents=True, exist_ok=True)
+        theme_file = THEMES_PATH / f"{theme_id}.json"
+        with open(theme_file, 'w', encoding='utf-8') as f:
+            json.dump(theme.to_dict(), f, indent=2, ensure_ascii=False)
+
+        # 4. Clear cache and apply
         self.theme_bridge.clear_cache(theme_id)
         global_qss = self.theme_bridge.generate_global_qss(theme_id)
+
         app = QApplication.instance()
         if app:
             app.setStyleSheet(global_qss)
@@ -973,16 +1386,44 @@ class SettingsFrame(BaseManagerView):
             self.user_prefs.set("theme", theme_id)
             self.theme_changed.emit(theme_id)
 
-            self.theme_status.setText(tr("settings_theme_applied"))
+            # Status message
+            msg = f"Thème '{theme_id}' sauvegardé et appliqué"
+            if self._current_overrides:
+                msg += f" ({len(self._current_overrides)} override(s))"
+            self.theme_status.setText(msg)
+            self.theme_status.setStyleSheet("color: #2ecc71;")
             from PySide6.QtCore import QTimer
             QTimer.singleShot(3000, lambda: self.theme_status.setText(""))
 
-    def _on_quick_theme_applied(self, theme_id: str):
-        """Handle quick theme application."""
-        # Refresh theme combo to include new themes
-        self._populate_theme_combo()
-        # Emit theme change signal
-        self.theme_changed.emit(theme_id)
+    def _save_current_palette(self, palette_id: str):
+        """Save current palette modifications to file."""
+        if not self._current_palette_data:
+            return
+
+        # Get current palette name
+        palette = self.theme_bridge.get_palette(palette_id)
+        palette_name = palette.name if palette else palette_id
+
+        # Build palette data
+        palette_data = {
+            "name": palette_name,
+            "colors": dict(self._current_palette_data)
+        }
+
+        # Save to file
+        PALETTES_PATH.mkdir(parents=True, exist_ok=True)
+        palette_file = PALETTES_PATH / f"{palette_id}.json"
+        with open(palette_file, 'w', encoding='utf-8') as f:
+            json.dump(palette_data, f, indent=2, ensure_ascii=False)
+
+        # Update in theme bridge
+        from ...core.theme.models import Palette
+        updated_palette = Palette(
+            id=palette_id,
+            name=palette_name,
+            colors=dict(self._current_palette_data)
+        )
+        self.theme_bridge._palettes[palette_id] = updated_palette
 
     # === DEBUG METHODS ===
 

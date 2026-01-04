@@ -333,7 +333,7 @@ class DatabaseManager(QWidget):
 
         # Toolbar
         toolbar_builder = ToolbarBuilder(self)
-        toolbar_builder.add_button("➕ " + tr("btn_new_tab"), self._new_query_tab, icon="add.png")
+        toolbar_builder.add_button(tr("btn_new_tab"), self._new_query_tab, icon="add.png")
         toolbar_builder.add_button(tr("btn_refresh_schema"), self._refresh_schema, icon="refresh.png")
         toolbar_builder.add_separator()
         toolbar_builder.add_button(tr("menu_new_connection"), self._new_connection)
@@ -781,8 +781,9 @@ class DatabaseManager(QWidget):
         db_icon = get_icon("database.png", size=16)
         proc_icon = get_icon("scripts.png", size=16)
         func_icon = get_icon("jobs.png", size=16)
-        table_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogListView)
-        view_icon = self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
+        tables_folder_icon = get_icon("tables.png", size=16) or folder_icon
+        table_icon = get_icon("table.png", size=16) or self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogListView)
+        view_icon = get_icon("view.png", size=16) or self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
 
         def create_item(node: SchemaNode, parent: QTreeWidgetItem) -> QTreeWidgetItem:
             """Recursively create tree items from schema nodes."""
@@ -805,8 +806,8 @@ class DatabaseManager(QWidget):
 
             elif node.node_type == SchemaNodeType.TABLES_FOLDER:
                 metadata["type"] = "tables_folder"
-                if folder_icon:
-                    item.setIcon(0, folder_icon)
+                if tables_folder_icon:
+                    item.setIcon(0, tables_folder_icon)
 
             elif node.node_type == SchemaNodeType.VIEWS_FOLDER:
                 metadata["type"] = "views_folder"
