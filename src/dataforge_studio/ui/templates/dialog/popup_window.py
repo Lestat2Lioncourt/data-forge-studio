@@ -32,7 +32,6 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout
 from PySide6.QtCore import Qt, Signal
 
 from ..window.title_bar import TitleBar
-from ...core.theme_bridge import ThemeBridge
 
 import logging
 logger = logging.getLogger(__name__)
@@ -136,6 +135,7 @@ class PopupWindow(QMainWindow):
 
         # Register for theme updates
         try:
+            from ...core.theme_bridge import ThemeBridge
             theme_bridge = ThemeBridge.get_instance()
             theme_bridge.register_observer(self._on_theme_changed)
         except Exception as e:
@@ -144,6 +144,7 @@ class PopupWindow(QMainWindow):
     def _apply_theme(self):
         """Apply theme colors to the window."""
         try:
+            from ...core.theme_bridge import ThemeBridge
             theme_bridge = ThemeBridge.get_instance()
             colors = theme_bridge.get_theme_colors()
         except Exception:
@@ -228,6 +229,7 @@ class PopupWindow(QMainWindow):
         """Emit closed signal and cleanup."""
         # Unregister theme observer
         try:
+            from ...core.theme_bridge import ThemeBridge
             theme_bridge = ThemeBridge.get_instance()
             theme_bridge.unregister_observer(self._on_theme_changed)
         except Exception:
