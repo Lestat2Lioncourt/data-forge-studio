@@ -1,0 +1,46 @@
+# DataForge Studio - Documentation Manifest
+# Ce fichier definit les guides affiches dans l'aide contextuelle
+#
+# Structure:
+#   categories:
+#     - name: "Nom de la categorie"
+#       icon: "icon_name.png"  (optionnel)
+#       docs:
+#         - filename.md
+#         - autre_fichier.md
+#
+# Les fichiers non listes ici ne seront pas affiches dans l'aide.
+# L'ordre des categories et des fichiers est respecte.
+
+categories:
+  - name: "Fonctionnalites"
+    icon: "star.png"
+    docs:
+      - SUMMARY_ALL_FEATURES.md
+      - RIGHT_CLICK_MENU.md
+      - PROJECTS_FEATURE.md
+
+  - name: "Requetes SQL"
+    icon: "queries.png"
+    docs:
+      - SAVE_QUERIES_GUIDE.md
+      - NEW_FEATURES_QUERIES_DB.md
+      - QUERIES_MANAGER_IMPROVEMENTS.md
+
+  - name: "Bases de donnees"
+    icon: "database.png"
+    docs:
+      - SQLITE_NATIVE_SUPPORT.md
+      - CONFIG_DB_INFO.md
+
+  - name: "Formatage SQL"
+    icon: "coding.png"
+    docs:
+      - SQL_FORMAT_STYLES_GUIDE.md
+      - SQL_STYLES_COMPARISON.md
+      - ALIGNED_STYLE_GUIDE.md
+
+  - name: "Guides"
+    icon: "file.png"
+    docs:
+      - HELP_VIEWER_GUIDE.md

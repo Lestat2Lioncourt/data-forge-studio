@@ -13,7 +13,7 @@ from PySide6.QtGui import QFont
 
 from ..core.i18n_bridge import tr
 from ..widgets.pinnable_panel import PinnablePanel
-from ...utils.documentation_loader import get_documentation_loader, DocEntry
+from ...utils.documentation_loader import get_documentation_loader, DocEntry, DocCategory
 from ...utils.image_loader import get_icon
 from ... import __version__
 
@@ -298,37 +298,29 @@ class HelpFrame(QWidget):
         """Load documentation entries into the tree."""
         self.doc_tree.clear()
 
-        entries_by_category = self._doc_loader.get_entries_by_category()
+        categories = self._doc_loader.get_categories()
 
-        for category, entries in sorted(entries_by_category.items()):
+        for category in categories:
             # Create category item
             cat_item = QTreeWidgetItem(self.doc_tree)
-            cat_item.setText(0, category)
+            cat_item.setText(0, category.name)
             cat_item.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
             cat_item.setExpanded(True)
 
+            # Set category icon from manifest
+            cat_icon = get_icon(category.icon, size=16)
+            if cat_icon:
+                cat_item.setIcon(0, cat_icon)
+
             # Add entries
-            for entry in entries:
+            for entry in category.entries:
                 entry_item = QTreeWidgetItem(cat_item)
                 entry_item.setText(0, entry.title)
                 entry_item.setData(0, Qt.ItemDataRole.UserRole, entry.id)
 
-                # Set icon based on category
-                icon = self._get_entry_icon(entry)
-                if icon:
-                    entry_item.setIcon(0, icon)
-
-    def _get_entry_icon(self, entry: DocEntry):
-        """Get icon for a documentation entry."""
-        icon_map = {
-            "Database": "database.png",
-            "Features": "star.png",
-            "Guides": "help.png",
-            "Projects": "workspace.png",
-            "Development": "code.png",
-        }
-        icon_name = icon_map.get(entry.category, "file.png")
-        return get_icon(icon_name, size=16)
+                # Use same icon as category for entries
+                if cat_icon:
+                    entry_item.setIcon(0, cat_icon)
 
     def _on_tree_click(self, item: QTreeWidgetItem, column: int):
         """Handle tree item click."""

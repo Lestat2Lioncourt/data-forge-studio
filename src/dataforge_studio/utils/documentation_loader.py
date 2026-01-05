@@ -1,10 +1,13 @@
 """
 Documentation Loader - Load and parse markdown documentation files.
+
+Reads documentation structure from docs/help_manifest.yaml
 """
 
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import yaml
 
 import logging
 logger = logging.getLogger(__name__)
@@ -20,33 +23,25 @@ class DocEntry:
     content: Optional[str] = None
 
 
+@dataclass
+class DocCategory:
+    """Represents a documentation category."""
+    name: str
+    icon: str = "file.png"
+    entries: List[DocEntry] = field(default_factory=list)
+
+
 class DocumentationLoader:
     """
-    Loads documentation from markdown files.
+    Loads documentation from markdown files based on a YAML manifest.
 
-    Scans the docs/ directory and provides access to documentation content.
+    The manifest file (docs/help_manifest.yaml) defines:
+    - Categories and their order
+    - Which documents to include
+    - Icons for each category
     """
 
-    # Category mappings based on filename patterns
-    CATEGORY_PATTERNS = {
-        "Database": ["SQLITE", "SQL_", "QUERIES", "CONFIG_DB"],
-        "Features": ["FEATURES", "NEW_FEATURES", "SUMMARY"],
-        "Guides": ["GUIDE", "HELP", "MENU"],
-        "Projects": ["PROJECTS", "WORKSPACE"],
-        "Development": ["MIGRATION", "PATTERNS", "PYPROJECT"],
-    }
-
-    # User-facing documentation (hide internal/dev docs)
-    USER_DOCS = [
-        "SUMMARY_ALL_FEATURES.md",
-        "RIGHT_CLICK_MENU.md",
-        "SAVE_QUERIES_GUIDE.md",
-        "NEW_FEATURES_QUERIES_DB.md",
-        "SQLITE_NATIVE_SUPPORT.md",
-        "HELP_VIEWER_GUIDE.md",
-        "SQL_FORMAT_STYLES_GUIDE.md",
-        "PROJECTS_FEATURE.md",
-    ]
+    MANIFEST_FILE = "help_manifest.yaml"
 
     def __init__(self, docs_path: Optional[Path] = None):
         """
@@ -61,35 +56,86 @@ class DocumentationLoader:
             docs_path = package_root / "docs"
 
         self.docs_path = docs_path
-        self._entries: Dict[str, DocEntry] = {}
+        self._categories: List[DocCategory] = []
+        self._entries_by_id: Dict[str, DocEntry] = {}
         self._loaded = False
 
-    def load(self, user_docs_only: bool = True) -> None:
-        """
-        Load documentation entries from the docs directory.
+    def load(self) -> None:
+        """Load documentation entries from the manifest file."""
+        manifest_path = self.docs_path / self.MANIFEST_FILE
 
-        Args:
-            user_docs_only: If True, only load user-facing documentation.
-        """
+        if not manifest_path.exists():
+            logger.warning(f"Documentation manifest not found: {manifest_path}")
+            self._load_fallback()
+            return
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = yaml.safe_load(f)
+
+            self._parse_manifest(manifest)
+            self._loaded = True
+            logger.debug(f"Loaded {len(self._entries_by_id)} documentation entries from manifest")
+
+        except Exception as e:
+            logger.error(f"Error loading documentation manifest: {e}")
+            self._load_fallback()
+
+    def _parse_manifest(self, manifest: dict) -> None:
+        """Parse the manifest structure."""
+        self._categories.clear()
+        self._entries_by_id.clear()
+
+        categories_data = manifest.get("categories", [])
+
+        for cat_data in categories_data:
+            cat_name = cat_data.get("name", "General")
+            cat_icon = cat_data.get("icon", "file.png")
+            docs_list = cat_data.get("docs", [])
+
+            category = DocCategory(name=cat_name, icon=cat_icon)
+
+            for doc_filename in docs_list:
+                doc_path = self.docs_path / doc_filename
+
+                if not doc_path.exists():
+                    logger.warning(f"Documentation file not found: {doc_path}")
+                    continue
+
+                entry = self._create_entry(doc_path, cat_name)
+                if entry:
+                    category.entries.append(entry)
+                    self._entries_by_id[entry.id] = entry
+
+            if category.entries:
+                self._categories.append(category)
+
+    def _load_fallback(self) -> None:
+        """Fallback: load all markdown files without manifest."""
+        self._categories.clear()
+        self._entries_by_id.clear()
+
         if not self.docs_path.exists():
             logger.warning(f"Documentation path not found: {self.docs_path}")
             return
 
-        self._entries.clear()
+        category = DocCategory(name="Documentation", icon="file.png")
 
-        for md_file in self.docs_path.glob("*.md"):
-            # Skip non-user docs if requested
-            if user_docs_only and md_file.name not in self.USER_DOCS:
-                continue
+        for md_file in sorted(self.docs_path.glob("*.md")):
+            if md_file.name == "README.md":
+                continue  # Skip README
 
-            entry = self._create_entry(md_file)
+            entry = self._create_entry(md_file, "Documentation")
             if entry:
-                self._entries[entry.id] = entry
+                category.entries.append(entry)
+                self._entries_by_id[entry.id] = entry
+
+        if category.entries:
+            self._categories.append(category)
 
         self._loaded = True
-        logger.debug(f"Loaded {len(self._entries)} documentation entries")
 
-    def _create_entry(self, path: Path) -> Optional[DocEntry]:
+    def _create_entry(self, path: Path, category: str) -> Optional[DocEntry]:
         """Create a DocEntry from a markdown file."""
         try:
             # Generate ID from filename
@@ -97,9 +143,6 @@ class DocumentationLoader:
 
             # Extract title from first H1 or use filename
             title = self._extract_title(path)
-
-            # Determine category
-            category = self._determine_category(path.name)
 
             return DocEntry(
                 id=doc_id,
@@ -124,35 +167,26 @@ class DocumentationLoader:
         except Exception:
             return path.stem.replace("_", " ").title()
 
-    def _determine_category(self, filename: str) -> str:
-        """Determine category based on filename patterns."""
-        upper_name = filename.upper()
-        for category, patterns in self.CATEGORY_PATTERNS.items():
-            for pattern in patterns:
-                if pattern in upper_name:
-                    return category
-        return "General"
+    def get_categories(self) -> List[DocCategory]:
+        """Get all documentation categories with their entries."""
+        if not self._loaded:
+            self.load()
+        return self._categories
 
     def get_entries(self) -> List[DocEntry]:
         """Get all loaded documentation entries."""
         if not self._loaded:
             self.load()
-        return list(self._entries.values())
+        return list(self._entries_by_id.values())
 
     def get_entries_by_category(self) -> Dict[str, List[DocEntry]]:
-        """Get entries grouped by category."""
+        """Get entries grouped by category (for backward compatibility)."""
         if not self._loaded:
             self.load()
 
         by_category: Dict[str, List[DocEntry]] = {}
-        for entry in self._entries.values():
-            if entry.category not in by_category:
-                by_category[entry.category] = []
-            by_category[entry.category].append(entry)
-
-        # Sort entries within each category
-        for entries in by_category.values():
-            entries.sort(key=lambda e: e.title)
+        for category in self._categories:
+            by_category[category.name] = category.entries
 
         return by_category
 
@@ -160,7 +194,7 @@ class DocumentationLoader:
         """Get a specific documentation entry by ID."""
         if not self._loaded:
             self.load()
-        return self._entries.get(doc_id)
+        return self._entries_by_id.get(doc_id)
 
     def get_content(self, doc_id: str) -> Optional[str]:
         """
@@ -203,7 +237,7 @@ class DocumentationLoader:
         results = []
         query_lower = query.lower()
 
-        for entry in self._entries.values():
+        for entry in self._entries_by_id.values():
             content = self.get_content(entry.id)
             if content and query_lower in content.lower():
                 # Extract snippet around match
@@ -214,6 +248,13 @@ class DocumentationLoader:
                 results.append((entry, snippet))
 
         return results
+
+    def get_category_icon(self, category_name: str) -> str:
+        """Get the icon name for a category."""
+        for category in self._categories:
+            if category.name == category_name:
+                return category.icon
+        return "file.png"
 
 
 # Singleton instance
