@@ -84,7 +84,9 @@ class SQLiteSchemaLoader(SchemaLoader):
             for (view_name,) in view_rows:
                 # Get column count for view
                 try:
-                    cursor.execute(f"PRAGMA table_info({view_name})")
+                    # Escape identifier for PRAGMA (no parameterization possible)
+                    safe_name = view_name.replace("]", "]]")
+                    cursor.execute(f"PRAGMA table_info([{safe_name}])")
                     columns = cursor.fetchall()
                     column_count = len(columns)
                 except Exception:
@@ -104,7 +106,9 @@ class SQLiteSchemaLoader(SchemaLoader):
         columns = []
 
         try:
-            cursor.execute(f"PRAGMA table_info({table_name})")
+            # Escape identifier for PRAGMA (no parameterization possible)
+            safe_name = table_name.replace("]", "]]")
+            cursor.execute(f"PRAGMA table_info([{safe_name}])")
             column_rows = cursor.fetchall()
 
             for col in column_rows:

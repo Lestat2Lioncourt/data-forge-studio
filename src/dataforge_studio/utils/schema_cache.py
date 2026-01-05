@@ -190,7 +190,9 @@ class SchemaCache:
             cursor = connection.cursor()
 
             if db_type == "sqlite":
-                cursor.execute(f"PRAGMA table_info({table_name})")
+                # Escape identifier for PRAGMA (no parameterization possible)
+                safe_name = table_name.replace("]", "]]")
+                cursor.execute(f"PRAGMA table_info([{safe_name}])")
                 columns = [row[1] for row in cursor.fetchall()]
 
             elif db_type == "sqlserver":

@@ -11,6 +11,7 @@ from .sqlite_loader import SQLiteSchemaLoader
 from .sqlserver_loader import SQLServerSchemaLoader
 from .access_loader import AccessSchemaLoader
 from .postgresql_loader import PostgreSQLSchemaLoader
+from .mysql_loader import MySQLSchemaLoader
 
 __all__ = [
     "SchemaLoader",
@@ -21,4 +22,5 @@ __all__ = [
     "SQLServerSchemaLoader",
     "AccessSchemaLoader",
     "PostgreSQLSchemaLoader",
+    "MySQLSchemaLoader",
 ]

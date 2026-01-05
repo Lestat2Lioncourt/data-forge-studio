@@ -51,7 +51,9 @@ class SQLiteDialect(DatabaseDialect):
         schema_name: Optional[str] = None
     ) -> List[ColumnInfo]:
         """Get columns using PRAGMA table_info."""
-        rows = self._execute_all(f"PRAGMA table_info([{table_name}])")
+        # Escape identifier for PRAGMA (no parameterization possible)
+        safe_name = table_name.replace("]", "]]")
+        rows = self._execute_all(f"PRAGMA table_info([{safe_name}])")
 
         return [
             ColumnInfo(

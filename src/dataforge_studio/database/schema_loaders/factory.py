@@ -9,6 +9,7 @@ from .sqlite_loader import SQLiteSchemaLoader
 from .sqlserver_loader import SQLServerSchemaLoader
 from .access_loader import AccessSchemaLoader
 from .postgresql_loader import PostgreSQLSchemaLoader
+from .mysql_loader import MySQLSchemaLoader
 
 import logging
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ class SchemaLoaderFactory:
         "access": AccessSchemaLoader,
         "postgresql": PostgreSQLSchemaLoader,
         "postgres": PostgreSQLSchemaLoader,  # Alias
+        "mysql": MySQLSchemaLoader,
+        "mariadb": MySQLSchemaLoader,  # Alias
     }
 
     @classmethod

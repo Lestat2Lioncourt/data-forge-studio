@@ -28,6 +28,7 @@ from .sqlite_dialect import SQLiteDialect
 from .sqlserver_dialect import SQLServerDialect
 from .postgresql_dialect import PostgreSQLDialect
 from .access_dialect import AccessDialect
+from .mysql_dialect import MySQLDialect
 
 __all__ = [
     # Base classes
@@ -43,4 +44,5 @@ __all__ = [
     "SQLServerDialect",
     "PostgreSQLDialect",
     "AccessDialect",
+    "MySQLDialect",
 ]

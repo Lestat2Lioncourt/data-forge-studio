@@ -290,13 +290,14 @@
 
 | Tache | Status | Priorite |
 |-------|--------|----------|
-| **Creer mysql_dialect.py** | Todo | P0 |
-| **Creer mysql_loader.py** | Todo | P0 |
-| **Enregistrer MySQL dans factories** | Todo | P0 |
-| Fix PRAGMA SQL injection | Todo | P0 |
+| **Creer mysql_dialect.py** | Done | P0 |
+| **Creer mysql_loader.py** | Done | P0 |
+| **Enregistrer MySQL dans factories** | Done | P0 |
+| Fix PRAGMA SQL injection | Done | P0 |
 | Extraire constants (timeouts, limits) | Todo | P1 |
 
 *Note: MongoDB et Oracle sont des fonctionnalites planifiees pour le futur (pas de base de test disponible actuellement).*
+*Note: MariaDB utilise le meme backend que MySQL (alias enregistre).*
 
 ---
 
@@ -362,7 +363,7 @@
 | Fichiers de tests | 6 |
 | Lignes de tests | 1,517 |
 | Plugins | 9 |
-| Dialects DB | 4 (MySQL a completer) |
+| Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) |
 | Langues i18n | 3 |
 | Themes | 4 |
 | Guides documentation | 18 |
@@ -410,9 +411,9 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 
 **Priorite absolue**: Phase 3 (Execution des Scripts) - c'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 
-**Corrections rapides a faire**:
-- Completer support MySQL (dialect + loader + factories)
-- Fix PRAGMA injection (securite)
+**Corrections realisees (Janvier 2025)**:
+- ~~Completer support MySQL (dialect + loader + factories)~~ Done
+- ~~Fix PRAGMA injection (securite)~~ Done
 
 **A ne PAS faire maintenant**:
 - Refactoring massif (attendre v1.0)

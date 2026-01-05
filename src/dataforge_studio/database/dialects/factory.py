@@ -77,12 +77,15 @@ def _register_default_dialects():
     from .sqlserver_dialect import SQLServerDialect
     from .postgresql_dialect import PostgreSQLDialect
     from .access_dialect import AccessDialect
+    from .mysql_dialect import MySQLDialect
 
     DialectFactory.register("sqlite", SQLiteDialect)
     DialectFactory.register("sqlserver", SQLServerDialect)
     DialectFactory.register("postgresql", PostgreSQLDialect)
     DialectFactory.register("postgres", PostgreSQLDialect)  # Alias
     DialectFactory.register("access", AccessDialect)
+    DialectFactory.register("mysql", MySQLDialect)
+    DialectFactory.register("mariadb", MySQLDialect)  # Alias
 
 
 # Register on module import
