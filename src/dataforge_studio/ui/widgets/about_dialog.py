@@ -38,7 +38,28 @@ class AboutDialog(SelectorDialog):
             height=700
         )
 
+        # Get theme colors
+        self._load_theme_colors()
         self._setup_content()
+
+    def _load_theme_colors(self):
+        """Load colors from theme."""
+        try:
+            theme_bridge = ThemeBridge.get_instance()
+            colors = theme_bridge.get_theme_colors()
+        except Exception:
+            colors = {}
+
+        # Store theme colors with fallbacks
+        self._colors = {
+            'text_primary': colors.get('main_menu_bar_fg', '#ffffff'),
+            'text_secondary': colors.get('text_secondary', '#808080'),
+            'text_muted': colors.get('text_muted', '#c0c0c0'),
+            'border': colors.get('border_color', '#3d3d3d'),
+            'accent': colors.get('accent_color', '#0078d4'),
+            'accent_hover': colors.get('accent_hover', '#1084d8'),
+            'accent_pressed': colors.get('accent_pressed', '#006cc1'),
+        }
 
     def _setup_content(self):
         """Setup the dialog content inside self.content_widget."""
@@ -71,21 +92,21 @@ class AboutDialog(SelectorDialog):
         close_btn = QPushButton("Fermer")
         close_btn.clicked.connect(self.close)
         close_btn.setFixedWidth(100)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {self._colors['accent']};
                 color: white;
                 border: none;
                 padding: 8px 16px;
                 border-radius: 4px;
                 font-size: 11pt;
-            }
-            QPushButton:hover {
-                background-color: #1084d8;
-            }
-            QPushButton:pressed {
-                background-color: #006cc1;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {self._colors['accent_hover']};
+            }}
+            QPushButton:pressed {{
+                background-color: {self._colors['accent_pressed']};
+            }}
         """)
         close_layout = QHBoxLayout()
         close_layout.addStretch()
@@ -113,13 +134,13 @@ class AboutDialog(SelectorDialog):
         name_label = QLabel("DataForge Studio")
         name_font = QFont("Arial", 20, QFont.Weight.Bold)
         name_label.setFont(name_font)
-        name_label.setStyleSheet("color: #ffffff;")
+        name_label.setStyleSheet(f"color: {self._colors['text_primary']};")
         text_layout.addWidget(name_label)
 
         version_label = QLabel(f"Version {__version__}")
         version_font = QFont("Arial", 12)
         version_label.setFont(version_font)
-        version_label.setStyleSheet("color: #808080;")
+        version_label.setStyleSheet(f"color: {self._colors['text_secondary']};")
         text_layout.addWidget(version_label)
 
         header_layout.addLayout(text_layout)
@@ -132,27 +153,27 @@ class AboutDialog(SelectorDialog):
         desc_label = QLabel("Multi-database management tool")
         desc_font = QFont("Arial", 11)
         desc_label.setFont(desc_font)
-        desc_label.setStyleSheet("color: #c0c0c0; padding: 10px 0;")
+        desc_label.setStyleSheet(f"color: {self._colors['text_muted']}; padding: 10px 0;")
         layout.addWidget(desc_label)
 
     def _create_features(self, layout: QVBoxLayout):
         """Create features list"""
         features_group = QGroupBox("Fonctionnalites")
-        features_group.setStyleSheet("""
-            QGroupBox {
-                color: #ffffff;
-                border: 1px solid #3d3d3d;
+        features_group.setStyleSheet(f"""
+            QGroupBox {{
+                color: {self._colors['text_primary']};
+                border: 1px solid {self._colors['border']};
                 border-radius: 4px;
                 margin-top: 10px;
                 padding-top: 10px;
                 font-size: 11pt;
                 font-weight: bold;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
-            }
+            }}
         """)
 
         features_layout = QVBoxLayout(features_group)
@@ -174,7 +195,7 @@ class AboutDialog(SelectorDialog):
 
         for feature in features:
             feature_label = QLabel(feature)
-            feature_label.setStyleSheet("color: #e0e0e0; padding-left: 10px;")
+            feature_label.setStyleSheet(f"color: {self._colors['text_muted']}; padding-left: 10px;")
             feature_font = QFont("Arial", 10)
             feature_label.setFont(feature_font)
             features_layout.addWidget(feature_label)
@@ -190,7 +211,7 @@ class AboutDialog(SelectorDialog):
         github_icon.setStyleSheet("font-size: 16pt;")
         github_layout.addWidget(github_icon)
 
-        github_link = QLabel('<a href="https://github.com/Lestat2Lioncourt/data-forge-studio" style="color: #0078d4; text-decoration: none;">GitHub: Lestat2Lioncourt/data-forge-studio</a>')
+        github_link = QLabel(f'<a href="https://github.com/Lestat2Lioncourt/data-forge-studio" style="color: {self._colors["accent"]}; text-decoration: none;">GitHub: Lestat2Lioncourt/data-forge-studio</a>')
         github_link.setOpenExternalLinks(True)
         github_link.setStyleSheet("font-size: 10pt;")
         github_link.linkActivated.connect(self._open_url)
@@ -202,21 +223,21 @@ class AboutDialog(SelectorDialog):
     def _create_support_section(self, layout: QVBoxLayout):
         """Create support/donation section"""
         support_group = QGroupBox("Soutenir le projet")
-        support_group.setStyleSheet("""
-            QGroupBox {
-                color: #ffffff;
-                border: 1px solid #3d3d3d;
+        support_group.setStyleSheet(f"""
+            QGroupBox {{
+                color: {self._colors['text_primary']};
+                border: 1px solid {self._colors['border']};
                 border-radius: 4px;
                 margin-top: 10px;
                 padding-top: 10px;
                 font-size: 11pt;
                 font-weight: bold;
-            }
-            QGroupBox::title {
+            }}
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px;
-            }
+            }}
         """)
 
         support_layout = QVBoxLayout(support_group)
@@ -224,7 +245,7 @@ class AboutDialog(SelectorDialog):
 
         # Info text
         info_label = QLabel("Les donations volontaires soutiennent le developpement du projet")
-        info_label.setStyleSheet("color: #c0c0c0; padding: 5px 10px;")
+        info_label.setStyleSheet(f"color: {self._colors['text_muted']}; padding: 5px 10px;")
         info_label.setWordWrap(True)
         info_font = QFont("Arial", 9)
         info_label.setFont(info_font)
@@ -331,7 +352,7 @@ class AboutDialog(SelectorDialog):
     def _create_footer(self, layout: QVBoxLayout):
         """Create copyright footer"""
         footer_label = QLabel("2024-2025 - MIT License")
-        footer_label.setStyleSheet("color: #808080; padding: 15px 0 5px 0;")
+        footer_label.setStyleSheet(f"color: {self._colors['text_secondary']}; padding: 15px 0 5px 0;")
         footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer_font = QFont("Arial", 9)
         footer_label.setFont(footer_font)

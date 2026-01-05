@@ -69,6 +69,7 @@ class DistributionAnalysisDialog(QDialog):
         colors = theme_bridge.get_theme_colors()
         title_bar_bg = colors.get('main_menu_bar_bg', '#2b2b2b')
         title_bar_fg = colors.get('main_menu_bar_fg', '#ffffff')
+        close_hover = colors.get('selector_close_btn_hover', '#e81123')
         self.title_bar.setStyleSheet(f"""
             QWidget {{
                 background-color: {title_bar_bg};
@@ -83,7 +84,7 @@ class DistributionAnalysisDialog(QDialog):
                 background-color: rgba(255, 255, 255, 0.1);
             }}
             QPushButton#closeButton:hover {{
-                background-color: #e81123;
+                background-color: {close_hover};
             }}
         """)
 

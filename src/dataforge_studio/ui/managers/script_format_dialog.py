@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, QPoint, QSize
 from PySide6.QtGui import QFont, QMouseEvent, QIcon
 
 from ..core.i18n_bridge import tr
+from ..core.theme_bridge import ThemeBridge
 from ..widgets.dialog_helper import DialogHelper
 from ...config.user_preferences import UserPreferences
 
@@ -57,8 +58,27 @@ class ScriptFormatDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
+        # Load theme colors
+        self._load_theme_colors()
+
         self._setup_ui()
         self._update_formatted_text()
+
+    def _load_theme_colors(self):
+        """Load colors from theme."""
+        try:
+            theme_bridge = ThemeBridge.get_instance()
+            colors = theme_bridge.get_theme_colors()
+        except Exception:
+            colors = {}
+
+        # Store theme colors with fallbacks
+        self._colors = {
+            'titlebar_bg': colors.get('main_menu_bar_bg', '#2b2b2b'),
+            'titlebar_fg': colors.get('main_menu_bar_fg', '#ffffff'),
+            'border': colors.get('border_color', '#3d3d3d'),
+            'close_hover': colors.get('selector_close_btn_hover', '#e81123'),
+        }
 
     def _setup_ui(self):
         """Setup dialog UI."""
@@ -149,11 +169,11 @@ class ScriptFormatDialog(QDialog):
         self.title_bar = QWidget()
         self.title_bar.setFixedHeight(32)
         self.title_bar.setObjectName("DialogTitleBar")
-        self.title_bar.setStyleSheet("""
-            #DialogTitleBar {
-                background-color: #2b2b2b;
-                border-bottom: 1px solid #3d3d3d;
-            }
+        self.title_bar.setStyleSheet(f"""
+            #DialogTitleBar {{
+                background-color: {self._colors['titlebar_bg']};
+                border-bottom: 1px solid {self._colors['border']};
+            }}
         """)
 
         title_layout = QHBoxLayout(self.title_bar)
@@ -162,7 +182,7 @@ class ScriptFormatDialog(QDialog):
 
         # Title label
         title_label = QLabel(tr("query_toolbar_export"))
-        title_label.setStyleSheet("color: #ffffff; font-weight: bold;")
+        title_label.setStyleSheet(f"color: {self._colors['titlebar_fg']}; font-weight: bold;")
         title_layout.addWidget(title_label)
 
         title_layout.addStretch()
@@ -181,15 +201,15 @@ class ScriptFormatDialog(QDialog):
         else:
             self.title_close_btn.setText("✕")
 
-        self.title_close_btn.setStyleSheet("""
-            QPushButton {
+        self.title_close_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: transparent;
                 border: none;
-                color: #ffffff;
-            }
-            QPushButton:hover {
-                background-color: #e81123;
-            }
+                color: {self._colors['titlebar_fg']};
+            }}
+            QPushButton:hover {{
+                background-color: {self._colors['close_hover']};
+            }}
         """)
         title_layout.addWidget(self.title_close_btn)
 

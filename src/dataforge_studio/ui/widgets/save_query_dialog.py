@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from ..core.i18n_bridge import tr
+from ..core.theme_bridge import ThemeBridge
 from ...database.config_db import get_config_db, SavedQuery
 
 
@@ -47,8 +48,25 @@ class SaveQueryDialog(QDialog):
         self.setMinimumWidth(500)
         self.setMinimumHeight(400)
 
+        # Load theme colors
+        self._load_theme_colors()
+
         self._setup_ui()
         self._load_categories()
+
+    def _load_theme_colors(self):
+        """Load colors from theme."""
+        try:
+            theme_bridge = ThemeBridge.get_instance()
+            colors = theme_bridge.get_theme_colors()
+        except Exception:
+            colors = {}
+
+        # Store theme colors with fallbacks
+        self._colors = {
+            'text_muted': colors.get('text_muted', '#666666'),
+            'code_bg': colors.get('editor_bg', colors.get('window_bg', '#2d2d2d')),
+        }
 
     def _setup_ui(self):
         """Setup the dialog UI."""
@@ -76,7 +94,7 @@ class SaveQueryDialog(QDialog):
 
         # Target database (read-only display)
         self.database_label = QLabel(self.database_name or "Not specified / Non spécifié")
-        self.database_label.setStyleSheet("color: #666; font-style: italic;")
+        self.database_label.setStyleSheet(f"color: {self._colors['text_muted']}; font-style: italic;")
         form_layout.addRow("Database / Base de données:", self.database_label)
 
         layout.addWidget(form_group)
@@ -89,12 +107,12 @@ class SaveQueryDialog(QDialog):
         self.query_preview.setPlainText(self.query_text)
         self.query_preview.setReadOnly(True)
         self.query_preview.setMaximumHeight(150)
-        self.query_preview.setStyleSheet("""
-            QTextEdit {
+        self.query_preview.setStyleSheet(f"""
+            QTextEdit {{
                 font-family: 'Consolas', 'Monaco', monospace;
                 font-size: 9pt;
-                background-color: #f5f5f5;
-            }
+                background-color: {self._colors['code_bg']};
+            }}
         """)
         preview_layout.addWidget(self.query_preview)
 

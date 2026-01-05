@@ -265,7 +265,7 @@
 
 ---
 
-### Phase 3.3: Coherence Visuelle des Fenetres (EN COURS)
+### Phase 3.3: Coherence Visuelle des Fenetres (TERMINE)
 
 **Objectif**: Appliquer le theme de l'application a toutes les fenetres (principales et enfants)
 
@@ -274,11 +274,13 @@
 | Identifier les fenetres sans style applique | Done | P1 |
 | Creer template PopupWindow avec theme | Done | P1 |
 | Migrer HelpWindow vers PopupWindow | Done | P1 |
-| Migrer ImageFullscreenDialog | Todo | P1 |
-| Migrer SaveImageDialog | Todo | P1 |
-| Corriger AboutDialog (couleurs hardcodees) | Todo | P1 |
-| Corriger ScriptFormatDialog | Todo | P1 |
-| Corriger dialogs restants (SaveQuery, Edit*, etc.) | Todo | P2 |
+| Migrer ImageFullscreenDialog | Differe | P3 |
+| Migrer SaveImageDialog | Differe | P3 |
+| Corriger AboutDialog (couleurs hardcodees) | Done | P1 |
+| Corriger ScriptFormatDialog | Done | P1 |
+| Corriger dialogs restants (SaveQuery, DistributionAnalysis) | Done | P2 |
+
+*Note: Les dialogs Image (ImageFullscreenDialog, SaveImageDialog) sont differes - l'ergonomie finale de la fonction de tri d'images reste a definir.*
 
 **Templates disponibles:**
 - `PopupWindow` - Fenetre popup avec title bar complete (min/max/close)
