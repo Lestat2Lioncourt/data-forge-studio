@@ -625,5 +625,18 @@
     "no_update_available": "Vous utilisez la dernière version.",
     "open_github": "Voir sur GitHub",
     "update_on_quit": "Mettre à jour en quittant",
-    "remind_later": "Rappeler plus tard"
+    "remind_later": "Rappeler plus tard",
+
+    "help_topics": "Rubriques",
+    "help_search_placeholder": "Rechercher dans la documentation...",
+    "help_detach_tooltip": "Ouvrir dans une fenêtre séparée",
+    "help_welcome_text": "Bienvenue dans la documentation de DataForge Studio. Sélectionnez une rubrique dans le panneau de gauche pour commencer.",
+    "help_quick_start": "Démarrage rapide",
+    "help_databases_desc": "Connectez et interrogez plusieurs types de bases de données",
+    "help_queries_desc": "Sauvegardez et organisez vos requêtes SQL",
+    "help_datalake_desc": "Parcourez et prévisualisez les fichiers de données",
+    "help_scripts_desc": "Créez et exécutez des scripts Python",
+    "help_select_topic": "Pour commencer",
+    "help_select_topic_desc": "Sélectionnez une rubrique dans le panneau de gauche pour afficher sa documentation.",
+    "help_btn_tooltip": "Ouvrir l'aide contextuelle"
 }

@@ -256,12 +256,14 @@
 
 | Tache | Status | Priorite |
 |-------|--------|----------|
+| HelpFrame ameliore avec navigation markdown | Done | P1 |
+| DocumentationLoader pour charger les guides | Done | P1 |
+| Fenetre d'aide detachable (pop-out flottant) | Done | P1 |
+| Recherche dans la documentation | Done | P2 |
+| Widget HelpButton reutilisable | Done | P1 |
 | Bouton [?] contextuel dans chaque manager toolbar | Todo | P1 |
-| Navigation HelpFrame vers section specifique | Todo | P1 |
-| Fenetre d'aide detachable (pop-out flottant) | Todo | P1 |
-| Mapping guides -> sections (8 guides utilisateur) | Todo | P1 |
+| Mapping guides -> sections (8 guides utilisateur) | Done | P1 |
 | Creer guides manquants (Scripts, Jobs, RootFolders, Images) | Todo | P2 |
-| Recherche dans la documentation | Todo | P2 |
 
 **Mapping Boutons [?] -> Guides**:
 | Manager | Guide(s) |

@@ -17,6 +17,7 @@ from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..widgets.tree_populator import TreePopulator
 from ..widgets.object_viewer_widget import ObjectViewerWidget
+from ..widgets.pinnable_panel import PinnablePanel
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db, Workspace, Script
 from ...database.models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
@@ -128,14 +129,17 @@ class WorkspaceManager(QWidget):
         self.main_splitter.setHandleWidth(6)
         self.main_splitter.setChildrenCollapsible(False)
 
-        # Left panel: Workspace tree
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(5, 5, 5, 5)
+        # Left panel: Pinnable panel with workspace tree
+        self.left_panel = PinnablePanel(
+            title=tr("menu_workspaces"),
+            icon_name="workspace.png"
+        )
+        self.left_panel.set_normal_width(350)
 
-        tree_label = QLabel(tr("menu_workspaces"))
-        tree_label.setStyleSheet("font-weight: bold;")
-        left_layout.addWidget(tree_label)
+        # Tree widget inside the pinnable panel
+        tree_container = QWidget()
+        tree_layout = QVBoxLayout(tree_container)
+        tree_layout.setContentsMargins(0, 0, 0, 0)
 
         self.workspace_tree = QTreeWidget()
         self.workspace_tree.setHeaderHidden(True)
@@ -147,9 +151,10 @@ class WorkspaceManager(QWidget):
         self.workspace_tree.itemClicked.connect(self._on_tree_click)
         self.workspace_tree.itemDoubleClicked.connect(self._on_tree_double_click)
         self.workspace_tree.itemExpanded.connect(self._on_item_expanded)
-        left_layout.addWidget(self.workspace_tree)
+        tree_layout.addWidget(self.workspace_tree)
 
-        self.main_splitter.addWidget(left_widget)
+        self.left_panel.set_content(tree_container)
+        self.main_splitter.addWidget(self.left_panel)
 
         # Right panel: Tab widget for queries (like DatabaseManager)
         self.tab_widget = QTabWidget()
