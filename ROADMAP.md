@@ -250,43 +250,39 @@
 
 ---
 
-### Phase 3.2: Aide Contextuelle & Documentation Integree (POC v0.9.xx)
+### Phase 3.2: Aide Contextuelle & Documentation Integree (TERMINE)
 
 **Objectif**: Rendre la documentation accessible directement depuis l'interface
 
-| Tache | Status | Priorite |
-|-------|--------|----------|
-| HelpFrame ameliore avec navigation markdown | Done | P1 |
-| DocumentationLoader pour charger les guides | Done | P1 |
-| Fenetre d'aide detachable (pop-out flottant) | Done | P1 |
-| Recherche dans la documentation | Done | P2 |
-| Widget HelpButton reutilisable | Done | P1 |
-| Bouton [?] contextuel dans chaque manager toolbar | Todo | P1 |
-| Mapping guides -> sections (8 guides utilisateur) | Done | P1 |
-| Creer guides manquants (Scripts, Jobs, RootFolders, Images) | Todo | P2 |
+| Tache | Status |
+|-------|--------|
+| HelpFrame ameliore avec navigation markdown | Done |
+| DocumentationLoader + manifest YAML | Done |
+| Fenetre d'aide detachable (pop-out flottant) | Done |
+| Recherche dans la documentation | Done |
 
-**Mapping Boutons [?] -> Guides**:
-| Manager | Guide(s) |
-|---------|----------|
-| DatabaseManager | SUMMARY_ALL_FEATURES, RIGHT_CLICK_MENU, SQLITE_NATIVE_SUPPORT |
-| QueriesManager | SAVE_QUERIES_GUIDE, NEW_FEATURES_QUERIES_DB |
-| WorkspaceManager | PROJECTS_FEATURE |
-| SettingsFrame | SQL_FORMAT_STYLES_GUIDE |
-| ScriptsManager | SCRIPTS_GUIDE (a creer) |
-| JobsManager | JOBS_GUIDE (a creer) |
+*Note: Les boutons [?] contextuels dans les toolbars sont optionnels - l'aide actuelle est suffisante.*
 
 ---
 
-### Phase 3.3: Coherence Visuelle des Fenetres (POC v0.9.xx)
+### Phase 3.3: Coherence Visuelle des Fenetres (EN COURS)
 
 **Objectif**: Appliquer le theme de l'application a toutes les fenetres (principales et enfants)
 
 | Tache | Status | Priorite |
 |-------|--------|----------|
-| Identifier les fenetres sans style applique (QDialog vs custom) | Todo | P1 |
-| Forcer le stylesheet sur toutes les fenetres enfant | Todo | P1 |
-| Standardiser les classes de fenetres (QDialog, QMainWindow) | Todo | P1 |
-| Tester coherence visuelle sur tous les dialogs | Todo | P1 |
+| Identifier les fenetres sans style applique | Done | P1 |
+| Creer template PopupWindow avec theme | Done | P1 |
+| Migrer HelpWindow vers PopupWindow | Done | P1 |
+| Migrer ImageFullscreenDialog | Todo | P1 |
+| Migrer SaveImageDialog | Todo | P1 |
+| Corriger AboutDialog (couleurs hardcodees) | Todo | P1 |
+| Corriger ScriptFormatDialog | Todo | P1 |
+| Corriger dialogs restants (SaveQuery, Edit*, etc.) | Todo | P2 |
+
+**Templates disponibles:**
+- `PopupWindow` - Fenetre popup avec title bar complete (min/max/close)
+- `SelectorDialog` - Dialog de selection simple (close uniquement)
 
 ---
 

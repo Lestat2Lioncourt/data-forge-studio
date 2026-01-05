@@ -6,13 +6,14 @@ import re
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
-    QTextBrowser, QLineEdit, QPushButton, QLabel, QMainWindow, QApplication
+    QTextBrowser, QLineEdit, QPushButton, QLabel, QApplication
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 
 from ..core.i18n_bridge import tr
 from ..widgets.pinnable_panel import PinnablePanel
+from ..templates.dialog.popup_window import PopupWindow
 from ...utils.documentation_loader import get_documentation_loader, DocEntry, DocCategory
 from ...utils.image_loader import get_icon
 from ... import __version__
@@ -165,37 +166,28 @@ class HelpContentWidget(QTextBrowser):
         """
 
 
-class HelpWindow(QMainWindow):
-    """Detachable help window."""
-
-    closed = Signal()
+class HelpWindow(PopupWindow):
+    """Detachable help window using PopupWindow template."""
 
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(f"DataForge Studio - {tr('menu_documentation')}")
-        self.setMinimumSize(800, 600)
-        self.resize(900, 700)
-
-        # Center on screen
-        screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width() - self.width()) // 2,
-            (screen.height() - self.height()) // 2
+        super().__init__(
+            title=f"DataForge Studio - {tr('menu_documentation')}",
+            parent=parent,
+            width=900,
+            height=700,
+            show_minimize=True,
+            show_maximize=True
         )
 
-        # Create help frame as central widget
+        # Create help frame in content widget
+        layout = QVBoxLayout(self.content_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
         self.help_frame = HelpFrame(embedded=False)
-        self.setCentralWidget(self.help_frame)
+        layout.addWidget(self.help_frame)
 
-        # Set window icon
-        icon = get_icon("help.png")
-        if icon:
-            self.setWindowIcon(icon)
-
-    def closeEvent(self, event):
-        """Emit closed signal when window closes."""
-        self.closed.emit()
-        super().closeEvent(event)
+        # Center on screen
+        self.center_on_screen()
 
     def navigate_to(self, doc_id: str):
         """Navigate to a specific documentation entry."""
