@@ -234,17 +234,19 @@
 
 ---
 
-### Phase 3: Execution des Scripts (PRIORITAIRE - POC v0.9.xx)
+### Phase 3: Execution des Scripts (REPORTE - En reflexion)
+
+*Note: Le modele final d'execution est encore en cours de reflexion. Cette phase sera reprise ulterieurement.*
 
 | Tache | Status | Priorite |
 |-------|--------|----------|
-| Formulaire dynamique depuis YAML | Todo | P0 |
-| Widgets par type (RootFolderSelector, etc.) | Todo | P0 |
-| Bouton "Run" fonctionnel | Todo | P0 |
-| Resolution parametres | Todo | P0 |
-| Logs temps reel dans onglet "Log" | Todo | P0 |
-| Gestion erreurs et affichage | Todo | P0 |
-| Mode dry-run | Todo | P1 |
+| Formulaire dynamique depuis YAML | Todo | - |
+| Widgets par type (RootFolderSelector, etc.) | Todo | - |
+| Bouton "Run" fonctionnel | Todo | - |
+| Resolution parametres | Todo | - |
+| Logs temps reel dans onglet "Log" | Todo | - |
+| Gestion erreurs et affichage | Todo | - |
+| Mode dry-run | Todo | - |
 
 ---
 
