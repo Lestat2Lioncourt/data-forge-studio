@@ -241,6 +241,8 @@ class DataForgeMainWindow:
         # Add managers if provided
         if self.rootfolder_manager:
             self.stacked_widget.addWidget(self.rootfolder_manager)
+        if self.ftproot_manager:
+            self.stacked_widget.addWidget(self.ftproot_manager)
         if self.database_manager:
             self.stacked_widget.addWidget(self.database_manager)
         if self.queries_manager:
