@@ -64,6 +64,7 @@ class ResourcesManager(BaseManagerView):
         # Manager references (set via set_managers)
         self._database_manager = None
         self._rootfolder_manager = None
+        self._ftproot_manager = None
         self._queries_manager = None
         self._jobs_manager = None
         self._scripts_manager = None
@@ -130,11 +131,12 @@ class ResourcesManager(BaseManagerView):
         return "databases.png"
 
     def set_managers(self, database_manager=None, rootfolder_manager=None,
-                     queries_manager=None, jobs_manager=None, scripts_manager=None,
-                     image_library_manager=None):
+                     ftproot_manager=None, queries_manager=None, jobs_manager=None,
+                     scripts_manager=None, image_library_manager=None):
         """Set references to managers for delegation and add their content to stack."""
         self._database_manager = database_manager
         self._rootfolder_manager = rootfolder_manager
+        self._ftproot_manager = ftproot_manager
         self._queries_manager = queries_manager
         self._jobs_manager = jobs_manager
         self._scripts_manager = scripts_manager
@@ -291,6 +293,7 @@ class ResourcesManager(BaseManagerView):
             categories = [
                 ("databases", tr("menu_database")),
                 ("rootfolders", tr("category_rootfolders")),
+                ("ftproots", "FTP"),
                 ("queries", tr("menu_queries")),
                 ("images", tr("category_images")),
                 ("jobs", tr("menu_jobs")),
@@ -329,6 +332,20 @@ class ResourcesManager(BaseManagerView):
                 )
                 self._set_item_icon(item, "folder")
                 self._add_dummy_child(item)
+
+            # FTP Roots - workspace filtered
+            if self._workspace_filter:
+                ftp_roots = config_db.get_workspace_ftp_roots(self._workspace_filter)
+            else:
+                ftp_roots = config_db.get_all_ftp_roots()
+            for ftp in ftp_roots:
+                display_name = ftp.name or f"{ftp.protocol.upper()}://{ftp.host}"
+                item = self.tree_view.add_item(
+                    parent=self._category_items["ftproots"],
+                    text=[display_name],
+                    data={"type": "ftproot", "id": ftp.id, "obj": ftp}
+                )
+                self._set_item_icon(item, "ftp")
 
             # Queries - grouped by category (workspace filtered)
             if self._workspace_filter:
@@ -720,10 +737,17 @@ class ResourcesManager(BaseManagerView):
         type_labels = {
             "database": f"Database ({getattr(obj, 'db_type', '')})",
             "rootfolder": "Rootfolder",
+            "ftproot": f"FTP ({getattr(obj, 'protocol', 'ftp').upper()})",
             "query": "Query",
             "job": "Job",
             "script": "Script",
         }
+
+        # Special handling for FTP roots
+        if item_type == "ftproot":
+            host = getattr(obj, "host", "")
+            port = getattr(obj, "port", "")
+            path = f"{host}:{port}"
 
         self.details_form_builder.set_value("name", name)
         self.details_form_builder.set_value("resource_type", type_labels.get(item_type, item_type))
@@ -775,6 +799,12 @@ class ResourcesManager(BaseManagerView):
         elif item_type == "open_image_manager":
             # Open dedicated Image Library Manager
             self._open_image_library_manager()
+
+        elif item_type == "ftproot":
+            # Open in dedicated FTP manager
+            item_id = data.get("id")
+            if item_id:
+                self.open_resource_requested.emit(item_type, item_id)
 
         else:
             # For other items (job, script), emit signal to open in dedicated manager
@@ -990,6 +1020,21 @@ class ResourcesManager(BaseManagerView):
                 edit_action = QAction(tr("menu_edit_name_desc"), self)
                 edit_action.triggered.connect(lambda: self._rootfolder_manager._edit_rootfolder(rootfolder_obj))
                 menu.addAction(edit_action)
+
+                menu.addSeparator()
+
+                refresh_action = QAction(tr("btn_refresh"), self)
+                refresh_action.triggered.connect(self.refresh)
+                menu.addAction(refresh_action)
+
+        elif item_type == "ftproot":
+            # FTP Root context menu
+            ftp_obj = data.get("obj")
+            if ftp_obj:
+                # Open in dedicated manager
+                open_action = QAction("Open in FTP Manager", self)
+                open_action.triggered.connect(lambda: self.open_resource_requested.emit("ftproot", ftp_obj.id))
+                menu.addAction(open_action)
 
                 menu.addSeparator()
 

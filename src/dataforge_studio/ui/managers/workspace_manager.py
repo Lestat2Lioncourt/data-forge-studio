@@ -270,6 +270,24 @@ class WorkspaceManager(QWidget):
             })
             TreePopulator.add_dummy_child(fr_item)
 
+        # FTP Roots
+        ws_ftp_roots = self.config_db.get_workspace_ftp_roots_with_context(workspace_id)
+        for ws_ftp in ws_ftp_roots:
+            ftp = ws_ftp.ftp_root
+            ftp_item = QTreeWidgetItem(ws_item)
+            ftp_icon = get_icon("ftp.png", size=16) or get_icon("database.png", size=16)
+            if ftp_icon:
+                ftp_item.setIcon(0, ftp_icon)
+            ftp_item.setText(0, ws_ftp.display_name)
+            ftp_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "ftproot",
+                "id": ftp.id,
+                "subfolder_path": ws_ftp.subfolder_path,
+                "full_remote_path": ws_ftp.full_remote_path,
+                "resource_obj": ftp,
+                "ws_ftp_root": ws_ftp
+            })
+
     def _add_queries_grouped_by_category(self, parent: QTreeWidgetItem, queries: list):
         """Add queries grouped by category."""
         categories = {}
@@ -582,6 +600,18 @@ class WorkspaceManager(QWidget):
                 self.object_viewer.show_details(fr.name or fr.path, "RootFolder", fr.path)
             self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
+        elif item_type == "ftproot":
+            ftp = data.get("resource_obj")
+            subfolder = data.get("subfolder_path", "")
+            remote_path = data.get("full_remote_path", "")
+            protocol = ftp.protocol.upper() if ftp else "FTP"
+            if subfolder:
+                self.object_viewer.show_details(Path(subfolder).name, f"{protocol} Subfolder", remote_path)
+            else:
+                display_name = ftp.name or f"{ftp.host}:{ftp.port}" if ftp else "FTP"
+                self.object_viewer.show_details(display_name, f"{protocol} Connection", f"{ftp.host}:{ftp.port}" if ftp else "")
+            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+
         elif item_type == "folder":
             path = data.get("path", "")
             if self._rootfolder_manager:
@@ -831,6 +861,8 @@ class WorkspaceManager(QWidget):
                 self.config_db.remove_query_from_workspace(workspace_id, resource_id)
             elif item_type == "rootfolder":
                 self.config_db.remove_file_root_from_workspace(workspace_id, resource_id)
+            elif item_type == "ftproot":
+                self.config_db.remove_ftp_root_from_workspace(workspace_id, resource_id)
             elif item_type == "script":
                 self.config_db.remove_script_from_workspace(workspace_id, resource_id)
             elif item_type == "job":

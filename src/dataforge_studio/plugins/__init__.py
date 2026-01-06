@@ -7,6 +7,7 @@ Each plugin wraps a manager or frame and provides standardized lifecycle managem
 
 from .database_plugin import DatabasePlugin
 from .rootfolder_plugin import RootFolderPlugin
+from .ftproot_plugin import FTPRootPlugin
 from .queries_plugin import QueriesPlugin
 from .jobs_plugin import JobsPlugin
 from .scripts_plugin import ScriptsPlugin
@@ -19,6 +20,7 @@ from .help_plugin import HelpPlugin
 ALL_PLUGINS = [
     DatabasePlugin,
     RootFolderPlugin,
+    FTPRootPlugin,
     QueriesPlugin,
     JobsPlugin,
     ScriptsPlugin,
@@ -31,6 +33,7 @@ ALL_PLUGINS = [
 __all__ = [
     'DatabasePlugin',
     'RootFolderPlugin',
+    'FTPRootPlugin',
     'QueriesPlugin',
     'JobsPlugin',
     'ScriptsPlugin',
