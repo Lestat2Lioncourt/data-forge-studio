@@ -660,7 +660,12 @@ class ResourcesManager(BaseManagerView):
                 item.setText(0, f"{text_base} ({count})")
 
     def _set_item_icon(self, item, icon_name: str):
-        icon = get_icon(icon_name)
+        # Map category keys to actual icon filenames
+        icon_map = {
+            "ftproots": "ftp",
+        }
+        actual_icon = icon_map.get(icon_name, icon_name)
+        icon = get_icon(actual_icon)
         if icon:
             item.setIcon(0, icon)
 
