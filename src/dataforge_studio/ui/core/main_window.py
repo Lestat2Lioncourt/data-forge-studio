@@ -30,6 +30,7 @@ class DataForgeMainWindow:
         self.settings_frame = None
         self.help_frame = None
         self.rootfolder_manager = None
+        self.ftproot_manager = None
         self.queries_manager = None
         self.scripts_manager = None
         self.jobs_manager = None
@@ -169,7 +170,8 @@ class DataForgeMainWindow:
         # Left panel will contain icon sidebar (set in set_frames)
 
     def set_frames(self, settings_frame, help_frame,
-                   rootfolder_manager=None, queries_manager=None, scripts_manager=None, jobs_manager=None,
+                   rootfolder_manager=None, ftproot_manager=None, queries_manager=None,
+                   scripts_manager=None, jobs_manager=None,
                    database_manager=None, resources_manager=None, workspace_manager=None,
                    image_library_manager=None, icon_sidebar=None):
         """
@@ -180,6 +182,7 @@ class DataForgeMainWindow:
             settings_frame: SettingsFrame instance
             help_frame: HelpFrame instance
             rootfolder_manager: RootFolderManager instance (optional)
+            ftproot_manager: FTPRootManager instance (optional)
             queries_manager: QueriesManager instance (optional)
             scripts_manager: ScriptsManager instance (optional)
             jobs_manager: JobsManager instance (optional)
@@ -192,6 +195,7 @@ class DataForgeMainWindow:
         self.settings_frame = settings_frame
         self.help_frame = help_frame
         self.rootfolder_manager = rootfolder_manager
+        self.ftproot_manager = ftproot_manager
         self.queries_manager = queries_manager
         self.scripts_manager = scripts_manager
         self.jobs_manager = jobs_manager
@@ -335,6 +339,7 @@ class DataForgeMainWindow:
 
         frame_map = {
             "rootfolders": (self.rootfolder_manager, "status_viewing_rootfolders"),
+            "ftproots": (self.ftproot_manager, "status_viewing_ftproots"),
             "options": (self.settings_frame, "status_viewing_settings"),
             "settings": (self.settings_frame, "status_viewing_settings"),  # Alias for backward compatibility
             "help": (self.help_frame, "status_viewing_help"),
@@ -355,7 +360,7 @@ class DataForgeMainWindow:
                 self._update_active_menu(frame_name)
 
                 # Show/hide icon sidebar based on context
-                resource_views = ["database", "rootfolders", "queries", "jobs", "scripts", "images"]
+                resource_views = ["database", "rootfolders", "ftproots", "queries", "jobs", "scripts", "images"]
                 if frame_name in resource_views:
                     # Remember last resource view for "Resources" menu
                     self._last_resource_view = frame_name

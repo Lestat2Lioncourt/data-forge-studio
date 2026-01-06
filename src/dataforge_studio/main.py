@@ -144,6 +144,7 @@ def main():
     help_frame = plugin_manager.get_plugin_widget('help')
     database_manager = plugin_manager.get_plugin_widget('database')
     rootfolder_manager = plugin_manager.get_plugin_widget('rootfolders')
+    ftproot_manager = plugin_manager.get_plugin_widget('ftproots')
     queries_manager = plugin_manager.get_plugin_widget('queries')
     scripts_manager = plugin_manager.get_plugin_widget('scripts')
     jobs_manager = plugin_manager.get_plugin_widget('jobs')
@@ -155,6 +156,7 @@ def main():
     main_window.set_frames(
         settings_frame, help_frame,
         rootfolder_manager=rootfolder_manager,
+        ftproot_manager=ftproot_manager,
         queries_manager=queries_manager,
         scripts_manager=scripts_manager,
         jobs_manager=jobs_manager,
@@ -169,6 +171,7 @@ def main():
     resources_manager.set_managers(
         database_manager=database_manager,
         rootfolder_manager=rootfolder_manager,
+        ftproot_manager=ftproot_manager,
         queries_manager=queries_manager,
         jobs_manager=jobs_manager,
         scripts_manager=scripts_manager,

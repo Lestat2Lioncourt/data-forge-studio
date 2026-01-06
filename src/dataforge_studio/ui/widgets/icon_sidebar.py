@@ -106,6 +106,7 @@ class IconSidebar(QWidget):
         managers = [
             ("databases.png", "database", "Databases / Bases de données"),
             ("RootFolders.png", "rootfolders", "Root Folders / Dossiers racine"),
+            ("ftp.png", "ftproots", "FTP / SFTP / FTPS"),
             ("queries.png", "queries", "Queries / Requêtes"),
             ("jobs.png", "jobs", "Jobs / Tâches"),
             ("scripts.png", "scripts", "Scripts"),
