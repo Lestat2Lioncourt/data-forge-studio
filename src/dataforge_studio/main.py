@@ -184,6 +184,7 @@ def main():
         workspace_manager.set_managers(
             database_manager=database_manager,
             rootfolder_manager=rootfolder_manager,
+            ftproot_manager=ftproot_manager,
             scripts_manager=scripts_manager,
             jobs_manager=jobs_manager
         )

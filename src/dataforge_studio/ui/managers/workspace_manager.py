@@ -59,6 +59,7 @@ class WorkspaceManager(QWidget):
 
         self._database_manager: Optional["DatabaseManager"] = None
         self._rootfolder_manager: Optional["RootFolderManager"] = None
+        self._ftproot_manager: Optional["FTPRootManager"] = None
         self._scripts_manager: Optional["ScriptsManager"] = None
         self._jobs_manager: Optional["JobsManager"] = None
 
@@ -68,12 +69,14 @@ class WorkspaceManager(QWidget):
         self,
         database_manager: Optional["DatabaseManager"] = None,
         rootfolder_manager: Optional["RootFolderManager"] = None,
+        ftproot_manager: Optional["FTPRootManager"] = None,
         scripts_manager: Optional["ScriptsManager"] = None,
         jobs_manager: Optional["JobsManager"] = None
     ):
         """Set references to managers for delegation."""
         self._database_manager = database_manager
         self._rootfolder_manager = rootfolder_manager
+        self._ftproot_manager = ftproot_manager
         self._scripts_manager = scripts_manager
         self._jobs_manager = jobs_manager
 
@@ -270,7 +273,7 @@ class WorkspaceManager(QWidget):
             })
             TreePopulator.add_dummy_child(fr_item)
 
-        # FTP Roots
+        # FTP Roots (with dummy child for expansion/navigation)
         ws_ftp_roots = self.config_db.get_workspace_ftp_roots_with_context(workspace_id)
         for ws_ftp in ws_ftp_roots:
             ftp = ws_ftp.ftp_root
@@ -287,6 +290,7 @@ class WorkspaceManager(QWidget):
                 "resource_obj": ftp,
                 "ws_ftp_root": ws_ftp
             })
+            TreePopulator.add_dummy_child(ftp_item)
 
     def _add_queries_grouped_by_category(self, parent: QTreeWidgetItem, queries: list):
         """Add queries grouped by category."""
@@ -404,6 +408,10 @@ class WorkspaceManager(QWidget):
             self._load_database_schema(item, data)
         elif item_type == "rootfolder":
             self._load_rootfolder_contents(item, data)
+        elif item_type == "ftproot":
+            self._load_ftproot_contents(item, data)
+        elif item_type == "remote_folder":
+            self._load_remote_folder_contents(item, data)
         elif item_type == "folder":
             # Load folder contents with file counts (same as RootFolderManager)
             folder_path = data.get("path")
@@ -533,6 +541,94 @@ class WorkspaceManager(QWidget):
             return
 
         self._load_folder_contents(parent_item, folder_path, recursive=False)
+
+    def _load_ftproot_contents(self, parent_item: QTreeWidgetItem, data: dict):
+        """
+        Load FTP root contents by delegating to FTPRootManager.
+
+        Connects if needed, then loads remote folder contents.
+        """
+        if not self._ftproot_manager:
+            logger.warning("WorkspaceManager: No ftproot_manager available")
+            return
+
+        ftp_root = data.get("resource_obj")
+        if not ftp_root:
+            return
+
+        ftp_root_id = ftp_root.id
+        remote_path = data.get("full_remote_path", ftp_root.initial_path)
+
+        # Check if already connected
+        if ftp_root_id not in self._ftproot_manager._connections:
+            # Need to connect first - delegate to FTPRootManager
+            self._ftproot_manager._connect_ftp_root(ftp_root)
+            # Connection is async, contents will load when connected
+            # Store parent_item for later loading
+            self._pending_ftp_load = (parent_item, ftp_root_id, remote_path)
+            return
+
+        # Already connected - load contents
+        self._load_ftp_folder_from_manager(parent_item, ftp_root_id, remote_path)
+
+    def _load_remote_folder_contents(self, parent_item: QTreeWidgetItem, data: dict):
+        """Load remote FTP folder contents."""
+        if not self._ftproot_manager:
+            return
+
+        ftp_root_id = data.get("ftproot_id")
+        remote_path = data.get("path")
+
+        if ftp_root_id and remote_path:
+            self._load_ftp_folder_from_manager(parent_item, ftp_root_id, remote_path)
+
+    def _load_ftp_folder_from_manager(self, parent_item: QTreeWidgetItem, ftp_root_id: str, remote_path: str):
+        """Load FTP folder contents using FTPRootManager's connection."""
+        if ftp_root_id not in self._ftproot_manager._connections:
+            logger.warning(f"FTP not connected: {ftp_root_id}")
+            return
+
+        client = self._ftproot_manager._connections[ftp_root_id]
+
+        try:
+            files = client.list_directory(remote_path)
+
+            # Sort: directories first, then files
+            files_sorted = sorted(files, key=lambda f: (not f.is_dir, f.name.lower()))
+
+            for remote_file in files_sorted:
+                item = QTreeWidgetItem(parent_item)
+
+                if remote_file.is_dir:
+                    icon = get_icon("folder.png", size=16)
+                    if icon:
+                        item.setIcon(0, icon)
+                    item.setText(0, remote_file.name)
+                    item.setData(0, Qt.ItemDataRole.UserRole, {
+                        "type": "remote_folder",
+                        "ftproot_id": ftp_root_id,
+                        "path": remote_file.path,
+                        "name": remote_file.name
+                    })
+                    TreePopulator.add_dummy_child(item)
+                else:
+                    icon = self._ftproot_manager._get_file_icon(remote_file.name)
+                    if icon:
+                        item.setIcon(0, icon)
+                    size_str = self._ftproot_manager._format_size(remote_file.size)
+                    item.setText(0, f"{remote_file.name} ({size_str})")
+                    item.setData(0, Qt.ItemDataRole.UserRole, {
+                        "type": "remote_file",
+                        "ftproot_id": ftp_root_id,
+                        "path": remote_file.path,
+                        "name": remote_file.name,
+                        "size": remote_file.size
+                    })
+
+        except Exception as e:
+            logger.error(f"Error loading FTP folder: {e}")
+            from ..widgets.dialog_helper import DialogHelper
+            DialogHelper.warning(f"Erreur de chargement FTP:\n{str(e)}", parent=self)
 
     def _add_tree_item(self, parent: QTreeWidgetItem, text: list, data: dict) -> QTreeWidgetItem:
         """Callback for TreePopulator."""
