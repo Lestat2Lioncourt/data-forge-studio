@@ -1830,6 +1830,31 @@ class ConfigDatabase:
             result.append(WorkspaceFTPRoot(ftp_root=ftp_root, subfolder_path=subfolder_path))
         return result
 
+    def get_ftp_root_workspaces(self, ftp_root_id: str, subfolder_path: str = None) -> List[Workspace]:
+        """Get all workspaces that contain an FTP root (optionally with specific subfolder)."""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        if subfolder_path:
+            cursor.execute("""
+                SELECT p.* FROM projects p
+                INNER JOIN project_ftp_roots pfr ON p.id = pfr.project_id
+                WHERE pfr.ftp_root_id = ? AND pfr.subfolder_path = ?
+                ORDER BY p.name
+            """, (ftp_root_id, subfolder_path))
+        else:
+            cursor.execute("""
+                SELECT p.* FROM projects p
+                INNER JOIN project_ftp_roots pfr ON p.id = pfr.project_id
+                WHERE pfr.ftp_root_id = ?
+                ORDER BY p.name
+            """, (ftp_root_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        return [Workspace(**dict(row)) for row in rows]
+
     # ==================== User Preferences ====================
 
     def get_preference(self, key: str, default: str = None) -> Optional[str]:
