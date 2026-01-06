@@ -352,9 +352,13 @@ class FTPRootManager(QWidget):
         if data["type"] == "ftproot":
             # Double-click connects/disconnects
             if data.get("connected"):
-                self._disconnect_ftp_root(data["id"])
+                # If connected, toggle expand instead of disconnect
+                item.setExpanded(not item.isExpanded())
             else:
                 self._connect_ftp_root(data["ftproot_obj"])
+        elif data["type"] == "remote_folder":
+            # Toggle expand/collapse
+            item.setExpanded(not item.isExpanded())
         elif data["type"] == "remote_file":
             self._preview_remote_file(data)
 
@@ -505,6 +509,15 @@ class FTPRootManager(QWidget):
         """Handle successful FTP connection."""
         self._connections[ftp_root_id] = client
         self._load_ftp_roots()  # Refresh tree to show connected state
+
+        # Auto-expand the connected FTP root to show contents
+        for i in range(self.ftp_tree.topLevelItemCount()):
+            item = self.ftp_tree.topLevelItem(i)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("id") == ftp_root_id:
+                item.setExpanded(True)
+                break
+
         DialogHelper.info("Connexion etablie!", parent=self)
 
     def _on_connection_error(self, ftp_root_id: str, message: str):
