@@ -367,32 +367,25 @@ class FTPRootManager(QWidget):
         self._current_item = ftp_root
         is_connected = ftp_root.id in self._connections
 
-        info_html = f"""
-        <h3>{ftp_root.name or ftp_root.host}</h3>
-        <table>
-            <tr><td><b>Protocole:</b></td><td>{ftp_root.protocol.upper()}</td></tr>
-            <tr><td><b>Hote:</b></td><td>{ftp_root.host}</td></tr>
-            <tr><td><b>Port:</b></td><td>{ftp_root.port}</td></tr>
-            <tr><td><b>Chemin initial:</b></td><td>{ftp_root.initial_path}</td></tr>
-            <tr><td><b>Mode passif:</b></td><td>{'Oui' if ftp_root.passive_mode else 'Non'}</td></tr>
-            <tr><td><b>Etat:</b></td><td>{'Connecte' if is_connected else 'Deconnecte'}</td></tr>
-        </table>
-        """
+        name = ftp_root.name or ftp_root.host
+        obj_type = f"{ftp_root.protocol.upper()} Connection"
+        status = "Connecte" if is_connected else "Deconnecte"
+        description = (
+            f"Hote: {ftp_root.host}:{ftp_root.port}\n"
+            f"Chemin: {ftp_root.initial_path}\n"
+            f"Mode passif: {'Oui' if ftp_root.passive_mode else 'Non'}\n"
+            f"Etat: {status}"
+        )
         if ftp_root.description:
-            info_html += f"<p><i>{ftp_root.description}</i></p>"
+            description += f"\n\n{ftp_root.description}"
 
-        self.object_viewer.show_html(info_html)
+        self.object_viewer.show_details(name, obj_type, description)
 
     def _show_remote_folder_details(self, data: dict):
         """Show remote folder details."""
-        info_html = f"""
-        <h3>{data.get('name', '-')}</h3>
-        <table>
-            <tr><td><b>Chemin:</b></td><td>{data.get('path', '-')}</td></tr>
-            <tr><td><b>Type:</b></td><td>Dossier distant</td></tr>
-        </table>
-        """
-        self.object_viewer.show_html(info_html)
+        name = data.get('name', '-')
+        path = data.get('path', '-')
+        self.object_viewer.show_details(name, "Dossier distant", f"Chemin: {path}")
 
     def _preview_remote_file(self, data: dict):
         """Preview a remote file by downloading to temp."""
