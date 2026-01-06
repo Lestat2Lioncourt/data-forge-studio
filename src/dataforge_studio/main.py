@@ -113,14 +113,15 @@ def main():
     # Create plugin widgets with progress updates
     plugin_progress = {
         'database': ("Chargement DatabaseManager...", 40),
-        'rootfolders': ("Chargement RootFolderManager...", 48),
-        'queries': ("Chargement QueriesManager...", 54),
-        'scripts': ("Chargement ScriptsManager...", 60),
-        'jobs': ("Chargement JobsManager...", 66),
-        'images': ("Chargement ImageLibraryManager...", 72),
-        'workspaces': ("Chargement WorkspaceManager...", 78),
-        'settings': ("Chargement SettingsFrame...", 82),
-        'help': ("Chargement HelpFrame...", 86),
+        'rootfolders': ("Chargement RootFolderManager...", 46),
+        'ftproots': ("Chargement FTPRootManager...", 52),
+        'queries': ("Chargement QueriesManager...", 58),
+        'scripts': ("Chargement ScriptsManager...", 64),
+        'jobs': ("Chargement JobsManager...", 70),
+        'images': ("Chargement ImageLibraryManager...", 76),
+        'workspaces': ("Chargement WorkspaceManager...", 80),
+        'settings': ("Chargement SettingsFrame...", 84),
+        'help': ("Chargement HelpFrame...", 88),
     }
 
     for plugin_id, (message, progress) in plugin_progress.items():
