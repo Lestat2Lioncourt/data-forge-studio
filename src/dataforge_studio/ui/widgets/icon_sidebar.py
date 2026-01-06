@@ -1,8 +1,7 @@
 """
 Icon Sidebar - Vertical icon bar for quick navigation between managers
 
-A minimal sidebar with icons for each manager type:
-- Database, RootFolders, Queries, Jobs, Scripts, Images
+Dynamically loads sidebar items from plugins with show_in_sidebar=True.
 """
 
 from PySide6.QtWidgets import (
@@ -18,6 +17,7 @@ class IconSidebar(QWidget):
     """
     Vertical icon sidebar for quick navigation between managers.
 
+    Dynamically loads items from plugins with show_in_sidebar=True.
     Emits manager_selected signal when an icon is clicked.
     Uses theme colors for selection/hover states with transparency.
     """
@@ -31,9 +31,10 @@ class IconSidebar(QWidget):
     # Signal to open image library
     open_image_library_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, plugin_manager=None):
         super().__init__(parent)
         self.setObjectName("IconSidebar")
+        self._plugin_manager = plugin_manager
         self._current_selection = None
         self._buttons = {}
         self._icon_files = {}  # Store icon filenames for theme refresh
@@ -96,14 +97,22 @@ class IconSidebar(QWidget):
                 if icon:
                     btn.setIcon(icon)
 
-    def _setup_ui(self):
-        """Setup the icon sidebar UI."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 8, 4, 8)
-        layout.setSpacing(4)
+    def _get_sidebar_items(self):
+        """
+        Get sidebar items from plugin system or fallback to defaults.
 
-        # Define managers with icon filenames and IDs
-        managers = [
+        Returns list of (icon_file, manager_id, tooltip) tuples.
+        """
+        if self._plugin_manager:
+            # Dynamic: get from plugin system
+            items = []
+            for plugin in self._plugin_manager.get_sidebar_plugins():
+                meta = plugin.metadata
+                items.append((meta.icon, meta.id, meta.name))
+            return items
+
+        # Fallback: hardcoded list (for backward compatibility)
+        return [
             ("databases.png", "database", "Databases / Bases de données"),
             ("RootFolders.png", "rootfolders", "Root Folders / Dossiers racine"),
             ("ftp.png", "ftproots", "FTP / SFTP / FTPS"),
@@ -112,6 +121,15 @@ class IconSidebar(QWidget):
             ("scripts.png", "scripts", "Scripts"),
             ("images.png", "images", "Image Library / Bibliothèque d'images"),
         ]
+
+    def _setup_ui(self):
+        """Setup the icon sidebar UI."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 8, 4, 8)
+        layout.setSpacing(4)
+
+        # Get managers from plugin system or fallback
+        managers = self._get_sidebar_items()
 
         for icon_file, manager_id, tooltip in managers:
             btn = QPushButton()

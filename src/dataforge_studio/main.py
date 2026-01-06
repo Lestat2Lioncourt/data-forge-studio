@@ -134,10 +134,10 @@ def main():
     from .ui.managers import ResourcesManager
     resources_manager = ResourcesManager()
 
-    # Create IconSidebar
+    # Create IconSidebar (with plugin_manager for dynamic loading)
     splash.update_progress("Chargement IconSidebar...", 90)
     from .ui.widgets.icon_sidebar import IconSidebar
-    icon_sidebar = IconSidebar()
+    icon_sidebar = IconSidebar(plugin_manager=plugin_manager)
 
     # Get widgets from plugins for backward compatibility with set_frames
     settings_frame = plugin_manager.get_plugin_widget('settings')
