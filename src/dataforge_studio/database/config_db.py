@@ -23,12 +23,13 @@ from .models import (
     Project,
     Workspace,
     FileRoot,
+    FTPRoot,
     Script,
     Job,
     ImageRootfolder,
     SavedImage,
 )
-from .models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
+from .models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase, WorkspaceFTPRoot
 
 
 class ConfigDatabase:
@@ -163,6 +164,35 @@ class ConfigDatabase:
                 PRIMARY KEY (project_id, file_root_id, subfolder_path),
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
                 FOREIGN KEY (file_root_id) REFERENCES file_roots(id) ON DELETE CASCADE
+            )
+        """)
+
+        # FTP Roots table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ftp_roots (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                protocol TEXT NOT NULL CHECK(protocol IN ('ftp', 'ftps', 'sftp')),
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                initial_path TEXT DEFAULT '/',
+                passive_mode INTEGER DEFAULT 1,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Project-FTPRoot junction table (for workspace assignments)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS project_ftp_roots (
+                project_id TEXT NOT NULL,
+                ftp_root_id TEXT NOT NULL,
+                subfolder_path TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (project_id, ftp_root_id, subfolder_path),
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY (ftp_root_id) REFERENCES ftp_roots(id) ON DELETE CASCADE
             )
         """)
 
@@ -1626,6 +1656,179 @@ class ConfigDatabase:
 
         db_conn.commit()
         db_conn.close()
+
+    # ==================== FTP Roots ====================
+
+    def get_all_ftp_roots(self) -> List[FTPRoot]:
+        """Get all FTP roots."""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM ftp_roots ORDER BY name")
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            # Convert passive_mode from int to bool
+            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
+            result.append(FTPRoot(**row_dict))
+        return result
+
+    def get_ftp_root(self, ftp_root_id: str) -> Optional[FTPRoot]:
+        """Get an FTP root by ID."""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM ftp_roots WHERE id = ?", (ftp_root_id,))
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        if row:
+            row_dict = dict(row)
+            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
+            return FTPRoot(**row_dict)
+        return None
+
+    def save_ftp_root(self, ftp_root: FTPRoot) -> bool:
+        """Save (insert or update) an FTP root."""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            now = datetime.now().isoformat()
+            ftp_root.updated_at = now
+            if not ftp_root.created_at:
+                ftp_root.created_at = now
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO ftp_roots
+                (id, name, protocol, host, port, initial_path, passive_mode, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                ftp_root.id,
+                ftp_root.name,
+                ftp_root.protocol,
+                ftp_root.host,
+                ftp_root.port,
+                ftp_root.initial_path,
+                1 if ftp_root.passive_mode else 0,
+                ftp_root.description or '',
+                ftp_root.created_at,
+                ftp_root.updated_at
+            ))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error saving FTP root: {e}")
+            return False
+
+    def delete_ftp_root(self, ftp_root_id: str) -> bool:
+        """Delete an FTP root."""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("DELETE FROM ftp_roots WHERE id = ?", (ftp_root_id,))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting FTP root: {e}")
+            return False
+
+    def add_ftp_root_to_workspace(self, workspace_id: str, ftp_root_id: str,
+                                   subfolder_path: str = None) -> bool:
+        """Add an FTP root to a workspace."""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            now = datetime.now().isoformat()
+            subfolder = subfolder_path or ''
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO project_ftp_roots
+                (project_id, ftp_root_id, subfolder_path, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (workspace_id, ftp_root_id, subfolder, now))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding FTP root to workspace: {e}")
+            return False
+
+    def remove_ftp_root_from_workspace(self, workspace_id: str, ftp_root_id: str) -> bool:
+        """Remove an FTP root from a workspace."""
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            cursor.execute("""
+                DELETE FROM project_ftp_roots
+                WHERE project_id = ? AND ftp_root_id = ?
+            """, (workspace_id, ftp_root_id))
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error removing FTP root from workspace: {e}")
+            return False
+
+    def get_workspace_ftp_roots(self, workspace_id: str) -> List[FTPRoot]:
+        """Get all FTP roots in a workspace."""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT fr.* FROM ftp_roots fr
+            INNER JOIN project_ftp_roots pfr ON fr.id = pfr.ftp_root_id
+            WHERE pfr.project_id = ?
+            ORDER BY fr.name
+        """, (workspace_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
+            result.append(FTPRoot(**row_dict))
+        return result
+
+    def get_workspace_ftp_roots_with_context(self, workspace_id: str) -> List[WorkspaceFTPRoot]:
+        """Get all FTP roots in a workspace with subfolder context."""
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("""
+            SELECT fr.*, pfr.subfolder_path FROM ftp_roots fr
+            INNER JOIN project_ftp_roots pfr ON fr.id = pfr.ftp_root_id
+            WHERE pfr.project_id = ?
+            ORDER BY fr.name
+        """, (workspace_id,))
+        rows = cursor.fetchall()
+
+        db_conn.close()
+
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            subfolder_path = row_dict.pop('subfolder_path', '')
+            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
+            ftp_root = FTPRoot(**row_dict)
+            result.append(WorkspaceFTPRoot(ftp_root=ftp_root, subfolder_path=subfolder_path))
+        return result
 
     # ==================== User Preferences ====================
 

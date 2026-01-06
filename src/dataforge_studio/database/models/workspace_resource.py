@@ -1,7 +1,7 @@
 """
 Workspace Resource models - Resources attached to workspaces with their context.
 
-These models wrap base resources (FileRoot, DatabaseConnection) with workspace-specific
+These models wrap base resources (FileRoot, DatabaseConnection, FTPRoot) with workspace-specific
 information like subfolder_path or database_name.
 """
 from dataclasses import dataclass
@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from .file_root import FileRoot
+from .ftp_root import FTPRoot
 from .database_connection import DatabaseConnection
 
 
@@ -65,3 +66,37 @@ class WorkspaceDatabase:
     def is_specific_database(self) -> bool:
         """True if this is a specific database, not the whole server."""
         return bool(self.database_name)
+
+
+@dataclass
+class WorkspaceFTPRoot:
+    """
+    An FTPRoot attached to a workspace, potentially with a remote subfolder path.
+
+    When a subfolder is attached (not the root), subfolder_path contains
+    the relative path from the FTPRoot's initial_path to the attached folder.
+    """
+    ftp_root: FTPRoot
+    subfolder_path: str = ""  # Empty string means initial_path
+
+    @property
+    def display_name(self) -> str:
+        """Name to display in the tree (subfolder name or root name)."""
+        if self.subfolder_path:
+            # Get last component of remote path
+            parts = self.subfolder_path.rstrip("/").split("/")
+            return parts[-1] if parts else self.ftp_root.name
+        return self.ftp_root.name
+
+    @property
+    def full_remote_path(self) -> str:
+        """Full remote path to the attached folder."""
+        base_path = self.ftp_root.initial_path.rstrip("/")
+        if self.subfolder_path:
+            return f"{base_path}/{self.subfolder_path.lstrip('/')}"
+        return base_path or "/"
+
+    @property
+    def is_subfolder(self) -> bool:
+        """True if this is a subfolder attachment, not the root."""
+        return bool(self.subfolder_path)

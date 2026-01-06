@@ -10,6 +10,7 @@ from .file_config import FileConfig
 from .saved_query import SavedQuery
 from .workspace import Project, Workspace
 from .file_root import FileRoot
+from .ftp_root import FTPRoot, FTPProtocol
 from .script import Script
 from .job import Job
 from .image import ImageRootfolder, SavedImage
@@ -21,6 +22,8 @@ __all__ = [
     "Project",
     "Workspace",
     "FileRoot",
+    "FTPRoot",
+    "FTPProtocol",
     "Script",
     "Job",
     "ImageRootfolder",
