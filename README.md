@@ -166,6 +166,39 @@ pip install -e .
 python run.py
 ```
 
+---
+
+### 📦 Offline Installation (No Internet on Target Machine)
+
+For machines without internet access (e.g., behind restrictive VPN):
+
+#### Step 1: Prepare the package (on a machine WITH internet)
+
+```powershell
+# Install and setup normally first
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
+cd data-forge-studio
+uv sync
+
+# Generate the offline package
+_packages\prepare_package.bat
+```
+
+This creates `_packages\DataForgeStudio_Offline\` (~2 GB) containing everything needed.
+
+#### Step 2: Transfer and run (on the target machine)
+
+1. Copy `DataForgeStudio_Offline\` folder to USB drive or network share
+2. Copy to target machine (e.g., `C:\Apps\DataForgeStudio\`)
+3. Double-click `run.bat`
+
+> **Note**: The package includes Python, all dependencies, and UV. No installation required on target machine.
+
+See `_packages\README_OFFLINE.md` for detailed instructions.
+
+---
+
 ### Create Desktop Shortcut (Optional)
 
 After installation, create a desktop shortcut with icon:
