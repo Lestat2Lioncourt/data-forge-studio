@@ -85,86 +85,84 @@ data-forge-studio/
 
 ## 🚀 Installation
 
-### Prerequisites
-- **Python 3.10 or higher**
-- **uv** (recommended) or pip for package management
+### Quick Start (Recommended)
 
-### 🪟 Windows
+**No Python installed? No problem!** UV installs Python automatically.
+
+#### 🪟 Windows
 
 ```powershell
-# Install uv (if not already installed)
+# 1. Install UV (one-time setup)
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Clone the repository
+# 2. Clone, install and run (UV installs Python automatically)
 git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
 cd data-forge-studio
-
-# Install dependencies and run
 uv sync
 uv run python run.py
 ```
 
-### 🍎 MacOS
+#### 🍎 MacOS
 
 ```bash
-# Install uv
+# 1. Install UV (one-time setup)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Clone the repository
+# 2. Clone, install and run (UV installs Python automatically)
 git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
 cd data-forge-studio
-
-# Install dependencies and run
 uv sync
 uv run python run.py
 ```
 
-#### SQL Server on MacOS (optional)
+#### 🐧 Linux (Ubuntu/Debian)
+
+```bash
+# 1. Install UV (one-time setup)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. Clone, install and run (UV installs Python automatically)
+git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
+cd data-forge-studio
+uv sync
+uv run python run.py
+```
+
+> **Note**: `uv sync` automatically downloads and installs the correct Python version (3.10+) if not present on your system.
+
+---
+
+### SQL Server Drivers (Optional)
+
+Only needed if you want to connect to SQL Server databases.
+
+#### MacOS
 ```bash
 brew install unixodbc
 brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
 brew install msodbcsql18
 ```
 
-### 🐧 Linux (Ubuntu/Debian)
-
+#### Linux (Ubuntu/Debian)
 ```bash
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone the repository
-git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
-cd data-forge-studio
-
-# Install dependencies and run
-uv sync
-uv run python run.py
-```
-
-#### SQL Server on Linux (optional)
-```bash
-# Ubuntu/Debian
 curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
 curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
 sudo apt-get update
 sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
 ```
 
+---
+
 ### Alternative: Standard pip installation
 
+If you prefer pip over UV (requires Python 3.10+ already installed):
+
 ```bash
-# Clone and navigate
 git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
 cd data-forge-studio
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e .
-
-# Run the application
 python run.py
 ```
 
