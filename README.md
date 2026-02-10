@@ -395,6 +395,20 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📜 Changelog
 
+### v0.5.9 (2025-02-10) - Offline Installation
+- Offline package preparation script (`_packages/prepare_package.bat`)
+- Complete standalone package (~2 GB) with Python, dependencies, UV
+- Updated README with offline installation instructions
+
+### v0.5.8 (2025-02-10) - Workspace Filter & Auto-Connect
+- Workspace tree filter with debounce (400ms)
+- Auto-expand branches including FTP (async connection)
+- Favorite workspace with auto-connect at startup
+- FTP reachability check (3s timeout)
+- File count display for FTP folders
+- Shared `tree_helpers.py` module
+- CLI roadmap (EVO-1) with Script/Instance model
+
 ### v0.5.0 (2025-12-21) - Theme & UI Improvements
 - Theme opacity system (`Selected_Opacity`, `Hover_Opacity`)
 - IconSidebar theme integration with transparency
