@@ -1,9 +1,9 @@
-# DataForge Studio v0.5.4 🚀
+# DataForge Studio v0.5.9 🚀
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.10+-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.4-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.9-orange.svg)](CHANGELOG.md)
 
 **Multi-database management tool with modern PySide6 interface**
 
