@@ -51,3 +51,7 @@ saved_versions/
 
 # Internal documentation (not published)
 ARCHITECTURE.md
+
+# Offline packages (generated, too large for git)
+_packages/DataForgeStudio_Offline/
+_packages/*.zip
