@@ -148,16 +148,18 @@ class EditDatabaseConnectionDialog(QDialog):
 class EditWorkspaceDialog(QDialog):
     """Dialog for creating/editing Workspace name and description"""
 
-    def __init__(self, parent=None, name: str = "", description: str = "", is_new: bool = True):
+    def __init__(self, parent=None, name: str = "", description: str = "",
+                 auto_connect: bool = False, is_new: bool = True):
         super().__init__(parent)
 
         title = tr("new_workspace") if is_new else tr("edit_workspace")
         self.setWindowTitle(title)
         self.setMinimumWidth(500)
-        self.setMinimumHeight(250)
+        self.setMinimumHeight(280)
 
         self.name = name
         self.description = description
+        self.auto_connect = auto_connect
 
         self._setup_ui()
 
@@ -181,6 +183,18 @@ class EditWorkspaceDialog(QDialog):
 
         layout.addLayout(form_layout)
 
+        # Auto-connect checkbox
+        from PySide6.QtWidgets import QCheckBox
+        self.auto_connect_checkbox = QCheckBox(
+            "Connexion automatique au démarrage (bases de données et FTP)")
+        self.auto_connect_checkbox.setChecked(self.auto_connect)
+        self.auto_connect_checkbox.setToolTip(
+            "Si activé, toutes les connexions de ce workspace seront "
+            "établies automatiquement au lancement de l'application.")
+        layout.addWidget(self.auto_connect_checkbox)
+
+        layout.addSpacing(10)
+
         # Buttons
         button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -190,8 +204,9 @@ class EditWorkspaceDialog(QDialog):
         layout.addWidget(button_box)
 
     def get_values(self) -> tuple:
-        """Return (name, description)"""
+        """Return (name, description, auto_connect)"""
         return (
             self.name_edit.text().strip(),
-            self.description_edit.toPlainText().strip()
+            self.description_edit.toPlainText().strip(),
+            self.auto_connect_checkbox.isChecked()
         )

@@ -423,3 +423,59 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 - Tests exhaustifs (incrementer progressivement)
 
 Le ratio **60% nouveautes / 40% corrections** est optimal pour cette phase de developpement.
+
+---
+
+## Evolutions Futures - Nouvelles Fonctionnalites
+
+*Cette section regroupe les nouvelles fonctionnalites planifiees, distinctes des corrections et ameliorations du code existant.*
+
+### EVO-1: Mode CLI & Scripts Serveur
+
+**Objectif**: Execution de scripts en ligne de commande pour deploiement sur serveurs (Windows puis Unix)
+
+#### Modele conceptuel : Script vs Instance
+
+| Concept | Script | Instance de Script |
+|---------|--------|-------------------|
+| Nature | Code reutilisable (template) | Configuration specifique |
+| Exemple | "File Dispatcher" | "GRDF_Dispatch_Metrics" |
+| Rattachement workspace | Non | Oui |
+| Deploiement serveur | Non (dans la solution) | Oui (dossier externe) |
+| Parametres | Definition (YAML) | Valeurs concretes |
+
+**Principe** : C'est une *instance* de script (et non un script) qui est rattachee a un workspace et deployee sur serveur.
+
+#### EVO-1.1 Infrastructure CLI
+- [ ] Point d'entree `dataforge_cli.py`
+- [ ] Parser d'arguments (argparse)
+- [ ] Commandes : `dispatch`, `getdata`, `help`
+- [ ] Codes retour standardises (0=OK, 1=ERR, 2=WARN)
+- [ ] Logging fichier + console
+
+#### EVO-1.2 Gestion des Credentials
+- [ ] Fichier `credentials.json` pour stocker les acces FTP
+- [ ] Mot de passe en clair (serveur isole) + permissions fichier restrictives
+
+#### EVO-1.3 DispatchFiles - Ameliorations
+- [ ] Fichier `dispatch_config.json` a la racine du noeud
+- [ ] Regles wildcard : `pattern` → `target`
+- [ ] Option `fallback_to_auto` vers logique Contrat_Dataset existante
+- [ ] Options CLI : `--dry-run`, `--config`
+
+#### EVO-1.4 GetData - Nouveau Script
+- [ ] Copie de fichiers entre noeuds (FTP ↔ RootFolder)
+- [ ] Fichier `getdata_config.json` (source, destination, options)
+- [ ] Options : delete_after_copy, overwrite, file_pattern
+
+#### EVO-1.5 Deploiement Serveur
+- [ ] Copie complete de la solution (src + .venv inclus) pour serveurs isoles
+- [ ] Dossiers de lancement externes (scripts qui pointent vers l'installation)
+- [ ] Script wrapper Windows (`dataforge-cli.bat`)
+- [ ] Script wrapper Unix (`dataforge-cli.sh`)
+- [ ] Documentation deploiement : structure dossiers, permissions, Task Scheduler / crontab
+- [ ] Compatibilite chemins Unix (pathlib)
+
+---
+
+*Derniere mise a jour Evolutions: 2026-01-28*

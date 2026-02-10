@@ -28,14 +28,46 @@ class FTPConnectionWorker(QThread):
     connection_success = Signal(str, object)  # ftp_root_id, client
     connection_error = Signal(str, str)       # ftp_root_id, error message
 
+    # Short timeout for reachability check (seconds)
+    REACHABILITY_TIMEOUT = 3
+
     def __init__(self, ftp_root: FTPRoot, username: str, password: str):
         super().__init__()
         self.ftp_root = ftp_root
         self.username = username
         self.password = password
 
+    def _check_host_reachable(self) -> bool:
+        """
+        Quick check if host:port is reachable using socket.
+        Returns True if reachable, False otherwise.
+        """
+        import socket
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.REACHABILITY_TIMEOUT)
+            result = sock.connect_ex((self.ftp_root.host, self.ftp_root.port))
+            sock.close()
+            return result == 0
+        except socket.gaierror:
+            # DNS resolution failed
+            return False
+        except Exception:
+            return False
+
     def run(self):
         try:
+            # Quick reachability check first (avoids long timeout)
+            logger.info(f"Checking reachability of {self.ftp_root.host}:{self.ftp_root.port}...")
+            if not self._check_host_reachable():
+                self.connection_error.emit(
+                    self.ftp_root.id,
+                    f"Serveur inaccessible: {self.ftp_root.host}:{self.ftp_root.port}\n"
+                    "Vérifiez votre connexion réseau ou VPN."
+                )
+                return
+
             # Create client based on protocol
             client = FTPClientFactory.create(
                 self.ftp_root.protocol,
@@ -55,7 +87,7 @@ class FTPConnectionWorker(QThread):
             else:
                 self.connection_error.emit(
                     self.ftp_root.id,
-                    "Echec de connexion - verifiez vos identifiants"
+                    "Echec de connexion - vérifiez vos identifiants"
                 )
 
         except Exception as e:

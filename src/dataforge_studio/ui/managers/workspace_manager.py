@@ -7,8 +7,8 @@ Uses ObjectViewerWidget for unified content display (same as RootFolderManager).
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING, Any
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
-    QLabel, QMenu, QFileDialog, QTabWidget
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
+    QLabel, QMenu, QFileDialog, QTabWidget, QLineEdit
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -19,6 +19,10 @@ from ..widgets.tree_populator import TreePopulator
 from ..widgets.object_viewer_widget import ObjectViewerWidget
 from ..widgets.pinnable_panel import PinnablePanel
 from ..core.i18n_bridge import tr
+from ..utils.tree_helpers import (
+    populate_tree_with_local_folder,
+    populate_tree_with_remote_files,
+)
 from ...database.config_db import get_config_db, Workspace, Script
 from ...database.models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
 from ...utils.image_loader import get_icon, get_database_icon
@@ -63,6 +67,13 @@ class WorkspaceManager(QWidget):
         self._scripts_manager: Optional["ScriptsManager"] = None
         self._jobs_manager: Optional["JobsManager"] = None
 
+        # Pending FTP loads: {ftp_root_id: (parent_item, remote_path)}
+        self._pending_ftp_loads_map: dict = {}
+
+        # Filter state
+        self._filter_pending_pattern: Optional[str] = None  # Pattern waiting for FTP loads
+        self._filter_debounce_timer: Optional["QTimer"] = None  # Debounce timer for filter input
+
         self._setup_ui()
 
     def set_managers(
@@ -79,6 +90,15 @@ class WorkspaceManager(QWidget):
         self._ftproot_manager = ftproot_manager
         self._scripts_manager = scripts_manager
         self._jobs_manager = jobs_manager
+
+        # Connect to FTPRootManager's connection signals
+        if self._ftproot_manager:
+            self._ftproot_manager.connection_established.connect(
+                self._on_ftp_connection_established
+            )
+            self._ftproot_manager.connection_failed.connect(
+                self._on_ftp_connection_failed
+            )
 
     def showEvent(self, event):
         """Lazy-load data on first show."""
@@ -143,6 +163,14 @@ class WorkspaceManager(QWidget):
         tree_container = QWidget()
         tree_layout = QVBoxLayout(tree_container)
         tree_layout.setContentsMargins(0, 0, 0, 0)
+        tree_layout.setSpacing(4)
+
+        # Filter input
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Filtre: *valeur* ou valeur")
+        self.filter_input.setClearButtonEnabled(True)
+        self.filter_input.textChanged.connect(self._on_filter_changed)
+        tree_layout.addWidget(self.filter_input)
 
         self.workspace_tree = QTreeWidget()
         self.workspace_tree.setHeaderHidden(True)
@@ -191,6 +219,202 @@ class WorkspaceManager(QWidget):
                 widget.cleanup()
             widget.deleteLater()
 
+    # ==================== Tree Filtering ====================
+
+    def _on_filter_changed(self, text: str):
+        """Handle filter input change with debounce."""
+        from PySide6.QtCore import QTimer
+
+        # Cancel any pending debounce timer
+        if self._filter_debounce_timer:
+            self._filter_debounce_timer.stop()
+            self._filter_debounce_timer.deleteLater()
+            self._filter_debounce_timer = None
+
+        pattern = text.strip()
+
+        # If empty, immediately clear filter (no debounce needed)
+        if not pattern:
+            self._filter_pending_pattern = None
+            self._pending_ftp_loads_map.clear()
+            self._set_all_items_visible(self.workspace_tree.invisibleRootItem())
+            self._collapse_all(self.workspace_tree.invisibleRootItem())
+            self._show_status_message("")
+            return
+
+        # Show typing indicator
+        self._show_status_message("⌨ Saisie en cours...", timeout=0)
+
+        # Debounce: wait 400ms after last keystroke before filtering
+        self._filter_debounce_timer = QTimer()
+        self._filter_debounce_timer.setSingleShot(True)
+        self._filter_debounce_timer.timeout.connect(lambda: self._execute_filter(pattern))
+        self._filter_debounce_timer.start(400)
+
+    def _execute_filter(self, text: str):
+        """Execute the actual filter after debounce delay."""
+        import fnmatch
+
+        self._filter_debounce_timer = None
+        pattern = text.lower()
+
+        # Add wildcards if not present
+        if "*" not in pattern and "?" not in pattern:
+            pattern = f"*{pattern}*"
+
+        # Store pattern for async FTP loading
+        self._filter_pending_pattern = pattern
+        self._pending_ftp_loads_map.clear()
+
+        # Check if we need to load lazy items
+        has_lazy = self._has_lazy_items(self.workspace_tree.invisibleRootItem())
+        if has_lazy:
+            self._show_status_message("⏳ Chargement du workspace en cours...", timeout=0)
+
+        # First, expand all items with dummy children to load content
+        self._expand_all_lazy_items(self.workspace_tree.invisibleRootItem())
+
+        # Small delay to let expansion handlers complete, then filter
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, lambda: self._apply_filter(pattern))
+
+    def _expand_all_lazy_items(self, parent: QTreeWidgetItem):
+        """Expand all items that have dummy children (trigger lazy loading)."""
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            # Check if has dummy child
+            if TreePopulator.has_dummy_child(child):
+                child.setExpanded(True)  # Triggers _on_item_expanded
+            # Recurse into children
+            self._expand_all_lazy_items(child)
+
+    def _apply_filter(self, pattern: str):
+        """Apply filter pattern to tree after content is loaded."""
+        # Check if pattern changed while loading
+        if self._filter_pending_pattern != pattern:
+            return  # Pattern changed, abort this filter
+
+        # Expand any remaining lazy items (from newly loaded content)
+        has_lazy = self._has_lazy_items(self.workspace_tree.invisibleRootItem())
+        if has_lazy:
+            self._expand_all_lazy_items(self.workspace_tree.invisibleRootItem())
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(100, lambda: self._apply_filter(pattern))
+            return
+
+        # Check for pending FTP loads
+        if self._pending_ftp_loads_map:
+            self._show_status_message(
+                f"⏳ Connexion FTP en cours ({len(self._pending_ftp_loads_map)} restante(s))...",
+                timeout=0
+            )
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(500, lambda: self._apply_filter(pattern))
+            return
+
+        # All content loaded, apply filter
+        self._filter_tree_recursive(self.workspace_tree.invisibleRootItem(), pattern)
+
+        # Clear filter state and show result
+        self._filter_pending_pattern = None
+        match_count = self._count_visible_items(self.workspace_tree.invisibleRootItem())
+        self._show_status_message(f"✓ Filtre appliqué: {match_count} élément(s) trouvé(s)")
+
+    def _has_lazy_items(self, parent: QTreeWidgetItem) -> bool:
+        """Check if any items still have dummy children."""
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            if TreePopulator.has_dummy_child(child):
+                return True
+            if self._has_lazy_items(child):
+                return True
+        return False
+
+    def _filter_tree_recursive(self, parent: QTreeWidgetItem, pattern: str) -> bool:
+        """
+        Recursively filter tree items.
+        Returns True if this item or any descendant matches.
+        """
+        import fnmatch
+
+        any_child_visible = False
+
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            item_text = child.text(0).lower()
+
+            # Skip dummy items
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "dummy":
+                child.setHidden(True)
+                continue
+
+            # Check if this item matches
+            item_matches = fnmatch.fnmatch(item_text, pattern)
+
+            # Recursively check children
+            child_matches = self._filter_tree_recursive(child, pattern)
+
+            # Item is visible if it matches OR any child matches
+            is_visible = item_matches or child_matches
+            child.setHidden(not is_visible)
+
+            # Expand items with matching children (to show the matches)
+            if child_matches:
+                child.setExpanded(True)
+
+            if is_visible:
+                any_child_visible = True
+
+        return any_child_visible
+
+    def _set_all_items_visible(self, parent: QTreeWidgetItem):
+        """Make all items visible (clear filter)."""
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            # Hide dummy items, show everything else
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "dummy":
+                continue
+            child.setHidden(False)
+            self._set_all_items_visible(child)
+
+    def _collapse_all(self, parent: QTreeWidgetItem):
+        """Collapse all items."""
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            child.setExpanded(False)
+            self._collapse_all(child)
+
+    def _count_visible_items(self, parent: QTreeWidgetItem) -> int:
+        """Count visible (non-hidden) leaf items."""
+        count = 0
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            if child.isHidden():
+                continue
+            # Skip dummy items
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "dummy":
+                continue
+            # Count leaf items (no visible children) or recurse
+            child_count = self._count_visible_items(child)
+            if child_count == 0:
+                count += 1  # Leaf item
+            else:
+                count += child_count
+        return count
+
+    def _show_status_message(self, message: str, timeout: int = 5000):
+        """Show message in the main window status bar."""
+        try:
+            from PySide6.QtWidgets import QApplication
+            main_window = QApplication.activeWindow()
+            if main_window and hasattr(main_window, 'statusBar'):
+                main_window.statusBar().showMessage(message, timeout)
+        except Exception:
+            pass
+
     # ==================== Tree Loading ====================
 
     def _load_workspaces(self):
@@ -206,12 +430,23 @@ class WorkspaceManager(QWidget):
         ws_icon = get_icon("workspace.png", size=16) or get_icon("folder.png", size=16)
         if ws_icon:
             ws_item.setIcon(0, ws_icon)
-        ws_item.setText(0, workspace.name)
+
+        # Show auto_connect indicator (handle missing attribute for old data)
+        display_name = workspace.name
+        auto_connect = getattr(workspace, 'auto_connect', False)
+        if auto_connect:
+            display_name = f"⚡ {workspace.name}"
+
+        ws_item.setText(0, display_name)
         ws_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "workspace",
             "id": workspace.id,
             "workspace_obj": workspace
         })
+
+        if auto_connect:
+            ws_item.setToolTip(0, "Connexion automatique au démarrage")
+
         TreePopulator.add_dummy_child(ws_item)
 
     def _load_workspace_resources(self, ws_item: QTreeWidgetItem, workspace_id: str):
@@ -448,87 +683,10 @@ class WorkspaceManager(QWidget):
         if not success:
             DialogHelper.warning(f"Could not load schema for: {db_conn.name}")
 
-    def _count_files_in_folder(self, folder_path: Path) -> int:
-        """Count all files recursively in a folder."""
-        count = 0
-        try:
-            for item in folder_path.rglob("*"):
-                if item.is_file():
-                    count += 1
-        except PermissionError:
-            pass
-        except Exception as e:
-            logger.warning(f"Error counting files in {folder_path}: {e}")
-        return count
-
-    def _get_file_icon(self, file_path: Path):
-        """Get icon based on file extension."""
-        extension = file_path.suffix.lower()
-
-        icon_map = {
-            '.csv': 'csv.png',
-            '.json': 'json.png',
-            '.xlsx': 'excel.png',
-            '.xls': 'excel.png',
-            '.txt': 'text.png',
-            '.xml': 'xml.png',
-            '.sql': 'sql.png',
-            '.py': 'python.png',
-            '.md': 'markdown.png',
-            '.log': 'file.png',
-        }
-
-        icon_name = icon_map.get(extension, 'file.png')
-        return get_icon(icon_name, size=16)
-
-    def _load_folder_contents(self, parent_item: QTreeWidgetItem, folder_path: Path, recursive: bool = True):
-        """Load contents of a folder (subfolders and files) with file counts."""
-        try:
-            entries = sorted(folder_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-
-            for entry in entries:
-                if entry.is_dir():
-                    folder_item = QTreeWidgetItem(parent_item)
-
-                    folder_icon = get_icon("folder.png", size=16)
-                    if folder_icon:
-                        folder_item.setIcon(0, folder_icon)
-
-                    file_count = self._count_files_in_folder(entry)
-                    folder_item.setText(0, f"{entry.name} ({file_count})")
-                    folder_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "folder",
-                        "path": str(entry),
-                        "name": entry.name
-                    })
-
-                    if recursive:
-                        self._load_folder_contents(folder_item, entry, recursive=True)
-                    else:
-                        # Add dummy child for lazy loading
-                        dummy = QTreeWidgetItem(folder_item)
-                        dummy.setText(0, "Loading...")
-                        dummy.setData(0, Qt.ItemDataRole.UserRole, {"type": "dummy"})
-
-                elif entry.is_file():
-                    file_item = QTreeWidgetItem(parent_item)
-
-                    file_icon = self._get_file_icon(entry)
-                    if file_icon:
-                        file_item.setIcon(0, file_icon)
-
-                    file_item.setText(0, entry.name)
-                    file_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "file",
-                        "path": str(entry),
-                        "name": entry.name,
-                        "extension": entry.suffix.lower()
-                    })
-
-        except PermissionError:
-            logger.warning(f"Permission denied: {folder_path}")
-        except Exception as e:
-            logger.error(f"Error loading folder contents: {e}")
+    def _load_folder_contents(self, parent_item: QTreeWidgetItem, folder_path: Path, recursive: bool = False):
+        """Load folder contents using tree_helpers (no plugin dependency)."""
+        # Use tree_helpers directly - no dependency on RootFolderManager
+        populate_tree_with_local_folder(parent_item, folder_path, recursive=recursive)
 
     def _load_rootfolder_contents(self, parent_item: QTreeWidgetItem, data: dict):
         """Load rootfolder contents."""
@@ -564,8 +722,8 @@ class WorkspaceManager(QWidget):
             # Need to connect first - delegate to FTPRootManager
             self._ftproot_manager._connect_ftp_root(ftp_root)
             # Connection is async, contents will load when connected
-            # Store parent_item for later loading
-            self._pending_ftp_load = (parent_item, ftp_root_id, remote_path)
+            # Store pending load info for this FTP root
+            self._pending_ftp_loads_map[ftp_root_id] = (parent_item, remote_path)
             return
 
         # Already connected - load contents
@@ -583,52 +741,33 @@ class WorkspaceManager(QWidget):
             self._load_ftp_folder_from_manager(parent_item, ftp_root_id, remote_path)
 
     def _load_ftp_folder_from_manager(self, parent_item: QTreeWidgetItem, ftp_root_id: str, remote_path: str):
-        """Load FTP folder contents using FTPRootManager's connection."""
-        if ftp_root_id not in self._ftproot_manager._connections:
-            logger.warning(f"FTP not connected: {ftp_root_id}")
+        """Load FTP folder contents by delegating to FTPRootManager."""
+        if not self._ftproot_manager:
+            logger.warning("WorkspaceManager: No ftproot_manager available")
             return
 
-        client = self._ftproot_manager._connections[ftp_root_id]
+        # Delegate to FTPRootManager's public API
+        success = self._ftproot_manager.load_folder_to_tree(ftp_root_id, remote_path, parent_item)
 
-        try:
-            files = client.list_directory(remote_path)
+        if not success:
+            DialogHelper.warning("Erreur de chargement FTP. Verifiez la connexion.", parent=self)
 
-            # Sort: directories first, then files
-            files_sorted = sorted(files, key=lambda f: (not f.is_dir, f.name.lower()))
+    def _on_ftp_connection_established(self, ftp_root_id: str):
+        """Handle FTP connection established - process pending load if any."""
+        # Check if we have a pending load for this FTP root
+        if ftp_root_id not in self._pending_ftp_loads_map:
+            return
 
-            for remote_file in files_sorted:
-                item = QTreeWidgetItem(parent_item)
+        # Get and remove pending load info
+        parent_item, remote_path = self._pending_ftp_loads_map.pop(ftp_root_id)
 
-                if remote_file.is_dir:
-                    icon = get_icon("folder.png", size=16)
-                    if icon:
-                        item.setIcon(0, icon)
-                    item.setText(0, remote_file.name)
-                    item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "remote_folder",
-                        "ftproot_id": ftp_root_id,
-                        "path": remote_file.path,
-                        "name": remote_file.name
-                    })
-                    TreePopulator.add_dummy_child(item)
-                else:
-                    icon = self._ftproot_manager._get_file_icon(remote_file.name)
-                    if icon:
-                        item.setIcon(0, icon)
-                    size_str = self._ftproot_manager._format_size(remote_file.size)
-                    item.setText(0, f"{remote_file.name} ({size_str})")
-                    item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "remote_file",
-                        "ftproot_id": ftp_root_id,
-                        "path": remote_file.path,
-                        "name": remote_file.name,
-                        "size": remote_file.size
-                    })
+        # Load the FTP folder contents
+        self._load_ftp_folder_from_manager(parent_item, ftp_root_id, remote_path)
 
-        except Exception as e:
-            logger.error(f"Error loading FTP folder: {e}")
-            from ..widgets.dialog_helper import DialogHelper
-            DialogHelper.warning(f"Erreur de chargement FTP:\n{str(e)}", parent=self)
+    def _on_ftp_connection_failed(self, ftp_root_id: str):
+        """Handle FTP connection failure - remove from pending list."""
+        if ftp_root_id in self._pending_ftp_loads_map:
+            self._pending_ftp_loads_map.pop(ftp_root_id)
 
     def _add_tree_item(self, parent: QTreeWidgetItem, text: list, data: dict) -> QTreeWidgetItem:
         """Callback for TreePopulator."""
@@ -752,8 +891,13 @@ class WorkspaceManager(QWidget):
             if file_path and self._rootfolder_manager:
                 self._rootfolder_manager.show_file(Path(file_path), target_viewer=self.object_viewer)
                 self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
-        elif item_type in ["workspace", "database", "rootfolder", "folder",
-                           "tables_folder", "views_folder", "query_category", "script_type"]:
+        elif item_type == "remote_file":
+            # Preview remote FTP file
+            if self._ftproot_manager:
+                self._ftproot_manager._preview_remote_file(data, target_viewer=self.object_viewer)
+                self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+        elif item_type in ["workspace", "database", "rootfolder", "ftproot", "remote_folder",
+                           "folder", "tables_folder", "views_folder", "query_category", "script_type"]:
             item.setExpanded(not item.isExpanded())
 
     # ==================== Context Menu ====================
@@ -975,20 +1119,27 @@ class WorkspaceManager(QWidget):
 
     def _new_workspace(self):
         """Create a new workspace."""
-        from PySide6.QtWidgets import QInputDialog
+        from ..widgets.edit_dialogs import EditWorkspaceDialog
 
-        name, ok = QInputDialog.getText(self, "New Workspace", "Workspace name:")
-        if ok and name.strip():
-            ws = Workspace(
-                id=str(uuid.uuid4()),
-                name=name.strip(),
-                description=""
-            )
-            if self.config_db.add_workspace(ws):
-                self._refresh()
-                DialogHelper.info(f"Workspace '{name}' created")
-            else:
-                DialogHelper.warning("Failed to create workspace. Name may already exist.")
+        from PySide6.QtWidgets import QDialog
+        dialog = EditWorkspaceDialog(parent=self, is_new=True)
+        if dialog.exec() == QDialog.Accepted:
+            name, description, auto_connect = dialog.get_values()
+            if name:
+                ws = Workspace(
+                    id=str(uuid.uuid4()),
+                    name=name,
+                    description=description,
+                    auto_connect=auto_connect
+                )
+                if self.config_db.add_workspace(ws):
+                    # If auto_connect enabled, disable on other workspaces
+                    if auto_connect:
+                        self.config_db.set_workspace_auto_connect(ws.id, True)
+                    self._refresh()
+                    DialogHelper.info(f"Workspace '{name}' créé")
+                else:
+                    DialogHelper.warning("Échec de création. Le nom existe peut-être déjà.")
 
     def _edit_workspace(self):
         """Edit selected workspace."""
@@ -1003,20 +1154,36 @@ class WorkspaceManager(QWidget):
 
     def _edit_workspace_item(self, item: QTreeWidgetItem, data: dict):
         """Edit workspace dialog."""
-        from PySide6.QtWidgets import QInputDialog
+        from ..widgets.edit_dialogs import EditWorkspaceDialog
 
         ws = data.get("workspace_obj")
         if not ws:
             return
 
-        name, ok = QInputDialog.getText(self, "Edit Workspace", "Workspace name:", text=ws.name)
-        if ok and name.strip():
-            ws.name = name.strip()
-            if self.config_db.update_workspace(ws):
-                item.setText(0, ws.name)
-                DialogHelper.info("Workspace updated")
-            else:
-                DialogHelper.warning("Failed to update workspace")
+        dialog = EditWorkspaceDialog(
+            parent=self,
+            name=ws.name,
+            description=ws.description or "",
+            auto_connect=getattr(ws, 'auto_connect', False),
+            is_new=False
+        )
+
+        from PySide6.QtWidgets import QDialog
+        if dialog.exec() == QDialog.Accepted:
+            name, description, auto_connect = dialog.get_values()
+            if name:
+                ws.name = name
+                ws.description = description
+                ws.auto_connect = auto_connect
+
+                if self.config_db.update_workspace(ws):
+                    # If auto_connect changed, update accordingly
+                    if auto_connect:
+                        self.config_db.set_workspace_auto_connect(ws.id, True)
+                    self._refresh()
+                    DialogHelper.info("Workspace mis à jour")
+                else:
+                    DialogHelper.warning("Échec de mise à jour")
 
     def _delete_workspace(self):
         """Delete selected workspace."""

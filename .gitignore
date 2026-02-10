@@ -48,3 +48,6 @@ data/
 *.tmp
 nul
 saved_versions/
+
+# Internal documentation (not published)
+ARCHITECTURE.md

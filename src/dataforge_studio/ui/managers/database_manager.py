@@ -596,6 +596,119 @@ class DatabaseManager(QWidget):
         # Start connection in background
         worker.start()
 
+    def connect_database_silent(self, db_conn: DatabaseConnection) -> bool:
+        """
+        Connect to database silently (for auto-connect on startup).
+        Returns True if connection was started, False if failed.
+        No interactive dialogs - only uses saved credentials.
+        Errors are logged but not shown as popups.
+        """
+        # Find the server item in tree
+        server_item = None
+        for i in range(self.schema_tree.topLevelItemCount()):
+            item = self.schema_tree.topLevelItem(i)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("config") and data["config"].id == db_conn.id:
+                server_item = item
+                break
+
+        if not server_item:
+            logger.warning(f"No tree item found for database {db_conn.name}")
+            return False
+
+        # Check if already connected
+        data = server_item.data(0, Qt.ItemDataRole.UserRole)
+        if data and data.get("connected"):
+            logger.info(f"Database {db_conn.name} already connected")
+            return True
+
+        # Check if already connecting
+        if db_conn.id in self._pending_workers:
+            return True
+
+        # Update tree item to show loading state
+        while server_item.childCount() > 0:
+            server_item.removeChild(server_item.child(0))
+
+        loading_item = QTreeWidgetItem(server_item)
+        loading_item.setText(0, "⏳ Auto-connexion...")
+        loading_item.setForeground(0, Qt.GlobalColor.gray)
+        loading_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "loading"})
+
+        # Create and start worker
+        worker = DatabaseConnectionWorker(db_conn, self)
+
+        # Connect signals with silent handlers
+        worker.connection_success.connect(
+            lambda conn, schema, item=server_item, dbc=db_conn:
+                self._on_connection_success_silent(item, dbc, conn, schema)
+        )
+        worker.connection_error.connect(
+            lambda error, item=server_item, dbc=db_conn:
+                self._on_connection_error_silent(item, dbc, error)
+        )
+        worker.status_update.connect(lambda msg: logger.debug(f"DB auto-connect: {msg}"))
+
+        # Track worker
+        self._pending_workers[db_conn.id] = worker
+
+        # Start connection in background
+        worker.start()
+        return True
+
+    def _on_connection_success_silent(self, server_item: QTreeWidgetItem, db_conn: DatabaseConnection,
+                                       connection, schema):
+        """Handle successful connection silently (no popup)."""
+        # Remove from pending
+        self._pending_workers.pop(db_conn.id, None)
+
+        # Store connection
+        self.connections[db_conn.id] = connection
+
+        # Remove loading placeholder
+        while server_item.childCount() > 0:
+            server_item.removeChild(server_item.child(0))
+
+        # Populate tree with schema
+        self._populate_tree_from_schema(server_item, schema, db_conn)
+
+        # Update server node text for SQL Server (show database count)
+        if db_conn.db_type == "sqlserver":
+            server_item.setText(0, schema.display_name)
+
+        # Mark as connected
+        data = server_item.data(0, Qt.ItemDataRole.UserRole)
+        if data:
+            data["connected"] = True
+            server_item.setData(0, Qt.ItemDataRole.UserRole, data)
+
+        # Expand the node
+        QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
+
+        # Log only, no popup
+        logger.info(f"Database auto-connected: {db_conn.name}")
+        self._set_status_message(f"✓ DB: {db_conn.name}")
+
+    def _on_connection_error_silent(self, server_item: QTreeWidgetItem, db_conn: DatabaseConnection,
+                                     error_message: str):
+        """Handle connection error silently (log only, no popup)."""
+        # Remove from pending
+        self._pending_workers.pop(db_conn.id, None)
+
+        # Update tree item to show error
+        while server_item.childCount() > 0:
+            server_item.removeChild(server_item.child(0))
+
+        # Add placeholder back for retry
+        placeholder = QTreeWidgetItem(server_item)
+        placeholder.setText(0, tr("double_click_to_load"))
+        placeholder.setForeground(0, Qt.GlobalColor.gray)
+
+        server_item.setExpanded(False)  # Collapse to allow retry
+
+        # Log only, no popup
+        logger.warning(f"Database auto-connect failed for {db_conn.name}: {error_message}")
+
     def _on_connection_success(self, server_item: QTreeWidgetItem, db_conn: DatabaseConnection,
                                 connection, schema):
         """Handle successful connection from worker thread."""

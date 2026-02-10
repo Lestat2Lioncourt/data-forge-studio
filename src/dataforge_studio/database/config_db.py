@@ -497,6 +497,16 @@ class ConfigDatabase:
             conn.commit()
             logger.info(f"Migration complete: saved_images updated, {len(old_categories)} categories migrated")
 
+        # Migration 4: Add 'auto_connect' column to projects if it doesn't exist
+        cursor.execute("PRAGMA table_info(projects)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'auto_connect' not in columns:
+            logger.info("[MIGRATION] Adding 'auto_connect' column to projects table...")
+            cursor.execute("ALTER TABLE projects ADD COLUMN auto_connect INTEGER DEFAULT 0")
+            conn.commit()
+            logger.info("Migration complete: projects now supports auto_connect")
+
         # Ensure image indexes exist (for fresh installs or post-migration)
         try:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_rootfolder ON saved_images(rootfolder_id)")
@@ -942,10 +952,11 @@ class ConfigDatabase:
 
             cursor.execute("""
                 INSERT INTO projects
-                (id, name, description, is_default, created_at, updated_at, last_used_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, name, description, is_default, auto_connect, created_at, updated_at, last_used_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (workspace.id, workspace.name, workspace.description,
                   1 if workspace.is_default else 0,
+                  1 if workspace.auto_connect else 0,
                   workspace.created_at, workspace.updated_at, workspace.last_used_at))
 
             db_conn.commit()
@@ -965,11 +976,12 @@ class ConfigDatabase:
 
             cursor.execute("""
                 UPDATE projects
-                SET name = ?, description = ?, is_default = ?,
+                SET name = ?, description = ?, is_default = ?, auto_connect = ?,
                     updated_at = ?, last_used_at = ?
                 WHERE id = ?
             """, (workspace.name, workspace.description,
                   1 if workspace.is_default else 0,
+                  1 if workspace.auto_connect else 0,
                   workspace.updated_at, workspace.last_used_at, workspace.id))
 
             db_conn.commit()
@@ -977,6 +989,50 @@ class ConfigDatabase:
             return True
         except Exception as e:
             logger.error(f"Error updating workspace: {e}")
+            return False
+
+    def get_auto_connect_workspace(self) -> Optional[Project]:
+        """
+        Get the workspace with auto_connect enabled.
+        Only one workspace can have auto_connect at a time.
+        Returns None if no workspace has auto_connect enabled.
+        """
+        db_conn = self._get_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("SELECT * FROM projects WHERE auto_connect = 1 LIMIT 1")
+        row = cursor.fetchone()
+
+        db_conn.close()
+
+        if row:
+            return Project(**dict(row))
+        return None
+
+    def set_workspace_auto_connect(self, workspace_id: str, auto_connect: bool) -> bool:
+        """
+        Set auto_connect for a workspace.
+        If enabling, disables auto_connect on all other workspaces first.
+        """
+        try:
+            db_conn = self._get_connection()
+            cursor = db_conn.cursor()
+
+            if auto_connect:
+                # Disable auto_connect on all other workspaces
+                cursor.execute("UPDATE projects SET auto_connect = 0")
+
+            # Set auto_connect for this workspace
+            cursor.execute(
+                "UPDATE projects SET auto_connect = ?, updated_at = ? WHERE id = ?",
+                (1 if auto_connect else 0, datetime.now().isoformat(), workspace_id)
+            )
+
+            db_conn.commit()
+            db_conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error setting workspace auto_connect: {e}")
             return False
 
     def delete_workspace(self, workspace_id: str) -> bool:

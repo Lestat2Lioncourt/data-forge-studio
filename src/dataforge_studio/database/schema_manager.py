@@ -35,7 +35,7 @@ class SchemaManager:
     CONFIG_DB_NAME = "Configuration Database"
 
     # Current schema version (increment when adding migrations)
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
 
     def __init__(self, db_path: Path):
         """
@@ -366,6 +366,9 @@ class SchemaManager:
             # Migration 4: Add 'file_path' column to scripts
             self._migrate_scripts_file_path(cursor, conn)
 
+            # Migration 5: Add 'auto_connect' column to projects
+            self._migrate_projects_auto_connect(cursor, conn)
+
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
 
@@ -488,6 +491,19 @@ class SchemaManager:
 
             conn.commit()
             logger.info("[OK] Migration complete: scripts now supports file_path")
+
+    def _migrate_projects_auto_connect(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 5: Add 'auto_connect' column to projects if it doesn't exist."""
+        cursor.execute("PRAGMA table_info(projects)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'auto_connect' not in columns:
+            logger.info("[MIGRATION] Adding 'auto_connect' column to projects table...")
+
+            cursor.execute("ALTER TABLE projects ADD COLUMN auto_connect INTEGER DEFAULT 0")
+
+            conn.commit()
+            logger.info("[OK] Migration complete: projects now supports auto_connect")
 
     def _ensure_image_indexes(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Ensure image indexes exist (for fresh installs or post-migration)."""

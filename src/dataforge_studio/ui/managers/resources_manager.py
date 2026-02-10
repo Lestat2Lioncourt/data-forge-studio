@@ -77,6 +77,9 @@ class ResourcesManager(BaseManagerView):
         # Tree item references (for image navigation sync)
         self._tree_items = {}
 
+        # FTP pending expansion (when connecting)
+        self._pending_ftp_expansion = None
+
         # Initialize tree configuration
         self._init_tree_config()
 
@@ -141,6 +144,10 @@ class ResourcesManager(BaseManagerView):
         self._jobs_manager = jobs_manager
         self._scripts_manager = scripts_manager
         self._image_library_manager = image_library_manager
+
+        # Connect to FTPRootManager signals for connection state updates
+        if self._ftproot_manager:
+            self._ftproot_manager.connection_established.connect(self._on_ftp_connection_established)
 
         # Add manager right panels to the stack (composition)
         self._setup_manager_pages()
@@ -333,19 +340,26 @@ class ResourcesManager(BaseManagerView):
                 self._set_item_icon(item, "folder")
                 self._add_dummy_child(item)
 
-            # FTP Roots - workspace filtered
+            # FTP Roots - workspace filtered (with expansion support like rootfolders)
             if self._workspace_filter:
                 ftp_roots = config_db.get_workspace_ftp_roots(self._workspace_filter)
             else:
                 ftp_roots = config_db.get_all_ftp_roots()
             for ftp in ftp_roots:
                 display_name = ftp.name or f"{ftp.protocol.upper()}://{ftp.host}"
+                # Check if connected via FTPRootManager
+                is_connected = self._ftproot_manager and self._ftproot_manager.is_connected(ftp.id)
+                status = " [connecté]" if is_connected else ""
                 item = self.tree_view.add_item(
                     parent=self._category_items["ftproots"],
-                    text=[display_name],
-                    data={"type": "ftproot", "id": ftp.id, "obj": ftp}
+                    text=[f"{display_name}{status}"],
+                    data={"type": "ftproot", "id": ftp.id, "obj": ftp, "connected": is_connected}
                 )
-                self._set_item_icon(item, "ftp")
+                # Icon based on connection state
+                icon_name = "ftp_connected" if is_connected else "ftp"
+                self._set_item_icon(item, icon_name)
+                # Add dummy child for expansion (like rootfolders)
+                self._add_dummy_child(item)
 
             # Queries - grouped by category (workspace filtered)
             if self._workspace_filter:
@@ -663,6 +677,8 @@ class ResourcesManager(BaseManagerView):
         # Map category keys to actual icon filenames
         icon_map = {
             "ftproots": "ftp",
+            "ftp_connected": "ftp_connected",
+            "remote_folder": "folder",
         }
         actual_icon = icon_map.get(icon_name, icon_name)
         icon = get_icon(actual_icon)
@@ -718,6 +734,12 @@ class ResourcesManager(BaseManagerView):
             self._display_file_item(item_data)
             return
 
+        elif item_type in ("remote_folder", "remote_file"):
+            # Show FTP item details
+            self._expand_details_panel()
+            self._display_remote_item(item_data)
+            return
+
         # Default: show generic details with expanded panel
         self._expand_details_panel()
         self.content_stack.setCurrentIndex(self._page_indices["generic"])
@@ -767,6 +789,33 @@ class ResourcesManager(BaseManagerView):
         if self._file_handler:
             self._file_handler.update_details_for_item(item_data)
 
+    def _display_remote_item(self, item_data: dict):
+        """Display remote FTP file/folder details in the details panel."""
+        from ..utils.tree_helpers import format_file_size
+
+        item_type = item_data.get("type", "")
+        name = item_data.get("name", "-")
+        path = item_data.get("path", "-")
+
+        if item_type == "remote_folder":
+            self.details_form_builder.set_value("name", name)
+            self.details_form_builder.set_value("resource_type", "Dossier distant (FTP)")
+            self.details_form_builder.set_value("description", "")
+            self.details_form_builder.set_value("path", path)
+            self.details_form_builder.set_value("encoding", "-")
+            self.details_form_builder.set_value("separator", "-")
+            self.details_form_builder.set_value("delimiter", "-")
+        elif item_type == "remote_file":
+            size = item_data.get("size", 0)
+            size_str = format_file_size(size) if size else "-"
+            self.details_form_builder.set_value("name", name)
+            self.details_form_builder.set_value("resource_type", "Fichier distant (FTP)")
+            self.details_form_builder.set_value("description", f"Taille: {size_str}")
+            self.details_form_builder.set_value("path", path)
+            self.details_form_builder.set_value("encoding", "-")
+            self.details_form_builder.set_value("separator", "-")
+            self.details_form_builder.set_value("delimiter", "-")
+
     def _on_tree_double_click(self, item, column):
         """Double-click: expand/collapse items, or open files/queries."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -806,10 +855,26 @@ class ResourcesManager(BaseManagerView):
             self._open_image_library_manager()
 
         elif item_type == "ftproot":
-            # Open in dedicated FTP manager
-            item_id = data.get("id")
-            if item_id:
-                self.open_resource_requested.emit(item_type, item_id)
+            # FTP: connect if not connected, expand if connected (same as FTPRootManager)
+            if self._ftproot_manager:
+                ftp_obj = data.get("obj")
+                if data.get("connected"):
+                    # Already connected - toggle expand
+                    item.setExpanded(not item.isExpanded())
+                else:
+                    # Not connected - trigger connection via FTPRootManager
+                    self._ftproot_manager._connect_ftp_root(ftp_obj)
+                    # Store pending expansion for when connection completes
+                    self._pending_ftp_expansion = item
+
+        elif item_type == "remote_folder":
+            # Toggle expand/collapse for remote folders
+            item.setExpanded(not item.isExpanded())
+
+        elif item_type == "remote_file":
+            # Preview remote file via FTPRootManager
+            if self._ftproot_manager:
+                self._ftproot_manager._preview_remote_file(data)
 
         else:
             # For other items (job, script), emit signal to open in dedicated manager
@@ -860,6 +925,10 @@ class ResourcesManager(BaseManagerView):
                     self._load_folder_children(item, data)
                     # Update count after loading
                     self._update_item_count(item)
+                elif item_type == "ftproot" and self._ftproot_manager:
+                    self._load_ftproot_children(item, data)
+                elif item_type == "remote_folder" and self._ftproot_manager:
+                    self._load_remote_folder_children(item, data)
         else:
             # Item already has children - just update count if needed
             if item_type in ("tables_folder", "views_folder"):
@@ -941,6 +1010,122 @@ class ResourcesManager(BaseManagerView):
             ".csv": "CSV", ".xlsx": "Excel", ".xls": "Excel",
             ".json": "json", ".py": "scripts", ".sql": "queries",
         }.get(ext, "file")
+
+    # ==================== FTP Loading (delegates to FTPRootManager) ====================
+
+    def _on_ftp_connection_established(self, ftp_root_id: str):
+        """Handle FTP connection established - refresh tree and expand pending item."""
+        # Refresh tree to show connected state
+        self.refresh()
+
+        # If there's a pending expansion, find and expand the item
+        if self._pending_ftp_expansion:
+            pending_data = self._pending_ftp_expansion.data(0, Qt.ItemDataRole.UserRole)
+            if pending_data and pending_data.get("id") == ftp_root_id:
+                # Find the new item (tree was refreshed, old item is invalid)
+                for i in range(self._category_items["ftproots"].childCount()):
+                    child = self._category_items["ftproots"].child(i)
+                    child_data = child.data(0, Qt.ItemDataRole.UserRole)
+                    if child_data and child_data.get("id") == ftp_root_id:
+                        child.setExpanded(True)
+                        break
+            self._pending_ftp_expansion = None
+
+    def _load_ftproot_children(self, parent_item: QTreeWidgetItem, data: dict):
+        """Load FTP root contents - delegate to FTPRootManager."""
+        if not self._ftproot_manager:
+            return
+
+        ftp_obj = data.get("obj")
+        ftp_root_id = data.get("id")
+
+        if not ftp_obj or not ftp_root_id:
+            return
+
+        # Check if connected
+        if not self._ftproot_manager.is_connected(ftp_root_id):
+            # Not connected - need to connect first
+            # Re-add dummy child to allow retry
+            self._add_dummy_child(parent_item)
+            parent_item.setExpanded(False)
+            # Trigger connection
+            self._ftproot_manager._connect_ftp_root(ftp_obj)
+            self._pending_ftp_expansion = parent_item
+            return
+
+        # Connected - load initial path using tree_helpers via FTPRootManager
+        initial_path = ftp_obj.initial_path or "/"
+        success = self._ftproot_manager.load_folder_to_tree(ftp_root_id, initial_path, parent_item)
+
+        if not success:
+            # Error loading - show message
+            error_item = self.tree_view.add_item(
+                parent=parent_item,
+                text=["Erreur de chargement"],
+                data={"type": "error"}
+            )
+
+    def _load_remote_folder_children(self, parent_item: QTreeWidgetItem, data: dict):
+        """Load remote folder contents - delegate to FTPRootManager."""
+        if not self._ftproot_manager:
+            return
+
+        ftp_root_id = data.get("ftproot_id")
+        remote_path = data.get("path")
+
+        if not ftp_root_id or not remote_path:
+            return
+
+        # Check if still connected
+        if not self._ftproot_manager.is_connected(ftp_root_id):
+            # Connection lost - show error
+            error_item = self.tree_view.add_item(
+                parent=parent_item,
+                text=["Connexion perdue"],
+                data={"type": "error"}
+            )
+            return
+
+        # Load folder contents using FTPRootManager's public API
+        success = self._ftproot_manager.load_folder_to_tree(ftp_root_id, remote_path, parent_item)
+
+        if not success:
+            error_item = self.tree_view.add_item(
+                parent=parent_item,
+                text=["Erreur de chargement"],
+                data={"type": "error"}
+            )
+
+    def _disconnect_ftp_and_refresh(self, ftp_root_id: str):
+        """Disconnect FTP and refresh tree."""
+        if self._ftproot_manager:
+            self._ftproot_manager._disconnect_ftp_root(ftp_root_id)
+            self.refresh()
+
+    def _refresh_remote_folder(self, item: QTreeWidgetItem, data: dict):
+        """Refresh a remote FTP folder."""
+        # Clear children and re-add dummy
+        while item.childCount() > 0:
+            item.removeChild(item.child(0))
+        self._add_dummy_child(item)
+
+        # Collapse then expand to trigger reload
+        item.setExpanded(False)
+        item.setExpanded(True)
+
+    def _download_remote_file(self, data: dict):
+        """Download a remote FTP file via FTPRootManager."""
+        if not self._ftproot_manager:
+            return
+
+        ftp_root_id = data.get("ftproot_id")
+        if not self._ftproot_manager.is_connected(ftp_root_id):
+            DialogHelper.warning("Non connecté au serveur FTP.", parent=self)
+            return
+
+        # Use FTPRootManager's download functionality
+        # We need to select the file in FTPRootManager first, then call download
+        self._ftproot_manager._download_file_by_data(data)
 
     # ==================== Context Menu (delegates to managers) ====================
 
@@ -1033,11 +1218,28 @@ class ResourcesManager(BaseManagerView):
                 menu.addAction(refresh_action)
 
         elif item_type == "ftproot":
-            # FTP Root context menu
+            # FTP Root context menu - same options as FTPRootManager
             ftp_obj = data.get("obj")
-            if ftp_obj:
+            is_connected = data.get("connected", False)
+
+            if ftp_obj and self._ftproot_manager:
+                if is_connected:
+                    # Disconnect option
+                    disconnect_action = QAction("Déconnecter", self)
+                    disconnect_action.triggered.connect(
+                        lambda: self._disconnect_ftp_and_refresh(ftp_obj.id))
+                    menu.addAction(disconnect_action)
+                else:
+                    # Connect option
+                    connect_action = QAction("Connecter", self)
+                    connect_action.triggered.connect(
+                        lambda: self._ftproot_manager._connect_ftp_root(ftp_obj))
+                    menu.addAction(connect_action)
+
+                menu.addSeparator()
+
                 # Open in dedicated manager
-                open_action = QAction("Open in FTP Manager", self)
+                open_action = QAction("Ouvrir dans FTP Manager", self)
                 open_action.triggered.connect(lambda: self.open_resource_requested.emit("ftproot", ftp_obj.id))
                 menu.addAction(open_action)
 
@@ -1046,6 +1248,30 @@ class ResourcesManager(BaseManagerView):
                 refresh_action = QAction(tr("btn_refresh"), self)
                 refresh_action.triggered.connect(self.refresh)
                 menu.addAction(refresh_action)
+
+        elif item_type == "remote_folder":
+            # Remote FTP folder context menu
+            ftp_root_id = data.get("ftproot_id")
+            if ftp_root_id and self._ftproot_manager:
+                refresh_action = QAction("Rafraîchir", self)
+                refresh_action.triggered.connect(lambda: self._refresh_remote_folder(item, data))
+                menu.addAction(refresh_action)
+
+        elif item_type == "remote_file":
+            # Remote FTP file context menu
+            ftp_root_id = data.get("ftproot_id")
+            if ftp_root_id and self._ftproot_manager:
+                # Preview
+                preview_action = QAction("Prévisualiser", self)
+                preview_action.triggered.connect(
+                    lambda: self._ftproot_manager._preview_remote_file(data))
+                menu.addAction(preview_action)
+
+                # Download
+                download_action = QAction("Télécharger", self)
+                download_action.triggered.connect(
+                    lambda: self._download_remote_file(data))
+                menu.addAction(download_action)
 
         elif item_type == "folder":
             # Folder context menu

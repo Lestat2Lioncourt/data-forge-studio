@@ -263,8 +263,15 @@ class DataForgeMainWindow:
             self.window.set_left_panel_widget(self.icon_sidebar)
             self.window.left_panel.show()
 
-        # Initially show database manager
-        if self.database_manager:
+        # Determine initial view: workspaces if favorite exists, otherwise database
+        initial_view = self._get_initial_view()
+        if initial_view == "workspaces" and self.workspace_manager:
+            self.stacked_widget.setCurrentWidget(self.workspace_manager)
+            self._current_view = "workspaces"
+            self._update_active_menu("workspaces")
+            # Hide icon sidebar for workspaces view
+            self.window.left_panel.hide()
+        elif self.database_manager:
             self.stacked_widget.setCurrentWidget(self.database_manager)
             self._current_view = "database"
             self._update_active_menu("view")
@@ -628,9 +635,102 @@ class DataForgeMainWindow:
 
     # ==================== Window Control ====================
 
+    def _get_initial_view(self) -> str:
+        """
+        Determine the initial view to show on startup.
+        Returns 'workspaces' if a favorite workspace exists, otherwise 'database'.
+        """
+        try:
+            from ...database.config_db import get_config_db
+            config_db = get_config_db()
+            workspace = config_db.get_auto_connect_workspace()
+            if workspace:
+                return "workspaces"
+        except Exception:
+            # Migration may not have run yet, or column doesn't exist
+            pass
+        return "database"
+
     def show(self):
         """Show the window."""
         self.wrapper.show()
+
+        # Auto-connect workspace connections after window is shown
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(500, self._auto_connect_startup)
+
+    def _auto_connect_startup(self):
+        """
+        Auto-connect databases and FTP for the workspace with auto_connect enabled.
+        This runs silently (no success popups, errors logged to status bar).
+        """
+        from ...database.config_db import get_config_db
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            config_db = get_config_db()
+
+            # Get workspace with auto_connect enabled
+            workspace = config_db.get_auto_connect_workspace()
+            if not workspace:
+                return
+        except Exception as e:
+            # Migration may not have run yet, or column doesn't exist
+            logger.debug(f"Auto-connect check skipped: {e}")
+            return
+
+        logger.info(f"Auto-connecting workspace: {workspace.name}")
+
+        # Get databases and FTP roots for this workspace
+        databases = config_db.get_workspace_databases(workspace.id)
+        ftp_roots = config_db.get_workspace_ftp_roots(workspace.id)
+
+        total_connections = len(databases) + len(ftp_roots)
+        if total_connections == 0:
+            self._show_status_message(f"⚡ {workspace.name}: aucune connexion à établir")
+            return
+
+        self._show_status_message(
+            f"⚡ Auto-connexion {workspace.name}: 0/{total_connections}...", timeout=0
+        )
+
+        # Connect databases
+        db_count = 0
+        for i, db in enumerate(databases):
+            if self.database_manager:
+                try:
+                    self._show_status_message(
+                        f"⚡ Connexion DB {i+1}/{len(databases)}: {db.name}...", timeout=0
+                    )
+                    self.database_manager.connect_database_silent(db)
+                    db_count += 1
+                except Exception as e:
+                    logger.warning(f"Auto-connect DB failed for {db.name}: {e}")
+
+        # Connect FTP roots
+        ftp_count = 0
+        for i, ftp in enumerate(ftp_roots):
+            if self.ftproot_manager:
+                try:
+                    self._show_status_message(
+                        f"⚡ Connexion FTP {i+1}/{len(ftp_roots)}: {ftp.name}...", timeout=0
+                    )
+                    self.ftproot_manager.connect_ftp_root_silent(ftp)
+                    ftp_count += 1
+                except Exception as e:
+                    logger.warning(f"Auto-connect FTP failed for {ftp.name}: {e}")
+
+        # Final status
+        self._show_status_message(
+            f"✓ Auto-connexion terminée: {db_count} DB, {ftp_count} FTP"
+        )
+
+    def _show_status_message(self, message: str, timeout: int = 5000):
+        """Show message in status bar."""
+        if hasattr(self.window, 'statusBar'):
+            self.window.statusBar().showMessage(message, timeout)
 
     def close(self):
         """Close the window."""

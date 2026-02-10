@@ -21,6 +21,12 @@ from ..widgets.dialog_helper import DialogHelper
 from ..widgets.pinnable_panel import PinnablePanel
 from ..widgets.object_viewer_widget import ObjectViewerWidget
 from ..core.i18n_bridge import tr
+from ..utils.tree_helpers import (
+    get_file_icon,
+    count_files_recursive,
+    populate_tree_with_local_folder,
+    add_dummy_child,
+)
 from ...database.config_db import get_config_db, FileRoot
 from ...utils.image_loader import get_icon
 
@@ -154,19 +160,6 @@ class RootFolderManager(QWidget):
         for root_folder in root_folders:
             self._add_rootfolder_to_tree(root_folder)
 
-    def _count_files_in_folder(self, folder_path: Path) -> int:
-        """Count all files recursively in a folder."""
-        count = 0
-        try:
-            for item in folder_path.rglob("*"):
-                if item.is_file():
-                    count += 1
-        except PermissionError:
-            pass
-        except Exception as e:
-            logger.warning(f"Error counting files in {folder_path}: {e}")
-        return count
-
     def _add_rootfolder_to_tree(self, root_folder: FileRoot):
         """Add a root folder and its contents to the tree"""
         root_path = Path(root_folder.path)
@@ -181,7 +174,7 @@ class RootFolderManager(QWidget):
         if root_icon:
             root_item.setIcon(0, root_icon)
 
-        file_count = self._count_files_in_folder(root_path)
+        file_count = count_files_recursive(root_path)
         display_name = root_folder.name or root_path.name
         root_item.setText(0, f"{display_name} ({file_count})")
         root_item.setData(0, Qt.ItemDataRole.UserRole, {
@@ -192,74 +185,10 @@ class RootFolderManager(QWidget):
             "name": root_folder.name or root_path.name
         })
 
-        self._load_folder_contents(root_item, root_path, recursive=False)
+        # Use tree_helpers for folder population
+        populate_tree_with_local_folder(root_item, root_path, recursive=False)
 
-    def _load_folder_contents(self, parent_item: QTreeWidgetItem, folder_path: Path, recursive: bool = True):
-        """Load contents of a folder (subfolders and files)"""
-        try:
-            entries = sorted(folder_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-
-            for entry in entries:
-                if entry.is_dir():
-                    folder_item = QTreeWidgetItem(parent_item)
-
-                    folder_icon = get_icon("folder.png", size=16)
-                    if folder_icon:
-                        folder_item.setIcon(0, folder_icon)
-
-                    file_count = self._count_files_in_folder(entry)
-                    folder_item.setText(0, f"{entry.name} ({file_count})")
-                    folder_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "folder",
-                        "path": str(entry),
-                        "name": entry.name
-                    })
-
-                    if recursive:
-                        self._load_folder_contents(folder_item, entry, recursive=True)
-                    else:
-                        dummy = QTreeWidgetItem(folder_item)
-                        dummy.setText(0, "Loading...")
-                        dummy.setData(0, Qt.ItemDataRole.UserRole, {"type": "dummy"})
-
-                elif entry.is_file():
-                    file_item = QTreeWidgetItem(parent_item)
-
-                    file_icon = self._get_file_icon(entry)
-                    if file_icon:
-                        file_item.setIcon(0, file_icon)
-
-                    file_item.setText(0, entry.name)
-                    file_item.setData(0, Qt.ItemDataRole.UserRole, {
-                        "type": "file",
-                        "path": str(entry),
-                        "name": entry.name,
-                        "extension": entry.suffix.lower()
-                    })
-
-        except PermissionError:
-            logger.warning(f"Permission denied: {folder_path}")
-        except Exception as e:
-            logger.error(f"Error loading folder contents: {e}")
-
-    def _get_file_icon(self, file_path: Path) -> Optional[QIcon]:
-        """Get icon based on file extension"""
-        extension = file_path.suffix.lower()
-
-        icon_map = {
-            '.csv': 'csv.png',
-            '.json': 'json.png',
-            '.xlsx': 'excel.png',
-            '.xls': 'excel.png',
-            '.txt': 'text.png',
-            '.xml': 'xml.png',
-            '.sql': 'sql.png',
-            '.py': 'python.png',
-            '.md': 'markdown.png',
-        }
-
-        icon_name = icon_map.get(extension, 'file.png')
-        return get_icon(icon_name, size=16)
+    # Note: Folder loading is now handled by tree_helpers.populate_tree_with_local_folder
 
     # ==================== Tree Event Handlers ====================
 
@@ -277,7 +206,8 @@ class RootFolderManager(QWidget):
 
                 if data["type"] in ["folder", "rootfolder"]:
                     folder_path = Path(data["path"])
-                    self._load_folder_contents(item, folder_path, recursive=False)
+                    # Use tree_helpers for folder population
+                    populate_tree_with_local_folder(item, folder_path, recursive=False)
 
     def _on_tree_click(self, item: QTreeWidgetItem, column: int):
         """Handle single click on tree item (show details)"""

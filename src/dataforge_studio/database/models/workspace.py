@@ -13,6 +13,7 @@ class Project:
     name: str
     description: str
     is_default: bool = False
+    auto_connect: bool = False  # Auto-connect all resources on startup
     created_at: str = None
     updated_at: str = None
     last_used_at: str = None

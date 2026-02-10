@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
     QMenu, QFileDialog, QInputDialog, QProgressDialog
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QAction
 
 from ..widgets.toolbar_builder import ToolbarBuilder
@@ -21,6 +21,12 @@ from ..widgets.dialog_helper import DialogHelper
 from ..widgets.pinnable_panel import PinnablePanel
 from ..widgets.object_viewer_widget import ObjectViewerWidget
 from ..core.i18n_bridge import tr
+from ..utils.tree_helpers import (
+    get_file_icon_for_extension,
+    format_file_size,
+    populate_tree_with_remote_files,
+    add_dummy_child,
+)
 from ..workers.ftp_workers import (
     FTPConnectionWorker, FTPListDirectoryWorker,
     FTPTransferWorker, FTPDeleteWorker, FTPCreateDirectoryWorker
@@ -43,6 +49,11 @@ class FTPRootManager(QWidget):
     - LEFT: FTP tree (FTP roots > folders > files, lazy loading)
     - RIGHT: ObjectViewerWidget (unified file display)
     """
+
+    # Signal emitted when FTP connection is established (ftp_root_id)
+    connection_established = Signal(str)
+    # Signal emitted when FTP connection fails (ftp_root_id)
+    connection_failed = Signal(str)
 
     # Temporary directory for previews
     TEMP_DIR = Path(tempfile.gettempdir()) / "dataforge_ftp_preview"
@@ -233,81 +244,51 @@ class FTPRootManager(QWidget):
     def _on_directory_loaded(self, parent_item: QTreeWidgetItem, ftp_root_id: str,
                               path: str, files: list):
         """Handle directory listing result."""
-        # Remove dummy/loading items
-        for i in range(parent_item.childCount() - 1, -1, -1):
-            child = parent_item.child(i)
-            child_data = child.data(0, Qt.ItemDataRole.UserRole)
-            if child_data and child_data.get("type") in ["dummy", "loading"]:
-                parent_item.removeChild(child)
+        # Use tree_helpers for populating the tree
+        populate_tree_with_remote_files(parent_item, files, ftp_root_id)
 
-        # Sort: directories first, then files
-        files_sorted = sorted(files, key=lambda f: (not f.is_dir, f.name.lower()))
+    # ==================== Public Delegation API ====================
 
-        for remote_file in files_sorted:
-            item = QTreeWidgetItem(parent_item)
+    def load_folder_to_tree(
+        self,
+        ftp_root_id: str,
+        remote_path: str,
+        target_item: QTreeWidgetItem
+    ) -> bool:
+        """
+        Load FTP folder contents into any tree item (public API for delegation).
 
-            if remote_file.is_dir:
-                icon = get_icon("folder.png", size=16)
-                if icon:
-                    item.setIcon(0, icon)
-                item.setText(0, remote_file.name)
-                item.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "remote_folder",
-                    "ftproot_id": ftp_root_id,
-                    "path": remote_file.path,
-                    "name": remote_file.name
-                })
+        This method is designed for external callers like WorkspaceManager
+        to populate their own tree views without duplicating FTP logic.
 
-                # Add dummy for lazy loading
-                dummy = QTreeWidgetItem(item)
-                dummy.setText(0, "Loading...")
-                dummy.setData(0, Qt.ItemDataRole.UserRole, {"type": "dummy"})
-            else:
-                icon = self._get_file_icon(remote_file.name)
-                if icon:
-                    item.setIcon(0, icon)
+        Args:
+            ftp_root_id: ID of the FTP root connection
+            remote_path: Remote path to list
+            target_item: QTreeWidgetItem to populate with folder contents
 
-                # Format size
-                size_str = self._format_size(remote_file.size)
-                item.setText(0, f"{remote_file.name} ({size_str})")
-                item.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "remote_file",
-                    "ftproot_id": ftp_root_id,
-                    "path": remote_file.path,
-                    "name": remote_file.name,
-                    "size": remote_file.size,
-                    "modified": remote_file.modified
-                })
+        Returns:
+            True if successful, False if not connected or error occurred
+        """
+        if ftp_root_id not in self._connections:
+            logger.warning(f"FTP not connected: {ftp_root_id}")
+            return False
 
-    def _get_file_icon(self, filename: str) -> Optional[QIcon]:
-        """Get icon based on file extension."""
-        extension = Path(filename).suffix.lower()
+        client = self._connections[ftp_root_id]
 
-        icon_map = {
-            '.csv': 'csv.png',
-            '.json': 'json.png',
-            '.xlsx': 'excel.png',
-            '.xls': 'excel.png',
-            '.txt': 'text.png',
-            '.xml': 'xml.png',
-            '.sql': 'sql.png',
-            '.py': 'python.png',
-            '.md': 'markdown.png',
-        }
+        try:
+            files = client.list_directory(remote_path)
+            # Use tree_helpers for populating the tree
+            populate_tree_with_remote_files(target_item, files, ftp_root_id)
+            return True
+        except Exception as e:
+            logger.error(f"Error loading FTP folder {remote_path}: {e}")
+            return False
 
-        icon_name = icon_map.get(extension, 'file.png')
-        return get_icon(icon_name, size=16)
+    def is_connected(self, ftp_root_id: str) -> bool:
+        """Check if an FTP root is currently connected."""
+        return ftp_root_id in self._connections
 
-    def _format_size(self, size: int) -> str:
-        """Format file size for display."""
-        if size < 1024:
-            return f"{size} B"
-        elif size < 1024 * 1024:
-            return f"{size / 1024:.1f} KB"
-        elif size < 1024 * 1024 * 1024:
-            return f"{size / (1024 * 1024):.1f} MB"
-        else:
-            return f"{size / (1024 * 1024 * 1024):.1f} GB"
+    # Note: File icon, size formatting, and tree population now handled by tree_helpers
 
     # ==================== Tree Event Handlers ====================
 
@@ -387,7 +368,7 @@ class FTPRootManager(QWidget):
         path = data.get('path', '-')
         self.object_viewer.show_details(name, "Dossier distant", f"Chemin: {path}")
 
-    def _preview_remote_file(self, data: dict):
+    def _preview_remote_file(self, data: dict, target_viewer=None):
         """Preview a remote file by downloading to temp."""
         ftp_root_id = data.get("ftproot_id")
         if ftp_root_id not in self._connections:
@@ -401,7 +382,7 @@ class FTPRootManager(QWidget):
         # Check file size (limit preview to 10MB)
         if file_size > 10 * 1024 * 1024:
             DialogHelper.warning(
-                f"Fichier trop volumineux pour la previsualisation ({self._format_size(file_size)}).\n"
+                f"Fichier trop volumineux pour la previsualisation ({format_file_size(file_size)}).\n"
                 "Utilisez le bouton Download pour telecharger le fichier.",
                 parent=self
             )
@@ -412,6 +393,9 @@ class FTPRootManager(QWidget):
 
         client = self._connections[ftp_root_id]
 
+        # Use target_viewer or default to self.object_viewer
+        viewer = target_viewer or self.object_viewer
+
         # Show progress
         progress = QProgressDialog("Telechargement...", "Annuler", 0, 100, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
@@ -421,7 +405,7 @@ class FTPRootManager(QWidget):
         worker = FTPTransferWorker(client, remote_path, str(local_path), is_upload=False)
         worker.progress.connect(lambda p, t, total: progress.setValue(p))
         worker.completed.connect(
-            lambda success, path: self._on_preview_downloaded(success, path, progress)
+            lambda success, path: self._on_preview_downloaded(success, path, progress, viewer)
         )
         worker.error.connect(
             lambda msg: self._on_preview_error(msg, progress)
@@ -433,11 +417,12 @@ class FTPRootManager(QWidget):
         self._workers.append(worker)
         worker.start()
 
-    def _on_preview_downloaded(self, success: bool, local_path: str, progress: QProgressDialog):
+    def _on_preview_downloaded(self, success: bool, local_path: str, progress: QProgressDialog, viewer=None):
         """Handle preview download completion."""
         progress.close()
         if success:
-            self.object_viewer.show_file(Path(local_path))
+            target = viewer or self.object_viewer
+            target.show_file(Path(local_path))
 
     def _on_preview_error(self, message: str, progress: QProgressDialog):
         """Handle preview download error."""
@@ -498,24 +483,91 @@ class FTPRootManager(QWidget):
         self._workers.append(worker)
         worker.start()
 
+    def connect_ftp_root_silent(self, ftp_root: FTPRoot) -> bool:
+        """
+        Connect to FTP root silently (for auto-connect on startup).
+        Returns immediately after starting the connection worker.
+        No interactive dialogs - only uses saved credentials.
+        Errors are logged but not shown as popups.
+        """
+        # Check protocol availability
+        if not FTPClientFactory.is_protocol_available(ftp_root.protocol):
+            logger.warning(f"Protocol {ftp_root.protocol} not available for {ftp_root.name}")
+            return False
+
+        # Get credentials from keyring only (no interactive dialog)
+        username, password = CredentialManager.get_credentials(ftp_root.id)
+
+        if not username:
+            logger.warning(f"No saved credentials for FTP {ftp_root.name}")
+            return False
+
+        # Start connection worker with silent handlers
+        worker = FTPConnectionWorker(ftp_root, username, password)
+        worker.connection_success.connect(self._on_connection_success_silent)
+        worker.connection_error.connect(self._on_connection_error_silent)
+        worker.finished.connect(lambda: self._cleanup_worker(worker))
+        self._workers.append(worker)
+        worker.start()
+        return True
+
+    def _on_connection_success_silent(self, ftp_root_id: str, client: BaseFTPClient):
+        """Handle successful FTP connection silently (no popup)."""
+        self._connections[ftp_root_id] = client
+        self._load_ftp_roots()  # Refresh tree to show connected state
+
+        # Find FTP root name for logging
+        ftp_name = ftp_root_id[:8]
+        for i in range(self.ftp_tree.topLevelItemCount()):
+            item = self.ftp_tree.topLevelItem(i)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("id") == ftp_root_id:
+                ftp_obj = data.get("ftproot_obj")
+                if ftp_obj:
+                    ftp_name = ftp_obj.name or ftp_obj.host
+                break
+
+        # Emit signal for other managers
+        self.connection_established.emit(ftp_root_id)
+
+        # Log only, no popup
+        logger.info(f"FTP auto-connected: {ftp_name}")
+        self._show_status_message(f"✓ FTP: {ftp_name}")
+
+    def _on_connection_error_silent(self, ftp_root_id: str, message: str):
+        """Handle FTP connection error silently (log only, no popup)."""
+        logger.warning(f"FTP auto-connect failed for {ftp_root_id}: {message}")
+        self.connection_failed.emit(ftp_root_id)
+
     def _on_connection_success(self, ftp_root_id: str, client: BaseFTPClient):
         """Handle successful FTP connection."""
         self._connections[ftp_root_id] = client
         self._load_ftp_roots()  # Refresh tree to show connected state
 
-        # Auto-expand the connected FTP root to show contents
+        # Find FTP root name for status message
+        ftp_name = ftp_root_id[:8]
         for i in range(self.ftp_tree.topLevelItemCount()):
             item = self.ftp_tree.topLevelItem(i)
             data = item.data(0, Qt.ItemDataRole.UserRole)
             if data and data.get("id") == ftp_root_id:
+                # Auto-expand
                 item.setExpanded(True)
+                # Get name from the FTP root object
+                ftp_obj = data.get("ftproot_obj")
+                if ftp_obj:
+                    ftp_name = ftp_obj.name or ftp_obj.host
                 break
 
-        DialogHelper.info("Connexion etablie!", parent=self)
+        # Emit signal for other managers (e.g., WorkspaceManager)
+        self.connection_established.emit(ftp_root_id)
+
+        # Show success in status bar (no popup)
+        self._show_status_message(f"✓ FTP connecté: {ftp_name}")
 
     def _on_connection_error(self, ftp_root_id: str, message: str):
         """Handle FTP connection error."""
         DialogHelper.warning(f"Erreur de connexion:\n{message}", parent=self)
+        self.connection_failed.emit(ftp_root_id)
 
     def _disconnect_selected(self):
         """Disconnect from selected FTP root."""
@@ -578,6 +630,53 @@ class FTPRootManager(QWidget):
 
         # Show progress
         progress = QProgressDialog("Telechargement...", "Annuler", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        worker = FTPTransferWorker(client, remote_path, local_path, is_upload=False)
+        worker.progress.connect(lambda p, t, total: progress.setValue(p))
+        worker.completed.connect(
+            lambda success, path: self._on_download_completed(success, path, progress)
+        )
+        worker.error.connect(
+            lambda msg: self._on_transfer_error(msg, progress)
+        )
+        worker.finished.connect(lambda: self._cleanup_worker(worker))
+
+        progress.canceled.connect(worker.cancel)
+
+        self._workers.append(worker)
+        worker.start()
+
+    def _download_file_by_data(self, data: dict):
+        """Download a file by its data dict (public API for external callers)."""
+        if not data or data.get("type") != "remote_file":
+            DialogHelper.warning("Données de fichier invalides.", parent=self)
+            return
+
+        ftp_root_id = data.get("ftproot_id")
+        if ftp_root_id not in self._connections:
+            DialogHelper.warning("Non connecté.", parent=self)
+            return
+
+        remote_path = data.get("path")
+        filename = data.get("name")
+
+        # Ask where to save
+        local_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Enregistrer sous",
+            str(Path.home() / filename),
+            "All Files (*)"
+        )
+
+        if not local_path:
+            return
+
+        client = self._connections[ftp_root_id]
+
+        # Show progress
+        progress = QProgressDialog("Téléchargement...", "Annuler", 0, 100, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
 
@@ -921,6 +1020,19 @@ class FTPRootManager(QWidget):
         """Remove worker from active list."""
         if worker in self._workers:
             self._workers.remove(worker)
+
+    def _show_status_message(self, message: str, timeout: int = 5000):
+        """Show message in the main window status bar."""
+        try:
+            # Find the main window and show status message
+            from PySide6.QtWidgets import QApplication
+            main_window = QApplication.activeWindow()
+            if main_window and hasattr(main_window, 'statusBar'):
+                main_window.statusBar().showMessage(message, timeout)
+            else:
+                logger.info(message)
+        except Exception:
+            logger.info(message)
 
     def get_tree_widget(self):
         """Return the tree widget for embedding in ResourcesManager."""
