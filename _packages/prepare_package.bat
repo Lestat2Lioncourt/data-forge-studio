@@ -23,6 +23,26 @@ if not exist "%PROJECT_DIR%\.venv" (
     exit /b 1
 )
 
+:: Lire le chemin Python depuis pyvenv.cfg
+set PYTHON_HOME=
+for /f "tokens=1,* delims==" %%a in ('type "%PROJECT_DIR%\.venv\pyvenv.cfg" ^| findstr /B "home"') do (
+    set PYTHON_HOME=%%b
+)
+:: Supprimer les espaces en debut
+set PYTHON_HOME=%PYTHON_HOME: =%
+
+if "%PYTHON_HOME%"=="" (
+    echo [ERREUR] Impossible de lire le chemin Python depuis .venv\pyvenv.cfg
+    exit /b 1
+)
+
+echo [INFO] Python trouve : %PYTHON_HOME%
+
+if not exist "%PYTHON_HOME%\python.exe" (
+    echo [ERREUR] python.exe introuvable dans %PYTHON_HOME%
+    exit /b 1
+)
+
 :: Supprimer l'ancien package si existant
 if exist "%OUTPUT_DIR%" (
     echo [INFO] Suppression de l'ancien package...
@@ -46,11 +66,26 @@ copy "%PROJECT_DIR%\pyproject.toml" "%OUTPUT_DIR%\" >nul
 copy "%PROJECT_DIR%\uv.lock" "%OUTPUT_DIR%\" >nul
 copy "%PROJECT_DIR%\run.py" "%OUTPUT_DIR%\" >nul
 
-:: Creer le run.bat
+:: Copier la distribution Python
+echo [INFO] Copie de la distribution Python...
+xcopy /E /I /Q "%PYTHON_HOME%" "%OUTPUT_DIR%\_python"
+
+:: Creer le run.bat qui corrige pyvenv.cfg au lancement
 echo [INFO] Creation du lanceur run.bat...
 (
 echo @echo off
 echo cd /d "%%~dp0"
+echo.
+echo :: Fix pyvenv.cfg to point to local Python
+echo set "LOCAL_PYTHON=%%~dp0_python"
+echo ^(
+echo echo home = %%LOCAL_PYTHON%%
+echo echo implementation = CPython
+echo echo version_info = 3.14.0
+echo echo include-system-site-packages = false
+echo echo prompt = data-forge-studio
+echo ^) ^> ".venv\pyvenv.cfg"
+echo.
 echo .venv\Scripts\python.exe run.py
 echo pause
 ) > "%OUTPUT_DIR%\run.bat"
@@ -74,17 +109,13 @@ if %ERRORLEVEL% EQU 0 (
     echo [WARN] curl non disponible, package sans UV
 )
 
-:: Calculer la taille
-echo.
-echo [INFO] Calcul de la taille du package...
-for /f "tokens=3" %%a in ('dir /s "%OUTPUT_DIR%" ^| findstr "fichier(s)"') do set SIZE=%%a
-
 echo.
 echo ============================================================
 echo  Package pret !
 echo ============================================================
 echo.
 echo  Emplacement : %OUTPUT_DIR%
+echo  Python embarque dans : %OUTPUT_DIR%\_python
 echo.
 echo  Pour distribuer :
 echo  1. Copier le dossier DataForgeStudio_Offline sur cle USB
