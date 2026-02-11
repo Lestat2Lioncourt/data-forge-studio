@@ -61,9 +61,13 @@ xcopy /E /I /Q "%PROJECT_DIR%\.venv" "%OUTPUT_DIR%\.venv"
 xcopy /E /I /Q "%PROJECT_DIR%\assets" "%OUTPUT_DIR%\assets"
 xcopy /E /I /Q "%PROJECT_DIR%\docs" "%OUTPUT_DIR%\docs"
 
-:: Ne PAS copier _AppConfig (contient la config personnelle : connexions, credentials)
-:: L'application creera un _AppConfig vierge au premier lancement
-echo [INFO] _AppConfig non copie (config personnelle) - sera cree au premier lancement
+:: Copier _AppConfig : uniquement les sous-dossiers (themes, langues, etc.)
+:: Exclure les fichiers personnels (.db, .json) a la racine
+echo [INFO] Copie de _AppConfig (sous-dossiers uniquement)...
+mkdir "%OUTPUT_DIR%\_AppConfig"
+for /d %%d in ("%PROJECT_DIR%\_AppConfig\*") do (
+    xcopy /E /I /Q "%%d" "%OUTPUT_DIR%\_AppConfig\%%~nxd"
+)
 
 copy "%PROJECT_DIR%\pyproject.toml" "%OUTPUT_DIR%\" >nul
 copy "%PROJECT_DIR%\uv.lock" "%OUTPUT_DIR%\" >nul
