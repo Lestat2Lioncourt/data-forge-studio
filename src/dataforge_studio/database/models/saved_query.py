@@ -15,6 +15,7 @@ class SavedQuery:
     query_text: str
     category: str = "No category"
     description: str = ""
+    target_database_name: str = ""
     created_at: str = None
     updated_at: str = None
 

@@ -369,6 +369,9 @@ class SchemaManager:
             # Migration 5: Add 'auto_connect' column to projects
             self._migrate_projects_auto_connect(cursor, conn)
 
+            # Migration 6: Add 'target_database_name' column to saved_queries
+            self._migrate_saved_queries_database_name(cursor, conn)
+
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
 
@@ -504,6 +507,29 @@ class SchemaManager:
 
             conn.commit()
             logger.info("[OK] Migration complete: projects now supports auto_connect")
+
+    def _migrate_saved_queries_database_name(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 6: Add 'target_database_name' column to saved_queries if it doesn't exist."""
+        cursor.execute("PRAGMA table_info(saved_queries)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'target_database_name' not in columns:
+            logger.info("[MIGRATION] Adding 'target_database_name' column to saved_queries table...")
+
+            cursor.execute("ALTER TABLE saved_queries ADD COLUMN target_database_name TEXT DEFAULT ''")
+
+            # Pre-fill existing queries with connection name as fallback
+            cursor.execute("""
+                UPDATE saved_queries
+                SET target_database_name = (
+                    SELECT dc.name FROM database_connections dc
+                    WHERE dc.id = saved_queries.target_database_id
+                )
+                WHERE target_database_name = '' OR target_database_name IS NULL
+            """)
+
+            conn.commit()
+            logger.info("[OK] Migration complete: saved_queries now supports target_database_name")
 
     def _ensure_image_indexes(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Ensure image indexes exist (for fresh installs or post-migration)."""

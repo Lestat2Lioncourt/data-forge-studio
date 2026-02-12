@@ -31,10 +31,5 @@ class FTPRootPlugin(BasePlugin):
         return self._widget
 
     def cleanup(self) -> None:
-        if self._widget:
-            # Close FTP connections
-            if hasattr(self._widget, 'closeEvent'):
-                from PySide6.QtCore import QEvent
-                self._widget.closeEvent(QEvent(QEvent.Type.Close))
-            if hasattr(self._widget, 'cleanup'):
-                self._widget.cleanup()
+        if self._widget and hasattr(self._widget, 'cleanup'):
+            self._widget.cleanup()

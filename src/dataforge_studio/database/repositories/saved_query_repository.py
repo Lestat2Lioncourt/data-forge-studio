@@ -24,26 +24,29 @@ class SavedQueryRepository(BaseRepository[SavedQuery]):
         return """
             INSERT INTO saved_queries
             (id, name, target_database_id, query_text, category, description,
-             created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             target_database_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     def _get_update_sql(self) -> str:
         return """
             UPDATE saved_queries
             SET name = ?, target_database_id = ?, query_text = ?,
-                category = ?, description = ?, updated_at = ?
+                category = ?, description = ?, target_database_name = ?,
+                updated_at = ?
             WHERE id = ?
         """
 
     def _model_to_insert_tuple(self, model: SavedQuery) -> tuple:
         return (model.id, model.name, model.target_database_id, model.query_text,
-                model.category, model.description, model.created_at, model.updated_at)
+                model.category, model.description, model.target_database_name or "",
+                model.created_at, model.updated_at)
 
     def _model_to_update_tuple(self, model: SavedQuery) -> tuple:
         model.updated_at = datetime.now().isoformat()
         return (model.name, model.target_database_id, model.query_text,
-                model.category, model.description, model.updated_at, model.id)
+                model.category, model.description, model.target_database_name or "",
+                model.updated_at, model.id)
 
     def get_all_queries(self) -> List[SavedQuery]:
         """Get all saved queries ordered by category then name."""

@@ -5,7 +5,7 @@ Provides interface to view, edit, and execute saved queries organized by categor
 
 from typing import List, Optional, Any, TYPE_CHECKING
 from PySide6.QtWidgets import (
-    QVBoxLayout, QTextEdit, QLabel, QMenu
+    QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QMenu, QPushButton
 )
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction
@@ -42,6 +42,7 @@ class QueriesManager(HierarchicalManagerView):
 
     def __init__(self, parent=None):
         self._db_names = {}  # Cache for database names
+        self._db_types = {}  # Cache for database types
         self._workspace_manager: Optional["WorkspaceManager"] = None
         super().__init__(parent)
 
@@ -76,15 +77,30 @@ class QueriesManager(HierarchicalManagerView):
         form_builder.add_field(tr("field_name"), "name")
         form_builder.add_field(tr("field_category"), "category")
         form_builder.add_field(tr("field_description"), "description")
+        form_builder.add_field("Connection", "connection")
         form_builder.add_field(tr("field_database"), "database")
+        form_builder.add_field("Type", "db_type")
         form_builder.add_field(tr("field_created"), "created")
         form_builder.add_field(tr("field_modified"), "modified")
 
     def _setup_content_widgets(self, layout: QVBoxLayout):
-        """Add SQL editor to content panel."""
+        """Add SQL editor to content panel with execute button."""
+        # Header row with label and execute button
+        header_layout = QHBoxLayout()
+
         sql_label = QLabel(tr("sql_query"))
         sql_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(sql_label)
+        header_layout.addWidget(sql_label)
+
+        header_layout.addStretch()
+
+        self.execute_btn = QPushButton("▶  " + tr("btn_execute"))
+        self.execute_btn.setToolTip(tr("btn_execute"))
+        self.execute_btn.setStyleSheet("font-weight: bold; padding: 4px 12px;")
+        self.execute_btn.clicked.connect(self._execute_query)
+        header_layout.addWidget(self.execute_btn)
+
+        layout.addLayout(header_layout)
 
         self.sql_editor = QTextEdit()
         self.sql_editor.setReadOnly(True)
@@ -102,9 +118,10 @@ class QueriesManager(HierarchicalManagerView):
         else:
             queries = config_db.get_all_saved_queries()
 
-        # Build cache of database names
+        # Build cache of database connection info (name + type)
         db_connections = config_db.get_all_database_connections()
         self._db_names = {db.id: db.name for db in db_connections}
+        self._db_types = {db.id: getattr(db, 'db_type', '') for db in db_connections}
 
         return queries
 
@@ -120,14 +137,22 @@ class QueriesManager(HierarchicalManagerView):
             self._clear_item_display()
             return
 
-        # Get database name
-        db_name = self._db_names.get(query.target_database_id, query.target_database_id or "")
+        # Get connection info
+        conn_name = self._db_names.get(query.target_database_id, query.target_database_id or "")
+        db_type = self._db_types.get(query.target_database_id, "")
+        target_db = getattr(query, 'target_database_name', '') or ""
+
+        # Only show target_db if it's a real database name (different from connection name)
+        # Migration backfilled target_database_name with connection name for old queries
+        database_display = target_db if target_db and target_db != conn_name else ""
 
         # Update details form
         self.details_form.set_value("name", query.name)
         self.details_form.set_value("category", query.category or "")
         self.details_form.set_value("description", query.description or "")
-        self.details_form.set_value("database", db_name)
+        self.details_form.set_value("connection", conn_name)
+        self.details_form.set_value("database", database_display)
+        self.details_form.set_value("db_type", db_type.upper() if db_type else "")
         self.details_form.set_value("created", query.created_at or "")
         self.details_form.set_value("modified", query.updated_at or "")
 
@@ -139,7 +164,9 @@ class QueriesManager(HierarchicalManagerView):
         self.details_form.set_value("name", "")
         self.details_form.set_value("category", "")
         self.details_form.set_value("description", "")
+        self.details_form.set_value("connection", "")
         self.details_form.set_value("database", "")
+        self.details_form.set_value("db_type", "")
         self.details_form.set_value("created", "")
         self.details_form.set_value("modified", "")
         self.sql_editor.clear()
@@ -214,7 +241,57 @@ class QueriesManager(HierarchicalManagerView):
         if not self._current_item:
             DialogHelper.warning(tr("select_query_first"), tr("edit_query_title"), self)
             return
-        DialogHelper.info(tr("feature_coming_soon"), tr("edit_query_title"), self)
+
+        from ..widgets.save_query_dialog import SaveQueryDialog
+        from PySide6.QtWidgets import QDialog
+
+        query = self._current_item
+
+        # Build display name: "Connection — Database (TYPE)" or just connection name
+        conn_name = self._db_names.get(query.target_database_id, "")
+        target_db = getattr(query, 'target_database_name', '') or ""
+        db_type = self._db_types.get(query.target_database_id, "")
+
+        # Only include actual database name if different from connection name
+        if target_db and target_db != conn_name:
+            display_name = f"{conn_name} — {target_db}"
+        else:
+            display_name = conn_name
+        if db_type:
+            display_name = f"{display_name} ({db_type.upper()})"
+
+        dialog = SaveQueryDialog(
+            parent=self,
+            database_name=display_name,
+            existing_query=query
+        )
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_query_data()
+
+            try:
+                config_db = get_config_db()
+
+                # Update the query object
+                query.name = data["name"]
+                query.description = data["description"]
+                query.category = data["category"]
+                query.query_text = data["query_text"]
+
+                result = config_db.update_saved_query(query)
+
+                if result:
+                    DialogHelper.info(
+                        f"Query '{data['name']}' updated.",
+                        parent=self
+                    )
+                    self.refresh()
+                else:
+                    DialogHelper.error("Failed to update query.", parent=self)
+
+            except Exception as e:
+                logger.error(f"Error updating query: {e}")
+                DialogHelper.error(f"Error: {e}", parent=self)
 
     def _delete_query(self):
         """Delete selected query."""

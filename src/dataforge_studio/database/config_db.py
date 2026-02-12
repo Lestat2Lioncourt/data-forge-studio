@@ -98,11 +98,18 @@ class ConfigDatabase:
                 target_database_id TEXT NOT NULL,
                 query_text TEXT NOT NULL,
                 category TEXT DEFAULT 'No category',
+                target_database_name TEXT DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (target_database_id) REFERENCES database_connections(id)
             )
         """)
+
+        # Migration: Add target_database_name column if missing (for existing databases)
+        cursor.execute("PRAGMA table_info(saved_queries)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "target_database_name" not in columns:
+            cursor.execute("ALTER TABLE saved_queries ADD COLUMN target_database_name TEXT DEFAULT ''")
 
         # Projects table
         cursor.execute("""
@@ -667,10 +674,11 @@ class ConfigDatabase:
             cursor.execute("""
                 INSERT INTO saved_queries
                 (id, name, target_database_id, query_text, category, description,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 target_database_name, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (query.id, query.name, query.target_database_id, query.query_text,
-                  query.category, query.description, query.created_at, query.updated_at))
+                  query.category, query.description, query.target_database_name or "",
+                  query.created_at, query.updated_at))
 
             db_conn.commit()
             db_conn.close()
@@ -690,10 +698,12 @@ class ConfigDatabase:
             cursor.execute("""
                 UPDATE saved_queries
                 SET name = ?, target_database_id = ?, query_text = ?,
-                    category = ?, description = ?, updated_at = ?
+                    category = ?, description = ?, target_database_name = ?,
+                    updated_at = ?
                 WHERE id = ?
             """, (query.name, query.target_database_id, query.query_text,
-                  query.category, query.description, query.updated_at, query.id))
+                  query.category, query.description, query.target_database_name or "",
+                  query.updated_at, query.id))
 
             db_conn.commit()
             db_conn.close()

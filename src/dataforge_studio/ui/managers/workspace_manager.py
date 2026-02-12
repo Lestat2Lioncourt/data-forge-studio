@@ -100,6 +100,10 @@ class WorkspaceManager(QWidget):
                 self._on_ftp_connection_failed
             )
 
+        # Refresh workspace tree when a query is saved (auto-linked)
+        if self._database_manager:
+            self._database_manager.query_saved.connect(self._on_query_saved_from_workspace)
+
     def showEvent(self, event):
         """Lazy-load data on first show."""
         super().showEvent(event)
@@ -424,6 +428,31 @@ class WorkspaceManager(QWidget):
         for ws in workspaces:
             self._add_workspace_to_tree(ws)
 
+        # Auto-select and expand if only one workspace
+        if self.workspace_tree.topLevelItemCount() == 1:
+            ws_item = self.workspace_tree.topLevelItem(0)
+            self.workspace_tree.setCurrentItem(ws_item)
+            self._auto_expand_workspace(ws_item)
+
+    def _auto_expand_workspace(self, ws_item: QTreeWidgetItem):
+        """Expand workspace with categories visible, collapse all others."""
+        # Collapse all other workspaces and their descendants
+        for i in range(self.workspace_tree.topLevelItemCount()):
+            top_item = self.workspace_tree.topLevelItem(i)
+            if top_item != ws_item:
+                self._collapse_all(top_item)
+                top_item.setExpanded(False)
+
+        # Expand the selected workspace (triggers lazy loading via _on_item_expanded)
+        ws_item.setExpanded(True)
+
+        # Expand each category node (but not deeper)
+        for i in range(ws_item.childCount()):
+            child = ws_item.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "resource_category":
+                child.setExpanded(True)
+
     def _add_workspace_to_tree(self, workspace: Workspace):
         """Add a workspace to the tree."""
         ws_item = QTreeWidgetItem(self.workspace_tree)
@@ -450,82 +479,104 @@ class WorkspaceManager(QWidget):
         TreePopulator.add_dummy_child(ws_item)
 
     def _load_workspace_resources(self, ws_item: QTreeWidgetItem, workspace_id: str):
-        """Load resources for a workspace."""
+        """Load resources for a workspace, grouped by category."""
         # Databases
         ws_databases = self.config_db.get_workspace_databases_with_context(workspace_id)
-        for ws_db in ws_databases:
-            db = ws_db.connection
-            db_item = QTreeWidgetItem(ws_item)
-            db_icon = get_database_icon(db.db_type, size=16)
-            if db_icon:
-                db_item.setIcon(0, db_icon)
-            db_item.setText(0, ws_db.display_name)
-            db_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "database",
-                "id": db.id,
-                "database_name": ws_db.database_name,
-                "resource_obj": db,
-                "ws_database": ws_db
-            })
-            TreePopulator.add_dummy_child(db_item)
+        if ws_databases:
+            db_cat = self._create_category_item(ws_item, "Databases", "database.png", len(ws_databases))
+            for ws_db in ws_databases:
+                db = ws_db.connection
+                db_item = QTreeWidgetItem(db_cat)
+                db_icon = get_database_icon(db.db_type, size=16)
+                if db_icon:
+                    db_item.setIcon(0, db_icon)
+                db_item.setText(0, ws_db.display_name)
+                db_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "database",
+                    "id": db.id,
+                    "database_name": ws_db.database_name,
+                    "resource_obj": db,
+                    "ws_database": ws_db
+                })
+                TreePopulator.add_dummy_child(db_item)
 
         # Queries
         queries = self.config_db.get_workspace_queries(workspace_id)
         if queries:
-            self._add_queries_grouped_by_category(ws_item, queries)
+            q_cat = self._create_category_item(ws_item, "Queries", "query.png", len(queries))
+            self._add_queries_grouped_by_category(q_cat, queries)
 
         # Scripts
         scripts = self.config_db.get_workspace_scripts(workspace_id)
         if scripts:
-            self._add_scripts_grouped_by_type(ws_item, scripts)
+            s_cat = self._create_category_item(ws_item, "Scripts", "script.png", len(scripts))
+            self._add_scripts_grouped_by_type(s_cat, scripts)
 
         # Jobs
         jobs = self.config_db.get_workspace_jobs(workspace_id)
         if jobs:
-            self._add_jobs_grouped_by_type(ws_item, jobs)
+            j_cat = self._create_category_item(ws_item, "Jobs", "jobs.png", len(jobs))
+            self._add_jobs_grouped_by_type(j_cat, jobs)
 
         # RootFolders
         ws_file_roots = self.config_db.get_workspace_file_roots_with_context(workspace_id)
-        for ws_fr in ws_file_roots:
-            fr = ws_fr.file_root
-            fr_item = QTreeWidgetItem(ws_item)
-            fr_icon = get_icon("RootFolders.png", size=16)
-            if fr_icon:
-                fr_item.setIcon(0, fr_icon)
-            fr_item.setText(0, ws_fr.display_name)
+        if ws_file_roots:
+            rf_cat = self._create_category_item(ws_item, "RootFolders", "RootFolders.png", len(ws_file_roots))
+            for ws_fr in ws_file_roots:
+                fr = ws_fr.file_root
+                fr_item = QTreeWidgetItem(rf_cat)
+                fr_icon = get_icon("RootFolders.png", size=16)
+                if fr_icon:
+                    fr_item.setIcon(0, fr_icon)
+                fr_item.setText(0, ws_fr.display_name)
 
-            full_path = Path(fr.path)
-            if ws_fr.subfolder_path:
-                full_path = full_path / ws_fr.subfolder_path
+                full_path = Path(fr.path)
+                if ws_fr.subfolder_path:
+                    full_path = full_path / ws_fr.subfolder_path
 
-            fr_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "rootfolder",
-                "id": fr.id,
-                "subfolder_path": ws_fr.subfolder_path,
-                "full_path": str(full_path),
-                "resource_obj": fr,
-                "ws_file_root": ws_fr
-            })
-            TreePopulator.add_dummy_child(fr_item)
+                fr_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "rootfolder",
+                    "id": fr.id,
+                    "subfolder_path": ws_fr.subfolder_path,
+                    "full_path": str(full_path),
+                    "resource_obj": fr,
+                    "ws_file_root": ws_fr
+                })
+                TreePopulator.add_dummy_child(fr_item)
 
         # FTP Roots (with dummy child for expansion/navigation)
         ws_ftp_roots = self.config_db.get_workspace_ftp_roots_with_context(workspace_id)
-        for ws_ftp in ws_ftp_roots:
-            ftp = ws_ftp.ftp_root
-            ftp_item = QTreeWidgetItem(ws_item)
-            ftp_icon = get_icon("ftp.png", size=16) or get_icon("database.png", size=16)
-            if ftp_icon:
-                ftp_item.setIcon(0, ftp_icon)
-            ftp_item.setText(0, ws_ftp.display_name)
-            ftp_item.setData(0, Qt.ItemDataRole.UserRole, {
-                "type": "ftproot",
-                "id": ftp.id,
-                "subfolder_path": ws_ftp.subfolder_path,
-                "full_remote_path": ws_ftp.full_remote_path,
-                "resource_obj": ftp,
-                "ws_ftp_root": ws_ftp
-            })
-            TreePopulator.add_dummy_child(ftp_item)
+        if ws_ftp_roots:
+            ftp_cat = self._create_category_item(ws_item, "FTP", "ftp.png", len(ws_ftp_roots))
+            for ws_ftp in ws_ftp_roots:
+                ftp = ws_ftp.ftp_root
+                ftp_item = QTreeWidgetItem(ftp_cat)
+                ftp_icon = get_icon("ftp.png", size=16) or get_icon("database.png", size=16)
+                if ftp_icon:
+                    ftp_item.setIcon(0, ftp_icon)
+                ftp_item.setText(0, ws_ftp.display_name)
+                ftp_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "ftproot",
+                    "id": ftp.id,
+                    "subfolder_path": ws_ftp.subfolder_path,
+                    "full_remote_path": ws_ftp.full_remote_path,
+                    "resource_obj": ftp,
+                    "ws_ftp_root": ws_ftp
+                })
+                TreePopulator.add_dummy_child(ftp_item)
+
+    def _create_category_item(self, parent: QTreeWidgetItem, name: str, icon_name: str, count: int) -> QTreeWidgetItem:
+        """Create a category grouping item under a workspace."""
+        cat_item = QTreeWidgetItem(parent)
+        icon = get_icon(icon_name, size=16)
+        if icon:
+            cat_item.setIcon(0, icon)
+        cat_item.setText(0, f"{name} ({count})")
+        cat_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "resource_category",
+            "name": name
+        })
+        return cat_item
 
     def _add_queries_grouped_by_category(self, parent: QTreeWidgetItem, queries: list):
         """Add queries grouped by category."""
@@ -769,6 +820,11 @@ class WorkspaceManager(QWidget):
         if ftp_root_id in self._pending_ftp_loads_map:
             self._pending_ftp_loads_map.pop(ftp_root_id)
 
+    def _on_query_saved_from_workspace(self):
+        """Refresh current workspace when a query is saved (auto-linked)."""
+        if self._current_workspace_id:
+            self.refresh_workspace(self._current_workspace_id, select_and_expand=False)
+
     def _add_tree_item(self, parent: QTreeWidgetItem, text: list, data: dict) -> QTreeWidgetItem:
         """Callback for TreePopulator."""
         item = QTreeWidgetItem(parent)
@@ -798,6 +854,7 @@ class WorkspaceManager(QWidget):
                 updated=ws.updated_at or ""
             )
             self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+            self._auto_expand_workspace(item)
 
         elif item_type == "database":
             db = data.get("resource_obj")
@@ -867,7 +924,7 @@ class WorkspaceManager(QWidget):
             self.object_viewer.show_details(name, item_type.title(), f"Database: {db_name}" if db_name else "")
             self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
-        elif item_type in ["query_category", "script_type", "job_type", "tables_folder", "views_folder"]:
+        elif item_type in ["resource_category", "query_category", "script_type", "job_type", "tables_folder", "views_folder"]:
             name = data.get("name", item_type)
             self.object_viewer.show_details(name, item_type.replace("_", " ").title(), "")
             self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
@@ -884,7 +941,16 @@ class WorkspaceManager(QWidget):
             # Use DatabaseManager method with QueryTab in WorkspaceManager's tab_widget
             if self._database_manager:
                 self._database_manager._generate_select_query(
-                    data, limit=100, target_tab_widget=self.tab_widget
+                    data, limit=100, target_tab_widget=self.tab_widget,
+                    workspace_id=self._current_workspace_id
+                )
+        elif item_type == "query":
+            # Execute saved query in workspace tab
+            query_obj = data.get("resource_obj")
+            if query_obj and self._database_manager:
+                self._database_manager.execute_saved_query(
+                    query_obj, target_tab_widget=self.tab_widget,
+                    workspace_id=self._current_workspace_id
                 )
         elif item_type == "file":
             file_path = data.get("path")
@@ -897,7 +963,8 @@ class WorkspaceManager(QWidget):
                 self._ftproot_manager._preview_remote_file(data, target_viewer=self.object_viewer)
                 self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
         elif item_type in ["workspace", "database", "rootfolder", "ftproot", "remote_folder",
-                           "folder", "tables_folder", "views_folder", "query_category", "script_type"]:
+                           "folder", "tables_folder", "views_folder", "query_category", "script_type",
+                           "resource_category"]:
             item.setExpanded(not item.isExpanded())
 
     # ==================== Context Menu ====================
@@ -964,7 +1031,26 @@ class WorkspaceManager(QWidget):
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
-        elif item_type in ["database", "query", "rootfolder"]:
+        elif item_type == "query":
+            # Execute query action
+            if self._database_manager:
+                query_obj = data.get("resource_obj")
+                if query_obj:
+                    exec_action = QAction("Execute / Exécuter", self)
+                    ws_id = self._current_workspace_id
+                    exec_action.triggered.connect(
+                        lambda checked, q=query_obj, w=ws_id: self._database_manager.execute_saved_query(
+                            q, target_tab_widget=self.tab_widget, workspace_id=w
+                        )
+                    )
+                    menu.addAction(exec_action)
+                    menu.addSeparator()
+
+            remove_action = QAction("Remove from Workspace", self)
+            remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
+            menu.addAction(remove_action)
+
+        elif item_type in ["database", "rootfolder"]:
             remove_action = QAction("Remove from Workspace", self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
@@ -972,11 +1058,13 @@ class WorkspaceManager(QWidget):
         elif item_type in ["table", "view"]:
             # Use DatabaseManager methods with WorkspaceManager's tab_widget
             if self._database_manager:
+                ws_id = self._current_workspace_id
+
                 # SELECT * action
                 select_all_action = QAction("SELECT *", self)
                 select_all_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._generate_select_query(
-                        d, limit=None, target_tab_widget=self.tab_widget
+                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_query(
+                        d, limit=None, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(select_all_action)
@@ -984,8 +1072,8 @@ class WorkspaceManager(QWidget):
                 # SELECT TOP 100 action
                 select_top_action = QAction("SELECT TOP 100 *", self)
                 select_top_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._generate_select_query(
-                        d, limit=100, target_tab_widget=self.tab_widget
+                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_query(
+                        d, limit=100, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(select_top_action)
@@ -993,8 +1081,8 @@ class WorkspaceManager(QWidget):
                 # SELECT COLUMNS action
                 select_cols_action = QAction("SELECT COLUMNS...", self)
                 select_cols_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._generate_select_columns_query(
-                        d, target_tab_widget=self.tab_widget
+                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_columns_query(
+                        d, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(select_cols_action)
@@ -1005,8 +1093,8 @@ class WorkspaceManager(QWidget):
                 if item_type == "view":
                     edit_code_action = QAction("Edit Code (ALTER VIEW)", self)
                     edit_code_action.triggered.connect(
-                        lambda checked, d=data: self._database_manager._load_view_code(
-                            d, target_tab_widget=self.tab_widget
+                        lambda checked, d=data, w=ws_id: self._database_manager._load_view_code(
+                            d, target_tab_widget=self.tab_widget, workspace_id=w
                         )
                     )
                     menu.addAction(edit_code_action)
@@ -1022,18 +1110,20 @@ class WorkspaceManager(QWidget):
         elif item_type == "procedure":
             # Stored procedure context menu - delegate to DatabaseManager
             if self._database_manager:
+                ws_id = self._current_workspace_id
+
                 view_code_action = QAction("View Code", self)
                 view_code_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._load_routine_code(
-                        d, target_tab_widget=self.tab_widget
+                    lambda checked, d=data, w=ws_id: self._database_manager._load_routine_code(
+                        d, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(view_code_action)
 
                 exec_action = QAction("Generate EXEC Template", self)
                 exec_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._generate_exec_template(
-                        d, target_tab_widget=self.tab_widget
+                    lambda checked, d=data, w=ws_id: self._database_manager._generate_exec_template(
+                        d, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(exec_action)
@@ -1041,18 +1131,20 @@ class WorkspaceManager(QWidget):
         elif item_type == "function":
             # Function context menu - delegate to DatabaseManager
             if self._database_manager:
+                ws_id = self._current_workspace_id
+
                 view_code_action = QAction("View Code", self)
                 view_code_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._load_routine_code(
-                        d, target_tab_widget=self.tab_widget
+                    lambda checked, d=data, w=ws_id: self._database_manager._load_routine_code(
+                        d, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(view_code_action)
 
                 select_action = QAction("Generate SELECT", self)
                 select_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._generate_select_function(
-                        d, target_tab_widget=self.tab_widget
+                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_function(
+                        d, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(select_action)
@@ -1071,20 +1163,18 @@ class WorkspaceManager(QWidget):
 
     def _remove_resource_from_workspace(self, item: QTreeWidgetItem, data: dict):
         """Remove resource from workspace."""
-        parent = item.parent()
-        if not parent:
+        # Traverse up to find the workspace ancestor (through category levels)
+        workspace_id = None
+        ancestor = item.parent()
+        while ancestor:
+            ancestor_data = ancestor.data(0, Qt.ItemDataRole.UserRole)
+            if ancestor_data and ancestor_data.get("type") == "workspace":
+                workspace_id = ancestor_data.get("id")
+                break
+            ancestor = ancestor.parent()
+
+        if not workspace_id:
             return
-
-        parent_data = parent.data(0, Qt.ItemDataRole.UserRole)
-        if not parent_data or parent_data.get("type") != "workspace":
-            parent = parent.parent()
-            if parent:
-                parent_data = parent.data(0, Qt.ItemDataRole.UserRole)
-
-        if not parent_data or parent_data.get("type") != "workspace":
-            return
-
-        workspace_id = parent_data.get("id")
         item_type = data.get("type")
         resource_id = data.get("id")
 
@@ -1108,7 +1198,15 @@ class WorkspaceManager(QWidget):
             elif item_type == "job":
                 self.config_db.remove_job_from_workspace(workspace_id, resource_id)
 
-            parent.removeChild(item)
+            direct_parent = item.parent()
+            if direct_parent:
+                direct_parent.removeChild(item)
+                # Remove empty category node
+                cat_data = direct_parent.data(0, Qt.ItemDataRole.UserRole)
+                if cat_data and cat_data.get("type") == "resource_category" and direct_parent.childCount() == 0:
+                    grandparent = direct_parent.parent()
+                    if grandparent:
+                        grandparent.removeChild(direct_parent)
             logger.info(f"Removed {item_type} {resource_id} from workspace {workspace_id}")
 
         except Exception as e:

@@ -292,7 +292,8 @@ class DatabaseManager(QWidget):
         db_name: Optional[str],
         template: str,
         tab_name: str,
-        target_tab_widget: Optional[QTabWidget] = None
+        target_tab_widget: Optional[QTabWidget] = None,
+        workspace_id: Optional[str] = None
     ):
         """Load a SQL template into a query tab.
 
@@ -302,6 +303,7 @@ class DatabaseManager(QWidget):
             template: SQL template to load
             tab_name: Name for the tab
             target_tab_widget: Optional QTabWidget (default: self.tab_widget)
+            workspace_id: Optional workspace ID to auto-link saved queries
         """
         connection = self.connections.get(db_id)
 
@@ -314,7 +316,8 @@ class DatabaseManager(QWidget):
                 db_connection=db_conn,
                 tab_name=tab_name,
                 database_manager=self,
-                target_database=db_name
+                target_database=db_name,
+                workspace_id=workspace_id
             )
             query_tab.query_saved.connect(self.query_saved.emit)
             index = target_tab_widget.addTab(query_tab, tab_name)
@@ -1222,7 +1225,7 @@ class DatabaseManager(QWidget):
 
             menu.exec(self.schema_tree.viewport().mapToGlobal(position))
 
-    def _generate_select_query(self, data: dict, limit: Optional[int] = None, target_tab_widget: Optional[QTabWidget] = None):
+    def _generate_select_query(self, data: dict, limit: Optional[int] = None, target_tab_widget: Optional[QTabWidget] = None, workspace_id: Optional[str] = None):
         """Generate and execute a SELECT query in a NEW tab named after the table.
 
         Args:
@@ -1279,7 +1282,8 @@ class DatabaseManager(QWidget):
             db_connection=db_conn,
             tab_name=tab_name,
             database_manager=self,
-            target_database=db_name
+            target_database=db_name,
+            workspace_id=workspace_id
         )
 
         # Connect query_saved signal
@@ -1296,7 +1300,7 @@ class DatabaseManager(QWidget):
 
         logger.info(f"Created query tab '{tab_name}' for table {table_name}")
 
-    def _generate_select_columns_query(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+    def _generate_select_columns_query(self, data: dict, target_tab_widget: Optional[QTabWidget] = None, workspace_id: Optional[str] = None):
         """Generate a formatted SELECT query with all column names in a new tab.
 
         Args:
@@ -1394,7 +1398,8 @@ class DatabaseManager(QWidget):
                 db_connection=db_conn,
                 tab_name=tab_name,
                 database_manager=self,
-                target_database=db_name
+                target_database=db_name,
+                workspace_id=workspace_id
             )
 
             query_tab.query_saved.connect(self.query_saved.emit)
@@ -1458,7 +1463,7 @@ class DatabaseManager(QWidget):
 
         return "\n".join(lines)
 
-    def _load_view_code(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+    def _load_view_code(self, data: dict, target_tab_widget: Optional[QTabWidget] = None, workspace_id: Optional[str] = None):
         """Load view code into query editor as ALTER VIEW.
 
         Args:
@@ -1507,7 +1512,8 @@ class DatabaseManager(QWidget):
                         db_connection=db_conn,
                         tab_name=tab_name,
                         database_manager=self,
-                        target_database=db_name
+                        target_database=db_name,
+                        workspace_id=workspace_id
                     )
                     query_tab.query_saved.connect(self.query_saved.emit)
                     index = tab_widget.addTab(query_tab, tab_name)
@@ -1535,7 +1541,7 @@ class DatabaseManager(QWidget):
                 details=str(e)
             )
 
-    def _load_routine_code(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+    def _load_routine_code(self, data: dict, target_tab_widget: Optional[QTabWidget] = None, workspace_id: Optional[str] = None):
         """Load stored procedure or function code into query editor.
 
         Args:
@@ -1578,7 +1584,8 @@ class DatabaseManager(QWidget):
                         db_connection=db_conn,
                         tab_name=tab_name,
                         database_manager=self,
-                        target_database=db_name
+                        target_database=db_name,
+                        workspace_id=workspace_id
                     )
                     query_tab.query_saved.connect(self.query_saved.emit)
                     index = target_tab_widget.addTab(query_tab, tab_name)
@@ -1606,12 +1613,13 @@ class DatabaseManager(QWidget):
                 details=str(e)
             )
 
-    def _generate_exec_template(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+    def _generate_exec_template(self, data: dict, target_tab_widget: Optional[QTabWidget] = None, workspace_id: Optional[str] = None):
         """Generate EXEC/CALL template for stored procedure.
 
         Args:
             data: Dict with procedure info
             target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+            workspace_id: Optional workspace ID to auto-link saved queries
         """
         db_id = data.get("db_id")
         db_name = data.get("db_name")
@@ -1632,20 +1640,21 @@ class DatabaseManager(QWidget):
             template = dialect.generate_exec_template(proc_name, schema, "procedure")
 
             # Load into editor
-            self._load_template_into_tab(db_id, db_name, template, f"{proc_name} (exec)", target_tab_widget)
+            self._load_template_into_tab(db_id, db_name, template, f"{proc_name} (exec)", target_tab_widget, workspace_id=workspace_id)
 
         except Exception as e:
             logger.error(f"Error generating EXEC template: {e}")
             # Fallback to simple template
             template = dialect.generate_exec_template(proc_name, schema, "procedure")
-            self._load_template_into_tab(db_id, db_name, template, f"{proc_name} (exec)", target_tab_widget)
+            self._load_template_into_tab(db_id, db_name, template, f"{proc_name} (exec)", target_tab_widget, workspace_id=workspace_id)
 
-    def _generate_select_function(self, data: dict, target_tab_widget: Optional[QTabWidget] = None):
+    def _generate_select_function(self, data: dict, target_tab_widget: Optional[QTabWidget] = None, workspace_id: Optional[str] = None):
         """Generate SELECT template for function.
 
         Args:
             data: Dict with function info
             target_tab_widget: Optional QTabWidget to add the QueryTab to (default: self.tab_widget)
+            workspace_id: Optional workspace ID to auto-link saved queries
         """
         db_id = data.get("db_id")
         db_name = data.get("db_name")
@@ -1665,13 +1674,13 @@ class DatabaseManager(QWidget):
         try:
             # Use dialect to generate template
             template = dialect.generate_select_function_template(func_name, schema, func_type)
-            self._load_template_into_tab(db_id, db_name, template, f"{func_name} (select)", target_tab_widget)
+            self._load_template_into_tab(db_id, db_name, template, f"{func_name} (select)", target_tab_widget, workspace_id=workspace_id)
 
         except Exception as e:
             logger.warning(f"Could not generate function template: {e}")
             # Fallback
             template = dialect.generate_select_function_template(func_name, schema, func_type)
-            self._load_template_into_tab(db_id, db_name, template, f"{func_name} (select)", target_tab_widget)
+            self._load_template_into_tab(db_id, db_name, template, f"{func_name} (select)", target_tab_widget, workspace_id=workspace_id)
 
     def _show_distribution_analysis(self, data: dict):
         """Show distribution analysis for a table or view"""
@@ -2194,6 +2203,81 @@ class DatabaseManager(QWidget):
         except Exception as e:
             logger.error(f"Failed to reconnect to {db_conn.name}: {e}")
             return None
+
+    def execute_saved_query(self, saved_query, target_tab_widget=None, workspace_id=None):
+        """
+        Execute a saved query in a new QueryTab.
+
+        Args:
+            saved_query: SavedQuery object to execute
+            target_tab_widget: Optional QTabWidget to add the tab to (default: self.tab_widget)
+            workspace_id: Optional workspace ID for auto-linking new queries
+        """
+        db_id = saved_query.target_database_id
+        if not db_id:
+            DialogHelper.warning(
+                "No target database specified for this query.",
+                parent=self
+            )
+            return
+
+        # Get connection info
+        connection = self.connections.get(db_id)
+        db_conn = self._get_connection_by_id(db_id)
+
+        if not db_conn:
+            DialogHelper.warning(
+                "Target database connection not found.",
+                parent=self
+            )
+            return
+
+        if not connection:
+            # Try to reconnect
+            try:
+                connection = self.reconnect_database(db_id)
+                if not connection:
+                    DialogHelper.error(
+                        f"Failed to connect to {db_conn.name}.",
+                        parent=self
+                    )
+                    return
+            except Exception as e:
+                DialogHelper.error(f"Connection error: {e}", parent=self)
+                return
+
+        # Get target database name
+        target_db = getattr(saved_query, 'target_database_name', None) or None
+        tab_name = saved_query.name
+
+        query_tab = QueryTab(
+            parent=self,
+            connection=connection,
+            db_connection=db_conn,
+            tab_name=tab_name,
+            database_manager=self,
+            target_database=target_db,
+            workspace_id=workspace_id,
+            saved_query=saved_query
+        )
+
+        # Connect query_saved signal
+        query_tab.query_saved.connect(self.query_saved.emit)
+
+        # Add to target tab widget (or self.tab_widget if not specified)
+        tab_widget = target_tab_widget if target_tab_widget else self.tab_widget
+        index = tab_widget.addTab(query_tab, tab_name)
+        tab_widget.setCurrentIndex(index)
+
+        # Set query text and execute
+        query_tab.set_query_text(saved_query.query_text or "")
+        try:
+            query_tab._execute_as_query()
+        except Exception as e:
+            logger.error(f"Error executing saved query '{saved_query.name}': {e}")
+            DialogHelper.error(f"Error executing query: {e}", parent=self)
+
+        logger.info(f"Executed saved query: {saved_query.name}")
 
     def _update_query_tabs_connection(self, db_id: str, new_connection):
         """Update connection reference in all QueryTabs using this db_id"""

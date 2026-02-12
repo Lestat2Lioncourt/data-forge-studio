@@ -1107,8 +1107,8 @@ class FTPRootManager(QWidget):
 
     # ==================== Cleanup ====================
 
-    def closeEvent(self, event):
-        """Clean up connections on close."""
+    def cleanup(self):
+        """Clean up FTP connections and temp files."""
         for ftp_root_id, client in list(self._connections.items()):
             try:
                 client.disconnect()
@@ -1124,4 +1124,7 @@ class FTPRootManager(QWidget):
         except Exception:
             pass
 
+    def closeEvent(self, event):
+        """Clean up connections on close."""
+        self.cleanup()
         super().closeEvent(event)

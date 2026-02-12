@@ -106,7 +106,9 @@ class QueryTab(QWidget):
                  db_connection: DatabaseConnection = None,
                  tab_name: str = "Query",
                  database_manager=None,
-                 target_database: str = None):
+                 target_database: str = None,
+                 workspace_id: str = None,
+                 saved_query=None):
         """
         Initialize query tab.
 
@@ -117,6 +119,8 @@ class QueryTab(QWidget):
             tab_name: Name of the tab
             database_manager: Reference to parent DatabaseManager for reconnection
             target_database: Target database name for SQL Server (to select in combo)
+            workspace_id: Optional workspace ID to auto-link saved queries
+            saved_query: Optional SavedQuery object (for update-on-save instead of create)
         """
         super().__init__(parent)
 
@@ -125,6 +129,8 @@ class QueryTab(QWidget):
         self.tab_name = tab_name
         self._database_manager = database_manager
         self._target_database = target_database  # Database to select initially
+        self._workspace_id = workspace_id  # Auto-link queries to this workspace
+        self._saved_query = saved_query  # If set, save will UPDATE instead of INSERT
         self.is_sqlite = isinstance(connection, sqlite3.Connection)
         # Use db_type from connection config, fallback to detection
         if db_connection and hasattr(db_connection, 'db_type'):
@@ -154,6 +160,7 @@ class QueryTab(QWidget):
 
         self._setup_ui()
         self._setup_completer()
+        self._load_connections()
         self._load_databases()
 
     def _setup_ui(self):
@@ -166,6 +173,19 @@ class QueryTab(QWidget):
         # Top toolbar - with GroupBox containers
         toolbar = QHBoxLayout()
         toolbar.setSpacing(10)
+
+        # === Connection GroupBox ===
+        conn_group = QGroupBox("Connection")
+        conn_layout = QHBoxLayout(conn_group)
+        conn_layout.setContentsMargins(5, 2, 5, 5)
+
+        self.conn_combo = QComboBox()
+        self.conn_combo.setMinimumWidth(150)
+        self.conn_combo.setToolTip("Select database connection")
+        self.conn_combo.currentIndexChanged.connect(self._on_connection_changed)
+        conn_layout.addWidget(self.conn_combo)
+
+        toolbar.addWidget(conn_group)
 
         # === Database GroupBox ===
         db_group = QGroupBox(tr("field_database").rstrip(" :"))
@@ -1145,6 +1165,63 @@ class QueryTab(QWidget):
         """Clear the SQL editor"""
         self.sql_editor.clear()
 
+    def _load_connections(self):
+        """Load available connections into the connection dropdown."""
+        self.conn_combo.blockSignals(True)
+        self.conn_combo.clear()
+
+        if not self._database_manager:
+            self.conn_combo.addItem("(No manager)", None)
+            self.conn_combo.blockSignals(False)
+            return
+
+        # Get all active connections from DatabaseManager
+        for db_id, conn in self._database_manager.connections.items():
+            db_conn = self._database_manager._get_connection_by_id(db_id)
+            if db_conn:
+                self.conn_combo.addItem(db_conn.name, db_id)
+
+        # Select current connection
+        if self.db_connection:
+            for i in range(self.conn_combo.count()):
+                if self.conn_combo.itemData(i) == self.db_connection.id:
+                    self.conn_combo.setCurrentIndex(i)
+                    break
+
+        self.conn_combo.blockSignals(False)
+
+    def _on_connection_changed(self, index: int):
+        """Handle connection selector change."""
+        if index < 0:
+            return
+
+        db_id = self.conn_combo.itemData(index)
+        if not db_id or not self._database_manager:
+            return
+
+        # Same connection? Skip
+        if self.db_connection and self.db_connection.id == db_id:
+            return
+
+        # Get new connection
+        new_conn = self._database_manager.connections.get(db_id)
+        new_db_conn = self._database_manager._get_connection_by_id(db_id)
+        if not new_conn or not new_db_conn:
+            return
+
+        # Switch connection
+        self.connection = new_conn
+        self.db_connection = new_db_conn
+        self.is_sqlite = isinstance(new_conn, sqlite3.Connection)
+        self.db_type = new_db_conn.db_type if hasattr(new_db_conn, 'db_type') else ("sqlite" if self.is_sqlite else "sqlserver")
+        self._target_database = None
+
+        # Clear schema cache and reload databases
+        self.schema_cache.invalidate()
+        self._load_databases()
+
+        logger.info(f"QueryTab switched to connection: {new_db_conn.name}")
+
     def _load_databases(self):
         """Load available databases into the dropdown"""
         self.db_combo.blockSignals(True)
@@ -1744,7 +1821,11 @@ class QueryTab(QWidget):
     # =========================================================================
 
     def _save_query(self):
-        """Save the current query to saved queries collection."""
+        """Save the current query to saved queries collection.
+
+        If this tab was opened from a saved query (_saved_query is set),
+        updates the existing query. Otherwise creates a new one.
+        """
         from ..widgets.save_query_dialog import SaveQueryDialog
         from ...database.config_db import get_config_db, SavedQuery
 
@@ -1757,61 +1838,97 @@ class QueryTab(QWidget):
         # Get database info
         database_name = ""
         database_id = ""
+        current_db_name = self.current_database or ""
 
         if self.db_connection:
             database_name = self.db_connection.name
             database_id = self.db_connection.id
-            logger.info(f"db_connection found: name={database_name}, id={database_id}")
         else:
             logger.warning("No db_connection available in QueryTab")
 
-        # Show save dialog
-        dialog = SaveQueryDialog(
-            parent=self,
-            query_text=query_text,
-            database_name=database_name,
-            database_id=database_id
-        )
+        # Build display: "Connection — Database" or just connection name
+        display_name = database_name
+        if current_db_name and current_db_name != database_name:
+            display_name = f"{database_name} — {current_db_name}"
+
+        # If opened from an existing saved query, use edit mode
+        if self._saved_query:
+            # Update the saved query's text with current editor content
+            self._saved_query.query_text = query_text
+
+            dialog = SaveQueryDialog(
+                parent=self,
+                database_name=display_name,
+                existing_query=self._saved_query
+            )
+        else:
+            dialog = SaveQueryDialog(
+                parent=self,
+                query_text=query_text,
+                database_name=display_name,
+                database_id=database_id
+            )
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            # Get data and save
             data = dialog.get_query_data()
-
-            logger.info(f"Saving query with target_database_id: {data['target_database_id']}")
 
             try:
                 config_db = get_config_db()
 
-                # Create SavedQuery object
-                saved_query = SavedQuery(
-                    id="",  # Will be generated
-                    name=data["name"],
-                    target_database_id=data["target_database_id"],
-                    query_text=data["query_text"],
-                    category=data["category"],
-                    description=data["description"]
-                )
+                if self._saved_query:
+                    # UPDATE existing saved query
+                    self._saved_query.name = data["name"]
+                    self._saved_query.description = data["description"]
+                    self._saved_query.category = data["category"]
+                    self._saved_query.query_text = data["query_text"]
+                    self._saved_query.target_database_name = current_db_name or self._saved_query.target_database_name
 
-                logger.info(f"SavedQuery created with id: {saved_query.id}")
+                    result = config_db.update_saved_query(self._saved_query)
 
-                # Save to database
-                result = config_db.add_saved_query(saved_query)
-                logger.info(f"add_saved_query result: {result}")
-
-                if result:
-                    DialogHelper.info(
-                        tr("query_saved_success", name=data['name']),
-                        parent=self
-                    )
-                    logger.info(f"Saved query: {data['name']} to category: {data['category']}")
-                    # Emit signal to trigger refresh
-                    self.query_saved.emit()
+                    if result:
+                        DialogHelper.info(
+                            f"Query '{data['name']}' updated.",
+                            parent=self
+                        )
+                        logger.info(f"Updated saved query: {data['name']}")
+                        self.query_saved.emit()
+                    else:
+                        DialogHelper.error("Failed to update query.", parent=self)
                 else:
-                    DialogHelper.error(
-                        tr("query_save_db_constraint"),
-                        parent=self,
-                        details=f"Database ID: {data['target_database_id']}"
+                    # CREATE new saved query
+                    saved_query = SavedQuery(
+                        id="",  # Will be generated
+                        name=data["name"],
+                        target_database_id=data["target_database_id"],
+                        query_text=data["query_text"],
+                        category=data["category"],
+                        description=data["description"],
+                        target_database_name=current_db_name
                     )
+
+                    result = config_db.add_saved_query(saved_query)
+
+                    if result:
+                        # Auto-link to workspace if created from workspace context
+                        if self._workspace_id:
+                            config_db.add_query_to_workspace(self._workspace_id, saved_query.id)
+                            logger.info(f"Auto-linked query '{data['name']}' to workspace {self._workspace_id}")
+
+                        # Keep reference so next save will update instead of create
+                        self._saved_query = saved_query
+
+                        DialogHelper.info(
+                            tr("query_saved_success", name=data['name']),
+                            parent=self
+                        )
+                        logger.info(f"Saved query: {data['name']} to category: {data['category']}")
+                        self.query_saved.emit()
+                    else:
+                        DialogHelper.error(
+                            tr("query_save_db_constraint"),
+                            parent=self,
+                            details=f"Database ID: {data['target_database_id']}"
+                        )
 
             except Exception as e:
                 logger.error(f"Error saving query: {e}")

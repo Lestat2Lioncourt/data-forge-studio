@@ -228,6 +228,10 @@ class DataForgeMainWindow:
         if self.database_manager and self.resources_manager:
             self.database_manager.query_saved.connect(self.resources_manager.refresh_queries)
 
+        # Connect queries manager execution signal to open query in DatabaseManager
+        if self.queries_manager:
+            self.queries_manager.query_execute_requested.connect(self._on_execute_saved_query)
+
         # Clear stacked widget and add all views
         while self.stacked_widget.count() > 0:
             widget = self.stacked_widget.widget(0)
@@ -285,9 +289,8 @@ class DataForgeMainWindow:
         # Connect i18n language change to UI update
         self.i18n_bridge.register_observer(self._on_language_changed)
 
-        # Connect queries manager execution signal
-        if self.queries_manager:
-            self.queries_manager.query_execute_requested.connect(self._on_execute_saved_query)
+        # Note: queries_manager signal is connected in set_frames() since
+        # queries_manager is None at this point during __init__
 
     def _disconnect_signals(self):
         """Disconnect signals to prevent memory leaks on close."""
@@ -826,74 +829,17 @@ class DataForgeMainWindow:
         Handle saved query execution request from QueriesManager.
         Opens the query in DatabaseManager and executes it.
         """
-        from ..managers.query_tab import QueryTab
         from ..widgets.dialog_helper import DialogHelper
 
         if not self.database_manager:
             DialogHelper.warning(
-                "Database Manager not available.\nLe gestionnaire de bases de données n'est pas disponible.",
+                "Database Manager not available.",
                 parent=self.window
             )
             return
-
-        # Get the target database connection
-        db_id = saved_query.target_database_id
-        if not db_id:
-            DialogHelper.warning(
-                "No target database specified for this query.\nAucune base de données cible n'est spécifiée pour cette requête.",
-                parent=self.window
-            )
-            return
-
-        # Check if database is connected, if not try to connect
-        connection = self.database_manager.connections.get(db_id)
-        db_conn = self.database_manager._get_connection_by_id(db_id)
-
-        if not db_conn:
-            DialogHelper.warning(
-                "Target database not found in connections.\nBase de données cible non trouvée dans les connexions.",
-                parent=self.window
-            )
-            return
-
-        if not connection:
-            # Try to connect
-            try:
-                connection = self.database_manager.reconnect_database(db_id)
-                if not connection:
-                    DialogHelper.error(
-                        f"Failed to connect to {db_conn.name}.\nÉchec de la connexion à {db_conn.name}.",
-                        parent=self.window
-                    )
-                    return
-            except Exception as e:
-                DialogHelper.error(f"Connection error: {e}", parent=self.window)
-                return
 
         # Switch to database manager view
         self._switch_frame("database")
 
-        # Create a new query tab named after the saved query
-        tab_name = saved_query.name
-
-        query_tab = QueryTab(
-            parent=self.database_manager,
-            connection=connection,
-            db_connection=db_conn,
-            tab_name=tab_name,
-            database_manager=self.database_manager
-        )
-
-        # Connect query_saved signal
-        query_tab.query_saved.connect(self.database_manager.query_saved.emit)
-
-        # Add to tab widget
-        index = self.database_manager.tab_widget.addTab(query_tab, tab_name)
-        self.database_manager.tab_widget.setCurrentIndex(index)
-
-        # Set query text and execute
-        query_tab.set_query_text(saved_query.query_text or "")
-        query_tab._execute_as_query()
-
-        import logging
-        logging.getLogger(__name__).info(f"Executed saved query: {saved_query.name}")
+        # Delegate to DatabaseManager's execute_saved_query method
+        self.database_manager.execute_saved_query(saved_query)
