@@ -58,6 +58,17 @@ echo [INFO] Copie des fichiers du projet...
 
 xcopy /E /I /Q "%PROJECT_DIR%\src" "%OUTPUT_DIR%\src"
 xcopy /E /I /Q "%PROJECT_DIR%\.venv" "%OUTPUT_DIR%\.venv"
+
+:: Nettoyer pyvenv.cfg : remplacer le chemin local par un chemin relatif
+echo [INFO] Nettoyage de pyvenv.cfg...
+(
+echo home = _python
+echo implementation = CPython
+echo version_info = 3.14.0
+echo include-system-site-packages = false
+echo prompt = data-forge-studio
+) > "%OUTPUT_DIR%\.venv\pyvenv.cfg"
+
 xcopy /E /I /Q "%PROJECT_DIR%\assets" "%OUTPUT_DIR%\assets"
 xcopy /E /I /Q "%PROJECT_DIR%\docs" "%OUTPUT_DIR%\docs"
 
