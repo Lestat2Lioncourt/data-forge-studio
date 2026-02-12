@@ -108,7 +108,7 @@ class DataLoader:
 
     def _import_file(self, file_path: Path, table_name: str, imported_folder: Path) -> None:
         """Import a single file into the database table."""
-        import pyodbc
+        from dataforge_studio.database.sqlserver_connection import connect_sqlserver
 
         logger.info(f"Importing {file_path.name} into table {table_name}...")
 
@@ -117,7 +117,7 @@ class DataLoader:
         if df is None or df.empty:
             raise ValueError(f"File is empty or could not be read: {file_path.name}")
 
-        with pyodbc.connect(self.connection_string) as conn:
+        with connect_sqlserver(self.connection_string) as conn:
             cursor = conn.cursor()
 
             table_exists = self._table_exists(cursor, table_name)

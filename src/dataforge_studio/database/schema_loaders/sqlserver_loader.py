@@ -47,8 +47,15 @@ class SQLServerSchemaLoader(SchemaLoader):
             return [row[0] for row in cursor.fetchall()]
         except Exception:
             # Fallback: get current database name
-            import pyodbc
-            return [self.connection.getinfo(pyodbc.SQL_DATABASE_NAME)]
+            try:
+                cursor2 = self.connection.cursor()
+                cursor2.execute("SELECT DB_NAME()")
+                row = cursor2.fetchone()
+                if row:
+                    return [row[0]]
+            except Exception:
+                pass
+            return []
 
     def load_schema(self) -> SchemaNode:
         """

@@ -3,7 +3,6 @@ SQL Server Connection Dialog - Simple and Advanced modes
 """
 
 from typing import Optional
-import pyodbc
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                                QLineEdit, QTextEdit, QRadioButton, QButtonGroup,
@@ -15,6 +14,7 @@ from .credentials_widget import CredentialsWidget
 from ....database.config_db import DatabaseConnection
 from ....utils.credential_manager import CredentialManager
 from ....utils.connection_error_handler import format_connection_error
+from ....database.sqlserver_connection import connect_sqlserver
 
 import logging
 logger = logging.getLogger(__name__)
@@ -189,7 +189,7 @@ class SQLServerConnectionDialog(BaseConnectionDialog):
     def _test_connection(self, connection_string: str) -> tuple[bool, str]:
         """Test SQL Server connection"""
         try:
-            conn = pyodbc.connect(connection_string, timeout=5)
+            conn = connect_sqlserver(connection_string, timeout=5)
 
             # Get server version
             cursor = conn.cursor()

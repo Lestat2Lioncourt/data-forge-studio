@@ -3,9 +3,13 @@ Schema Cache for SQL Auto-completion
 Caches database schema (tables, columns) to avoid repeated queries.
 """
 
-from typing import Dict, List, Optional, Union
+from __future__ import annotations
+from typing import Dict, List, Optional, Union, Any
 import sqlite3
-import pyodbc
+try:
+    import pyodbc
+except ImportError:
+    pyodbc = None
 
 import logging
 logger = logging.getLogger(__name__)

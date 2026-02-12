@@ -3,6 +3,7 @@ Query Tab - Single SQL query editor tab for DatabaseManager
 
 Supports multiple SQL statements with results in separate tabs (SSMS-style).
 """
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional, Union, Tuple, List, Any
@@ -12,7 +13,10 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                                QTabWidget)
 from PySide6.QtCore import Qt, Signal, QObject, QEvent, QTimer
 from PySide6.QtGui import QFont, QKeyEvent
-import pyodbc
+try:
+    import pyodbc
+except ImportError:
+    pyodbc = None
 import sqlite3
 import re
 
@@ -27,6 +31,7 @@ from ...utils.sql_formatter import format_sql
 from ...utils.sql_splitter import split_sql_statements, SQLStatement
 from .query_loader import BackgroundRowLoader
 from ...config.user_preferences import UserPreferences
+from ...database.sqlserver_connection import connect_sqlserver
 
 # DataFrame-Pivot pattern: use shared threshold
 from ...core.data_loader import LARGE_DATASET_THRESHOLD
@@ -559,7 +564,7 @@ class QueryTab(QWidget):
                     db_path = conn_str[10:]
                     return sqlite3.connect(db_path, check_same_thread=False)
             elif self.db_type == "sqlserver":
-                # SQL Server: create new pyodbc connection
+                # SQL Server: create new connection (pyodbc or pytds)
                 from ...utils.credential_manager import CredentialManager
                 conn_str = self.db_connection.connection_string
                 if "trusted_connection=yes" not in conn_str.lower():
@@ -569,7 +574,7 @@ class QueryTab(QWidget):
                             if not conn_str.endswith(";"):
                                 conn_str += ";"
                             conn_str += f"UID={username};PWD={password};"
-                return pyodbc.connect(conn_str, timeout=5)
+                return connect_sqlserver(conn_str, timeout=5)
             elif self.db_type == "postgresql":
                 # PostgreSQL: create new psycopg2 connection
                 import psycopg2

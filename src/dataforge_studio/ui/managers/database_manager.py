@@ -2,8 +2,12 @@
 Database Manager - Multi-tab SQL query interface with SSMS-style tree
 """
 
-from typing import Optional, Union, Dict, TYPE_CHECKING
-import pyodbc
+from __future__ import annotations
+from typing import Optional, Union, Dict, Any, TYPE_CHECKING
+try:
+    import pyodbc
+except ImportError:
+    pyodbc = None
 import sqlite3
 
 if TYPE_CHECKING:
@@ -38,6 +42,7 @@ from ...utils.workspace_export import (
     load_import_from_file, import_connections_from_json
 )
 from ...utils.connection_error_handler import format_connection_error, get_server_unreachable_message
+from ...database.sqlserver_connection import connect_sqlserver
 
 import logging
 logger = logging.getLogger(__name__)
@@ -143,11 +148,7 @@ class DatabaseConnectionWorker(QThread):
                                 conn_str += ";"
                             conn_str += f"UID={username};PWD={password};"
 
-                # Set a timeout for SQL Server connections
-                if "timeout" not in conn_str.lower() and "connection timeout" not in conn_str.lower():
-                    conn_str += ";Connection Timeout=5"
-
-                return pyodbc.connect(conn_str, timeout=5)
+                return connect_sqlserver(conn_str, timeout=5)
 
             elif self.db_conn.db_type == "access":
                 conn_str = self.db_conn.connection_string
@@ -162,6 +163,9 @@ class DatabaseConnectionWorker(QThread):
                     self.connection_error.emit(f"Fichier Access introuvable")
                     return None
 
+                if pyodbc is None:
+                    self.connection_error.emit("pyodbc requis pour les bases Access")
+                    return None
                 return pyodbc.connect(conn_str)
 
             elif self.db_conn.db_type == "postgresql":
@@ -805,11 +809,7 @@ class DatabaseManager(QWidget):
                 else:
                     logger.warning(f"No credentials found for SQL Server connection: {db_conn.name}")
 
-            # Set a timeout for SQL Server connections
-            if "timeout" not in conn_str.lower() and "connection timeout" not in conn_str.lower():
-                conn_str += ";Connection Timeout=5"
-
-            return pyodbc.connect(conn_str, timeout=5)
+            return connect_sqlserver(conn_str, timeout=5)
 
         elif db_conn.db_type == "access":
             conn_str = db_conn.connection_string
@@ -835,6 +835,9 @@ class DatabaseManager(QWidget):
                     conn_str += ";"
                 conn_str += f"Pwd={password};"
 
+            if pyodbc is None:
+                DialogHelper.warning("pyodbc requis pour les bases Access", parent=self)
+                return None
             return pyodbc.connect(conn_str, timeout=5)
 
         elif db_conn.db_type == "postgresql":
@@ -2146,10 +2149,7 @@ class DatabaseManager(QWidget):
                                 conn_str += ";"
                             conn_str += f"UID={username};PWD={password};"
 
-                if "timeout" not in conn_str.lower() and "connection timeout" not in conn_str.lower():
-                    conn_str += ";Connection Timeout=5"
-
-                connection = pyodbc.connect(conn_str, timeout=5)
+                connection = connect_sqlserver(conn_str, timeout=5)
                 self.connections[db_id] = connection
 
             elif db_conn.db_type in ("postgresql", "postgres"):
