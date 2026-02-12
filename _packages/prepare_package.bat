@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 
 set SCRIPT_DIR=%~dp0
 set PROJECT_DIR=%SCRIPT_DIR%..
-set OUTPUT_DIR=%SCRIPT_DIR%DataForgeStudio_Offline
+set OUTPUT_DIR=%SCRIPT_DIR%DataForgeStudio
 set UV_URL=https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
 
 echo.
@@ -127,17 +127,38 @@ if %ERRORLEVEL% EQU 0 (
     echo [WARN] curl non disponible, package sans UV
 )
 
+:: Compression en 7z
+echo [INFO] Compression en 7z...
+set ARCHIVE=%SCRIPT_DIR%DataForgeStudio.7z
+if exist "%ARCHIVE%" del "%ARCHIVE%"
+
+where 7z >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    7z a -t7z -mx=5 "%ARCHIVE%" "%OUTPUT_DIR%" >nul
+    echo [OK] Archive creee : %ARCHIVE%
+) else (
+    :: Essayer le chemin par defaut de 7-Zip
+    if exist "C:\Program Files\7-Zip\7z.exe" (
+        "C:\Program Files\7-Zip\7z.exe" a -t7z -mx=5 "%ARCHIVE%" "%OUTPUT_DIR%" >nul
+        echo [OK] Archive creee : %ARCHIVE%
+    ) else (
+        echo [WARN] 7z introuvable, compression ignoree
+        echo        Installez 7-Zip ou compressez manuellement le dossier
+    )
+)
+
 echo.
 echo ============================================================
 echo  Package pret !
 echo ============================================================
 echo.
-echo  Emplacement : %OUTPUT_DIR%
-echo  Python embarque dans : %OUTPUT_DIR%\_python
+echo  Dossier  : %OUTPUT_DIR%
+echo  Archive  : %ARCHIVE%
+echo  Python   : %OUTPUT_DIR%\_python
 echo.
 echo  Pour distribuer :
-echo  1. Copier le dossier DataForgeStudio_Offline sur cle USB
-echo  2. Sur la machine cible, copier vers C:\Apps\DataForgeStudio
+echo  1. Copier DataForgeStudio.7z sur cle USB
+echo  2. Sur la machine cible, extraire vers C:\Apps\DataForgeStudio
 echo  3. Lancer run.bat
 echo.
 echo ============================================================
