@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
                                QPushButton, QLabel, QGroupBox, QCheckBox,
                                QScrollArea, QTableWidget, QTableWidgetItem,
                                QHeaderView, QSplitter, QInputDialog,
-                               QMessageBox, QApplication)
+                               QMessageBox, QApplication, QLineEdit,
+                               QFormLayout)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
 
@@ -32,6 +33,25 @@ logger = logging.getLogger(__name__)
 
 # Path to icons
 ICONS_PATH = Path(__file__).parent.parent / "assets" / "images"
+
+# General preferences definitions (data-driven)
+# Each entry generates a tree node and an editor panel automatically.
+# Supported types: "text", "bool", "choice"
+GENERAL_PREFERENCES = [
+    {
+        "key": "query_column_names",
+        "label": "Noms de colonnes (Edit Query)",
+        "type": "text",
+        "group": "Edit Query - Noms de colonnes",
+        "description": (
+            "Liste des noms de colonnes (séparés par des virgules) pour lesquels "
+            "l'option \"Edit Query\" est disponible dans le menu contextuel des "
+            "grilles de résultats.\nLa comparaison est insensible à la casse."
+        ),
+        "placeholder": "query, requête, sql, sql_text, ...",
+        "default": "query, requête",
+    },
+]
 
 # Paths to config files
 LANGUAGES_PATH = Path(__file__).parent.parent.parent.parent.parent / "_AppConfig" / "languages"
@@ -112,6 +132,11 @@ class SettingsFrame(BaseManagerView):
         self.editors_layout = QVBoxLayout(self.editors_container)
         self.editors_layout.setContentsMargins(0, 0, 0, 0)
 
+        # General editor
+        self.general_editor = self._create_general_editor()
+        self.editors_layout.addWidget(self.general_editor)
+        self.general_editor.hide()
+
         # Language editor
         self.language_editor = self._create_language_editor()
         self.editors_layout.addWidget(self.language_editor)
@@ -134,6 +159,144 @@ class SettingsFrame(BaseManagerView):
         self.editors_layout.addWidget(self.placeholder)
 
         self.content_layout.addWidget(self.editors_container)
+
+    def _create_general_editor(self) -> QWidget:
+        """Create dynamic general preferences editor.
+
+        Content is rebuilt by _load_general_pref() each time a preference
+        node is selected in the tree.
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(15)
+
+        # Dynamic content area (rebuilt per preference)
+        self._general_content = QWidget()
+        self._general_content_layout = QVBoxLayout(self._general_content)
+        self._general_content_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._general_content)
+
+        # Apply button
+        btn_layout = QHBoxLayout()
+        general_apply_btn = QPushButton(tr("btn_apply"))
+        general_apply_btn.clicked.connect(self._apply_general)
+        general_apply_btn.setMinimumWidth(120)
+        btn_layout.addWidget(general_apply_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        # Status
+        self.general_status = QLabel("")
+        self.general_status.setStyleSheet("color: #2ecc71;")
+        layout.addWidget(self.general_status)
+
+        layout.addStretch()
+
+        # Track current pref key + its input widget
+        self._general_current_key: Optional[str] = None
+        self._general_input_widget: Optional[QWidget] = None
+
+        return widget
+
+    def _load_general_pref(self, pref_key: str):
+        """Load a specific general preference into the editor."""
+        # Find definition
+        pref_def = None
+        for p in GENERAL_PREFERENCES:
+            if p["key"] == pref_key:
+                pref_def = p
+                break
+        if not pref_def:
+            return
+
+        self._general_current_key = pref_key
+
+        # Clear previous content
+        while self._general_content_layout.count():
+            item = self._general_content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Group box
+        group = QGroupBox(pref_def.get("group", pref_def["label"]))
+        group_layout = QVBoxLayout(group)
+
+        # Description
+        desc = pref_def.get("description", "")
+        if desc:
+            desc_label = QLabel(desc)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet("color: #808080; font-style: italic;")
+            group_layout.addWidget(desc_label)
+
+        # Input widget based on type
+        pref_type = pref_def.get("type", "text")
+        current_value = self.user_prefs.get(pref_key, pref_def.get("default", ""))
+
+        if pref_type == "text":
+            input_layout = QHBoxLayout()
+            input_layout.addWidget(QLabel(pref_def["label"] + " :"))
+            line_edit = QLineEdit()
+            line_edit.setPlaceholderText(pref_def.get("placeholder", ""))
+            line_edit.setText(str(current_value))
+            input_layout.addWidget(line_edit)
+            group_layout.addLayout(input_layout)
+            self._general_input_widget = line_edit
+
+        elif pref_type == "bool":
+            cb = QCheckBox(pref_def["label"])
+            cb.setChecked(bool(current_value))
+            group_layout.addWidget(cb)
+            self._general_input_widget = cb
+
+        elif pref_type == "choice":
+            input_layout = QHBoxLayout()
+            input_layout.addWidget(QLabel(pref_def["label"] + " :"))
+            combo = QComboBox()
+            for choice in pref_def.get("choices", []):
+                combo.addItem(choice)
+            idx = combo.findText(str(current_value))
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            input_layout.addWidget(combo)
+            input_layout.addStretch()
+            group_layout.addLayout(input_layout)
+            self._general_input_widget = combo
+
+        self._general_content_layout.addWidget(group)
+
+    def _apply_general(self):
+        """Apply the currently displayed general preference."""
+        if not self._general_current_key or not self._general_input_widget:
+            return
+
+        pref_def = None
+        for p in GENERAL_PREFERENCES:
+            if p["key"] == self._general_current_key:
+                pref_def = p
+                break
+        if not pref_def:
+            return
+
+        pref_type = pref_def.get("type", "text")
+
+        if pref_type == "text":
+            value = self._general_input_widget.text().strip()
+        elif pref_type == "bool":
+            value = self._general_input_widget.isChecked()
+        elif pref_type == "choice":
+            value = self._general_input_widget.currentText()
+        else:
+            return
+
+        if value or pref_type == "bool":
+            self.user_prefs.set(self._general_current_key, value)
+
+        self.general_status.setText(tr("settings_options_applied"))
+        self.general_status.setStyleSheet("color: #2ecc71;")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(3000, lambda: self.general_status.setText(""))
 
     def _create_language_editor(self) -> QWidget:
         """Create language editor: dropdown + translations table + actions."""
@@ -425,6 +588,22 @@ class SettingsFrame(BaseManagerView):
             data={"type": "category", "name": "preferences"}
         )
         prefs_parent.setIcon(0, category_icon)
+
+        # General section with individual preferences as children
+        general_parent = self.tree_view.add_item(
+            parent=prefs_parent,
+            text=["Général"],
+            data={"type": "category", "name": "general"}
+        )
+        general_parent.setIcon(0, category_icon)
+
+        for pref_def in GENERAL_PREFERENCES:
+            pref_item = self.tree_view.add_item(
+                parent=general_parent,
+                text=[pref_def["label"]],
+                data={"type": "general_pref", "key": pref_def["key"]}
+            )
+            pref_item.setIcon(0, option_icon)
 
         lang_item = self.tree_view.add_item(
             parent=prefs_parent,
@@ -835,12 +1014,23 @@ class SettingsFrame(BaseManagerView):
         option_type = item_data.get("type", "")
 
         # Hide all
+        self.general_editor.hide()
         self.language_editor.hide()
         self.theme_editor.hide()
         self.debug_editor.hide()
         self.placeholder.hide()
 
-        if option_type == "language":
+        if option_type == "general_pref":
+            pref_key = item_data.get("key")
+            if pref_key:
+                self.general_editor.show()
+                self._load_general_pref(pref_key)
+        elif option_type == "category" and item_data.get("name") == "general":
+            # Clicked on "Général" parent - show first preference
+            if GENERAL_PREFERENCES:
+                self.general_editor.show()
+                self._load_general_pref(GENERAL_PREFERENCES[0]["key"])
+        elif option_type == "language":
             self.language_editor.show()
         elif option_type == "theme":
             self.theme_editor.show()

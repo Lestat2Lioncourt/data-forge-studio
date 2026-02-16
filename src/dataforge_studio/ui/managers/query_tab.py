@@ -715,6 +715,9 @@ class QueryTab(QWidget):
 
         grid = CustomDataGridView(show_toolbar=True)
 
+        # Connect "Edit Query" signal for Query column cells
+        grid.edit_query_requested.connect(self._on_edit_query_requested)
+
         tab_state = ResultTabState(
             grid=grid,
             statement_index=statement_index
@@ -1440,6 +1443,39 @@ class QueryTab(QWidget):
     def get_query_text(self) -> str:
         """Get the SQL query text"""
         return self.sql_editor.toPlainText()
+
+    def _on_edit_query_requested(self, query_text: str):
+        """Open a new query tab with the given query formatted in ultimate style."""
+        if not self._database_manager:
+            return
+
+        # Format the query using ultimate style
+        formatted_query = format_sql(query_text, style="ultimate")
+
+        # Find the tab widget that contains this QueryTab (same context: Workspace or Resources)
+        parent_tw = self._get_parent_tab_widget()
+
+        # Get current database ID
+        db_id = self.db_connection.id if self.db_connection else None
+
+        # Create new query tab in the same context
+        new_tab = self._database_manager._new_query_tab(
+            db_id=db_id,
+            target_tab_widget=parent_tw
+        )
+
+        if new_tab:
+            new_tab.set_query_text(formatted_query)
+
+    def _get_parent_tab_widget(self):
+        """Find the QTabWidget that contains this QueryTab."""
+        from PySide6.QtWidgets import QTabWidget
+        parent = self.parentWidget()
+        while parent:
+            if isinstance(parent, QTabWidget):
+                return parent
+            parent = parent.parentWidget()
+        return None
 
     # =========================================================================
     # Auto-completion methods

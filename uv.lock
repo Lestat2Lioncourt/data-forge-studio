@@ -357,7 +357,7 @@ wheels = [
 
 [[package]]
 name = "data-forge-studio"
-version = "0.5.7"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "cachetools" },

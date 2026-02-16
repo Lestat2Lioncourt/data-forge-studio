@@ -1096,6 +1096,14 @@ class DatabaseManager(QWidget):
 
         # Context menu for server (connection)
         if node_type == "server":
+            # New Query tab
+            db_config = data.get("config")
+            if db_config:
+                new_query_action = QAction("New Query", self)
+                new_query_action.triggered.connect(lambda checked, did=db_config.id: self._new_query_tab(did))
+                menu.addAction(new_query_action)
+                menu.addSeparator()
+
             # Edit connection (full dialog with credentials)
             edit_conn_action = QAction("Edit Connection...", self)
             edit_conn_action.triggered.connect(lambda: self._edit_full_connection(data["config"]))
@@ -1109,7 +1117,6 @@ class DatabaseManager(QWidget):
             menu.addSeparator()
 
             # Add to Workspace submenu (server = all databases)
-            db_config = data.get("config")
             if db_config:
                 workspace_menu = self._build_workspace_submenu(db_config.id, database_name=None)
                 menu.addMenu(workspace_menu)
@@ -1142,6 +1149,13 @@ class DatabaseManager(QWidget):
             db_name = data.get("name")
 
             if db_id and db_name:
+                # New Query tab
+                new_query_action = QAction("New Query", self)
+                new_query_action.triggered.connect(lambda checked, did=db_id: self._new_query_tab(did))
+                menu.addAction(new_query_action)
+
+                menu.addSeparator()
+
                 # Add to Workspace submenu (specific database)
                 workspace_menu = self._build_workspace_submenu(db_id, database_name=db_name)
                 menu.addMenu(workspace_menu)
@@ -1779,8 +1793,14 @@ class DatabaseManager(QWidget):
         # Create new tab for this database
         return self._new_query_tab(db_id)
 
-    def _new_query_tab(self, db_id: Optional[str] = None) -> Optional[QueryTab]:
-        """Create a new query tab"""
+    def _new_query_tab(self, db_id: Optional[str] = None, target_tab_widget=None) -> Optional[QueryTab]:
+        """Create a new query tab.
+
+        Args:
+            db_id: Database connection ID. If None, uses first available.
+            target_tab_widget: Optional QTabWidget to add the tab to (e.g. workspace).
+                               If None, uses the database manager's own tab_widget.
+        """
         # Get database connection
         db_conn = None
         connection = None
@@ -1814,9 +1834,10 @@ class DatabaseManager(QWidget):
         # Connect query_saved signal to forward to DatabaseManager's signal
         query_tab.query_saved.connect(self.query_saved.emit)
 
-        # Add to tab widget
-        index = self.tab_widget.addTab(query_tab, tab_name)
-        self.tab_widget.setCurrentIndex(index)
+        # Add to tab widget (target or own)
+        tw = target_tab_widget or self.tab_widget
+        index = tw.addTab(query_tab, tab_name)
+        tw.setCurrentIndex(index)
 
         logger.info(f"Created new query tab: {tab_name}")
 

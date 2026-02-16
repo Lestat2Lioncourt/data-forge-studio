@@ -122,7 +122,52 @@
 
 ---
 
-### 7. Base de Configuration Auto-Connectée
+### 7. Menu Contextuel "Edit Query" dans les Grilles de Résultats
+
+**Accès** : Clic droit sur une cellule dans une grille de résultats dont le nom de colonne correspond à un nom configurable (par défaut : `query`, `requête`)
+
+**Fonctionnalité :**
+- ✅ **Détection automatique** des colonnes "requête" (insensible à la casse)
+- ✅ **Formatage ultimate** automatique de la requête SQL
+- ✅ **Ouverture dans le même contexte** (Workspace ou Resources/Database)
+- ✅ **Noms de colonnes configurables** via la préférence `query_column_names`
+
+**Configuration :**
+
+| Paramètre | Valeur par défaut | Description |
+|-----------|-------------------|-------------|
+| `query_column_names` | `query, requête` | Liste de noms de colonnes (séparés par virgules) déclenchant l'option "Edit Query" |
+
+**Fichiers :**
+- `ui/widgets/custom_datagridview.py` — Signal `edit_query_requested`, méthode `_is_query_column()`
+- `ui/managers/query_tab.py` — Handler `_on_edit_query_requested()`, `_get_parent_tab_widget()`
+- `config/user_preferences.py` — Préférence `query_column_names`
+
+---
+
+### 8. Préférences Générales (data-driven)
+
+**Accès** : Options → Preferences → Général
+
+**Fonctionnalité :**
+- ✅ **Interface auto-générée** depuis une liste de définitions déclaratives
+- ✅ **Treeview hiérarchique** : chaque paramètre est un noeud enfant de "Général"
+- ✅ **3 types de widgets** : texte (`QLineEdit`), booléen (`QCheckBox`), choix (`QComboBox`)
+- ✅ **Persistance SQLite** automatique via `UserPreferences`
+- ✅ **Valeurs par défaut** créées au premier lancement (`_ensure_defaults`)
+
+**Ajouter un paramètre :** 2 fichiers à modifier
+
+| Fichier | Action |
+|---------|--------|
+| `config/user_preferences.py` | Ajouter la clé + valeur par défaut dans `DEFAULT_PREFERENCES` |
+| `ui/frames/settings_frame.py` | Ajouter l'entrée dans `GENERAL_PREFERENCES` |
+
+**Documentation détaillée** : voir `ADMIN_GENERAL_PREFERENCES.md`
+
+---
+
+### 9. Base de Configuration Auto-Connectée
 
 **Fonctionnalité** : Connexion automatique à la base de configuration
 
@@ -369,7 +414,8 @@ print(f'Fichiers: {len(config_db.get_all_file_configs())}')
 3. **RIGHT_CLICK_MENU.md** - Menu contextuel sur les tables
 4. **SAVE_QUERIES_GUIDE.md** - Guide de sauvegarde de requêtes
 5. **NEW_FEATURES_QUERIES_DB.md** - Nouvelles fonctionnalités détaillées
-6. **SUMMARY_ALL_FEATURES.md** - Ce fichier
+6. **ADMIN_GENERAL_PREFERENCES.md** - Guide administrateur : ajouter un paramètre général
+7. **SUMMARY_ALL_FEATURES.md** - Ce fichier
 
 ---
 

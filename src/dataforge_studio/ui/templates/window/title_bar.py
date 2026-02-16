@@ -37,13 +37,13 @@ class TitleBar(QWidget):
         BUTTON_SPACING = 0  # Spacing between buttons and right margin
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, BUTTON_SPACING, 0)  # No left margin for full-height logo
-        layout.setSpacing(5)  # Small spacing between icon and title
+        layout.setContentsMargins(5, 0, BUTTON_SPACING, 0)  # Left margin before icon
+        layout.setSpacing(0)  # No extra spacing, controlled by widget sizes
 
         # App icon (if available) - 40x40 to match title bar height
         from pathlib import Path
         from PySide6.QtGui import QPixmap
-        icon_path = Path(__file__).parent.parent / "assets" / "images" / "DataForge-Studio-logo.png"
+        icon_path = Path(__file__).parent.parent.parent / "assets" / "images" / "DataForge-Studio-logo.png"
         if icon_path.exists():
             self.icon_label = QLabel()
             self.icon_label.setObjectName("AppLogoLabel")
@@ -56,14 +56,28 @@ class TitleBar(QWidget):
                 self.icon_label.setFixedSize(32, 32)
                 self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.icon_label.setScaledContents(False)
-                layout.addWidget(self.icon_label)
+                layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignVCenter)
 
-        # App title label
-        self.title_label = QLabel(self.title)
-        font = QFont()
-        font.setPointSize(10)
-        self.title_label.setFont(font)
-        layout.addWidget(self.title_label)
+        # App title image (or fallback to text)
+        title_image_path = Path(__file__).parent.parent.parent / "assets" / "images" / "DataForge-Studio-title.png"
+        self.title_label = QLabel()
+        if title_image_path.exists():
+            title_pixmap = QPixmap(str(title_image_path))
+            if not title_pixmap.isNull():
+                title_h = 22  # Fit within 40px title bar
+                scaled_title = title_pixmap.scaledToHeight(title_h, Qt.TransformationMode.SmoothTransformation)
+                self.title_label.setPixmap(scaled_title)
+                self.title_label.setFixedSize(scaled_title.width() + 19, scaled_title.height())
+                self.title_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+                self.title_label.setStyleSheet("background: transparent;")
+            else:
+                self.title_label.setText(self.title)
+        else:
+            self.title_label.setText(self.title)
+            font = QFont()
+            font.setPointSize(10)
+            self.title_label.setFont(font)
+        layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         # Spacer
         layout.addStretch()

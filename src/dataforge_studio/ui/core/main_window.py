@@ -87,6 +87,11 @@ class DataForgeMainWindow:
             (tr("menu_preferences"), lambda: self._switch_frame("options"))
         ])
 
+        # Tools menu
+        menu_bar.add_menu_with_submenu("tools", tr("menu_tools"), [
+            (tr("menu_generate_package"), self._generate_offline_package)
+        ])
+
         # Help menu
         menu_bar.add_menu_with_submenu("help", tr("menu_help"), [
             (tr("menu_documentation"), lambda: self._switch_frame("help")),
@@ -475,6 +480,40 @@ class DataForgeMainWindow:
             msg.setWindowTitle(tr("update_check_title"))
             msg.setText(tr("no_update_available"))
             msg.exec()
+
+    def _generate_offline_package(self):
+        """Launch the offline package generation script in a progress dialog."""
+        from pathlib import Path
+        from ... import __version__
+        from ..widgets.dialog_helper import DialogHelper
+        from ..dialogs.package_progress_dialog import PackageProgressDialog
+
+        # Resolve project root: main_window.py is in ui/core/, go up to project root
+        project_root = Path(__file__).parent.parent.parent.parent.parent
+        script_path = project_root / "_packages" / "prepare_package.bat"
+
+        if not script_path.exists():
+            DialogHelper.error(
+                tr("pkg_script_not_found").format(path=str(script_path)),
+                parent=self.window
+            )
+            return
+
+        # Check if an archive for the current version already exists
+        packages_dir = project_root / "_packages"
+        current_archive = packages_dir / f"DataForgeStudio_v{__version__}.7z"
+        if current_archive.exists():
+            if not DialogHelper.confirm(
+                tr("pkg_archive_exists").format(
+                    name=current_archive.name
+                ),
+                parent=self.window
+            ):
+                return
+
+        # Non-modal: user can keep using the app while package is building
+        self._package_dialog = PackageProgressDialog(script_path, parent=self.window)
+        self._package_dialog.show()
 
     @Slot(str, str)
     def _on_open_resource(self, resource_type: str, resource_id: str):

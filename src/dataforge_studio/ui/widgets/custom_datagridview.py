@@ -21,6 +21,7 @@ import csv
 
 from ..core.i18n_bridge import tr
 from .dataframe_model import DataFrameTableModel, VIRTUAL_SCROLL_THRESHOLD
+from ...config.user_preferences import UserPreferences
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -62,6 +63,7 @@ class CustomDataGridView(QWidget):
 
     # Signals
     selection_changed = Signal(list)
+    edit_query_requested = Signal(str)  # Emitted when "Edit Query" is clicked on a Query column cell
 
     def __init__(self, parent: Optional[QWidget] = None, show_toolbar: bool = True):
         """
@@ -862,9 +864,30 @@ class CustomDataGridView(QWidget):
         clipboard = QApplication.clipboard()
         clipboard.setText('\n'.join(text_rows))
 
+    def _is_query_column(self, col_index: int) -> bool:
+        """Check if the column at given index is a query column (based on user preferences)."""
+        if col_index >= len(self.columns):
+            return False
+        col_name = self.columns[col_index].strip().lower()
+        query_col_names = UserPreferences.instance().get("query_column_names", "query, requête")
+        names = [n.strip().lower() for n in query_col_names.split(',') if n.strip()]
+        return col_name in names
+
     def _show_context_menu(self, position):
         """Show context menu at position."""
         menu = QMenu(self)
+
+        # Check if clicked cell is in a query column (configurable via preferences)
+        index = self.table.indexAt(position)
+        if index.isValid() and self._is_query_column(index.column()):
+            cell_value = self.get_cell_value(index.row(), index.column())
+            if cell_value and cell_value.strip():
+                edit_query_action = menu.addAction("Edit Query")
+                query_text = cell_value
+                edit_query_action.triggered.connect(
+                    lambda checked, q=query_text: self.edit_query_requested.emit(q)
+                )
+                menu.addSeparator()
 
         # Copy action
         copy_action = menu.addAction(tr("copy"))
@@ -924,6 +947,18 @@ class CustomDataGridView(QWidget):
             return
 
         menu = QMenu(self)
+
+        # Check if clicked cell is in a query column (configurable via preferences)
+        index = self._table_view.indexAt(position)
+        if index.isValid() and self._is_query_column(index.column()):
+            cell_value = self.get_cell_value(index.row(), index.column())
+            if cell_value and cell_value.strip():
+                edit_query_action = menu.addAction("Edit Query")
+                query_text = cell_value
+                edit_query_action.triggered.connect(
+                    lambda checked, q=query_text: self.edit_query_requested.emit(q)
+                )
+                menu.addSeparator()
 
         # Copy action
         copy_action = menu.addAction(tr("copy"))

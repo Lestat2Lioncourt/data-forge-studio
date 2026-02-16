@@ -249,6 +249,16 @@ def get_themed_icon_path(icon_name: str, is_dark_theme: bool, icon_color: str) -
         # Try to get/generate themed version
         themed_path = recolor_icon(icon_name, icon_color, theme_variant)
         if themed_path:
+            # Also generate the opposite variant if its color is known
+            other_variant = "light" if is_dark_theme else "dark"
+            other_color_file = ICONS_PATH / other_variant / "_color.txt"
+            if other_color_file.exists():
+                try:
+                    other_color = other_color_file.read_text().strip()
+                    if other_color:
+                        recolor_icon(icon_name, other_color, other_variant)
+                except (OSError, UnicodeDecodeError):
+                    pass
             return themed_path
 
     # Fallback to legacy images folder

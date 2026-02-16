@@ -1050,7 +1050,25 @@ class WorkspaceManager(QWidget):
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
-        elif item_type in ["database", "rootfolder"]:
+        elif item_type == "database":
+            # New Query tab (via DatabaseManager, into workspace's tab_widget)
+            if self._database_manager:
+                db_id = data.get("db_id") or data.get("id")
+                if db_id:
+                    new_query_action = QAction("New Query", self)
+                    new_query_action.triggered.connect(
+                        lambda checked, did=db_id: self._database_manager._new_query_tab(
+                            did, target_tab_widget=self.tab_widget
+                        )
+                    )
+                    menu.addAction(new_query_action)
+                    menu.addSeparator()
+
+            remove_action = QAction("Remove from Workspace", self)
+            remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
+            menu.addAction(remove_action)
+
+        elif item_type == "rootfolder":
             remove_action = QAction("Remove from Workspace", self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)

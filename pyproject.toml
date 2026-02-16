@@ -1,6 +1,6 @@
 [project]
 name = "data-forge-studio"
-version = "0.5.7"
+version = "0.6.0"
 description = "Multi-database management tool with modern PySide6 interface"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -61,6 +61,9 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short --import-mode=importlib"
 norecursedirs = ["saved_versions", ".venv", "*.egg", ".git", ".tox", "dist", "build"]
 consider_namespace_packages = false
+
+[tool.uv]
+link-mode = "copy"
 
 [dependency-groups]
 dev = [

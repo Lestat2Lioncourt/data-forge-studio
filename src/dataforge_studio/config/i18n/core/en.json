@@ -638,5 +638,13 @@
     "help_scripts_desc": "Create and run Python scripts",
     "help_select_topic": "Getting Started",
     "help_select_topic_desc": "Select a topic from the left panel to view its documentation.",
-    "help_btn_tooltip": "Open contextual help"
+    "help_btn_tooltip": "Open contextual help",
+
+    "menu_tools": "Tools",
+    "menu_generate_package": "Generate offline package",
+    "pkg_dialog_title": "Offline Package Generation",
+    "pkg_script_not_found": "Package generation script not found:\n{path}",
+    "pkg_finished_success": "Package generated successfully!",
+    "pkg_finished_error": "Package generation failed",
+    "pkg_archive_exists": "Archive {name} already exists.\n\nDo you want to regenerate it?"
 }

@@ -215,4 +215,52 @@ Le menu contextuel fonctionne sur **tous** les types de bases de données config
 - ✅ PostgreSQL (ODBC)
 - ✅ Oracle (ODBC)
 
-Profitez de cette nouvelle fonctionnalité pour explorer vos bases de données plus rapidement ! 🚀
+---
+
+## Menu Contextuel "Edit Query" dans les Grilles de Résultats
+
+### Fonctionnalité
+
+Lorsqu'une grille de résultats contient une colonne dont le nom correspond à un nom de colonne "requête" (configurable), un clic droit sur une cellule de cette colonne affiche l'option **"Edit Query"**.
+
+Au clic, la requête contenue dans la cellule est :
+1. Mise en forme automatiquement avec le style **ultimate** (alignement complet des mots-clés, colonnes, alias, opérateurs)
+2. Ouverte dans un **nouvel onglet de requête** dans le même contexte (Workspace ou Resources)
+3. Prête à être exécutée ou modifiée
+
+### Noms de colonnes reconnus
+
+Par défaut, les noms de colonnes suivants déclenchent l'option :
+
+```
+query, requête
+```
+
+### Configuration
+
+L'utilisateur peut personnaliser la liste des noms de colonnes via la préférence `query_column_names` dans la base de configuration.
+
+| Paramètre | Valeur par défaut | Description |
+|-----------|-------------------|-------------|
+| `query_column_names` | `query, requête` | Liste de noms de colonnes (séparés par des virgules) pour lesquels l'option "Edit Query" est disponible |
+
+La comparaison est **insensible à la casse** (`Query`, `QUERY`, `Requête`, `requête` sont tous reconnus).
+
+Pour ajouter d'autres noms, modifier la valeur en base de configuration :
+```
+query, requête, sql, sql_text, query_text
+```
+
+### Contexte d'ouverture
+
+Le nouvel onglet de requête s'ouvre dans le **même contexte** que la grille source :
+- Si la grille est dans un onglet **Workspace**, le nouvel onglet s'ouvre dans le Workspace
+- Si la grille est dans un onglet **Resources/Database**, le nouvel onglet s'ouvre dans le Database Manager
+
+### Fichiers concernés
+
+| Fichier | Modification |
+|---------|-------------|
+| `config/user_preferences.py` | Ajout de la préférence `query_column_names` |
+| `ui/widgets/custom_datagridview.py` | Signal `edit_query_requested`, méthode `_is_query_column()`, options dans les menus contextuels standard et virtual |
+| `ui/managers/query_tab.py` | Connexion du signal, handler `_on_edit_query_requested()` avec formatage ultimate et ouverture dans le même contexte |

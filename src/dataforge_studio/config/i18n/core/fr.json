@@ -638,5 +638,13 @@
     "help_scripts_desc": "Créez et exécutez des scripts Python",
     "help_select_topic": "Pour commencer",
     "help_select_topic_desc": "Sélectionnez une rubrique dans le panneau de gauche pour afficher sa documentation.",
-    "help_btn_tooltip": "Ouvrir l'aide contextuelle"
+    "help_btn_tooltip": "Ouvrir l'aide contextuelle",
+
+    "menu_tools": "Outils",
+    "menu_generate_package": "Générer un package offline",
+    "pkg_dialog_title": "Génération du package offline",
+    "pkg_script_not_found": "Le script de génération est introuvable :\n{path}",
+    "pkg_finished_success": "Package généré avec succès !",
+    "pkg_finished_error": "La génération du package a échoué",
+    "pkg_archive_exists": "L'archive {name} existe déjà.\n\nVoulez-vous la régénérer ?"
 }

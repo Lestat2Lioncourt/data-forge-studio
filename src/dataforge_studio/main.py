@@ -30,13 +30,12 @@ def main():
     app.setApplicationVersion("0.5.7")
     app.setOrganizationName("DataForge")
 
-    # Set application icon (for taskbar and window)
-    icon_path = Path(__file__).parent / "ui" / "assets" / "images" / "DataForge Studio.ico"
+    # Set application icon (for taskbar and desktop shortcut)
+    icon_path = Path(__file__).parent / "ui" / "assets" / "images" / "DataForge-Studio-logo.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     else:
-        # Fallback to PNG if ICO not found
-        icon_path_png = Path(__file__).parent / "ui" / "assets" / "images" / "DataForge Studio.png"
+        icon_path_png = Path(__file__).parent / "ui" / "assets" / "images" / "DataForge-Studio-logo.png"
         if icon_path_png.exists():
             app.setWindowIcon(QIcon(str(icon_path_png)))
 

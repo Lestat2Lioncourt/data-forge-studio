@@ -8,7 +8,8 @@ DEFAULT_PREFERENCES = {
     "theme": "minimal_dark",
     "language": "fr",
     "sql_format_style": "expanded",  # compact, expanded, comma_first, ultimate
-    "export_language": "python"  # python, tsql, vb, csharp
+    "export_language": "python",  # python, tsql, vb, csharp
+    "query_column_names": "query, requête"  # Column names that trigger "Edit Query" in grids
 }
 
 

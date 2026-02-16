@@ -10,9 +10,16 @@ set PROJECT_DIR=%SCRIPT_DIR%..
 set OUTPUT_DIR=%SCRIPT_DIR%DataForgeStudio
 set UV_URL=https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
 
+:: Lire la version depuis pyproject.toml
+set APP_VERSION=
+for /f "tokens=2 delims== " %%v in ('findstr /B "version" "%PROJECT_DIR%\pyproject.toml"') do (
+    set APP_VERSION=%%~v
+)
+if "%APP_VERSION%"=="" set APP_VERSION=unknown
+
 echo.
 echo ============================================================
-echo  DataForge Studio - Preparation du package offline
+echo  DataForge Studio v%APP_VERSION% - Preparation du package offline
 echo ============================================================
 echo.
 
@@ -127,19 +134,24 @@ if %ERRORLEVEL% EQU 0 (
     echo [WARN] curl non disponible, package sans UV
 )
 
+:: Suppression des anciens archives 7z
+if exist "%SCRIPT_DIR%DataForgeStudio*.7z" (
+    echo [INFO] Suppression des anciennes archives...
+    del "%SCRIPT_DIR%DataForgeStudio*.7z"
+)
+
 :: Compression en 7z
-echo [INFO] Compression en 7z...
-set ARCHIVE=%SCRIPT_DIR%DataForgeStudio.7z
-if exist "%ARCHIVE%" del "%ARCHIVE%"
+echo [INFO] Compression en 7z (cette etape peut prendre plusieurs minutes)...
+set ARCHIVE=%SCRIPT_DIR%DataForgeStudio_v%APP_VERSION%.7z
 
 where 7z >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
-    7z a -t7z -mx=5 "%ARCHIVE%" "%OUTPUT_DIR%" >nul
+    7z a -t7z -mx=5 -bsp1 "%ARCHIVE%" "%OUTPUT_DIR%"
     echo [OK] Archive creee : %ARCHIVE%
 ) else (
     :: Essayer le chemin par defaut de 7-Zip
     if exist "C:\Program Files\7-Zip\7z.exe" (
-        "C:\Program Files\7-Zip\7z.exe" a -t7z -mx=5 "%ARCHIVE%" "%OUTPUT_DIR%" >nul
+        "C:\Program Files\7-Zip\7z.exe" a -t7z -mx=5 -bsp1 "%ARCHIVE%" "%OUTPUT_DIR%"
         echo [OK] Archive creee : %ARCHIVE%
     ) else (
         echo [WARN] 7z introuvable, compression ignoree
@@ -157,7 +169,7 @@ echo  Archive  : %ARCHIVE%
 echo  Python   : %OUTPUT_DIR%\_python
 echo.
 echo  Pour distribuer :
-echo  1. Copier DataForgeStudio.7z sur cle USB
+echo  1. Copier DataForgeStudio_v%APP_VERSION%.7z sur cle USB
 echo  2. Sur la machine cible, extraire vers C:\Apps\DataForgeStudio
 echo  3. Lancer run.bat
 echo.
