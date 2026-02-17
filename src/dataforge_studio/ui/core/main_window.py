@@ -87,10 +87,13 @@ class DataForgeMainWindow:
             (tr("menu_preferences"), lambda: self._switch_frame("options"))
         ])
 
-        # Tools menu
-        menu_bar.add_menu_with_submenu("tools", tr("menu_tools"), [
-            (tr("menu_generate_package"), self._generate_offline_package)
-        ])
+        # Tools menu (only in dev environment where _packages/ exists)
+        from pathlib import Path
+        packages_dir = Path(__file__).parent.parent.parent.parent.parent / "_packages"
+        if packages_dir.exists():
+            menu_bar.add_menu_with_submenu("tools", tr("menu_tools"), [
+                (tr("menu_generate_package"), self._generate_offline_package)
+            ])
 
         # Help menu
         menu_bar.add_menu_with_submenu("help", tr("menu_help"), [

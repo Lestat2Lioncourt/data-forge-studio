@@ -1,6 +1,6 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.5.7
+**Version**: 0.6.0
 **Objectif**: POC v0.9.xx / Production v1.0
 **Date d'analyse**: Janvier 2025
 
@@ -478,4 +478,31 @@ Le ratio **60% nouveautes / 40% corrections** est optimal pour cette phase de de
 
 ---
 
-*Derniere mise a jour Evolutions: 2026-01-28*
+### EVO-2: Tunnel SSH pour connexions SQL Server
+
+**Objectif**: Permettre les connexions SQL Server via un tunnel SSH (port forwarding local), pour les environnements ou les ports SQL ne sont pas exposes directement.
+
+**Priorite**: Basse (en attente)
+
+**Principe**: Ouvrir un tunnel SSH (paramiko) vers un serveur bastion, redirigeant un port local vers le SQL Server distant. La connexion SQL (pyodbc/pytds) se fait ensuite sur `localhost:{port_local}`.
+
+```
+[App] → localhost:port_local → (tunnel SSH) → bastion → serveur-sql:1433
+```
+
+#### Fonctionnalites prevues
+- [ ] Option "Via tunnel SSH" dans le dialog de connexion SQL Server
+- [ ] Configuration : hote SSH, port (22), utilisateur SSH
+- [ ] Authentification SSH par mot de passe ou par cle privee (.pem/.ppk)
+- [ ] Ouverture automatique du tunnel a la connexion, fermeture a la deconnexion
+- [ ] Gestion du cycle de vie du tunnel (timeout, reconnexion)
+- [ ] Stockage du chemin de la cle privee (pas la cle elle-meme) dans la config
+
+#### Points techniques
+- `paramiko` est deja dans les dependances (utilise pour FTP)
+- Passphrase de cle : demander a chaque connexion ou stocker dans keyring
+- Un tunnel par connexion SQL (pas de mutualisation)
+
+---
+
+*Derniere mise a jour Evolutions: 2026-02-17*

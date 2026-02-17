@@ -8,7 +8,6 @@ setlocal enabledelayedexpansion
 set SCRIPT_DIR=%~dp0
 set PROJECT_DIR=%SCRIPT_DIR%..
 set OUTPUT_DIR=%SCRIPT_DIR%DataForgeStudio
-set UV_URL=https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
 
 :: Lire la version depuis pyproject.toml
 set APP_VERSION=
@@ -114,25 +113,6 @@ echo.
 echo .venv\Scripts\python.exe run.py
 echo pause
 ) > "%OUTPUT_DIR%\run.bat"
-
-:: Telecharger UV si curl disponible
-echo [INFO] Telechargement de UV...
-where curl >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    curl -L -o "%SCRIPT_DIR%\uv.zip" %UV_URL% 2>nul
-    if exist "%SCRIPT_DIR%\uv.zip" (
-        echo [INFO] Extraction de UV...
-        powershell -Command "Expand-Archive -Path '%SCRIPT_DIR%\uv.zip' -DestinationPath '%SCRIPT_DIR%\uv_temp' -Force"
-        copy "%SCRIPT_DIR%\uv_temp\uv.exe" "%OUTPUT_DIR%\" >nul
-        rmdir /s /q "%SCRIPT_DIR%\uv_temp"
-        del "%SCRIPT_DIR%\uv.zip"
-        echo [OK] UV inclus dans le package
-    ) else (
-        echo [WARN] Impossible de telecharger UV, package sans UV
-    )
-) else (
-    echo [WARN] curl non disponible, package sans UV
-)
 
 :: Suppression des anciens archives 7z
 if exist "%SCRIPT_DIR%DataForgeStudio*.7z" (
