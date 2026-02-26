@@ -53,5 +53,7 @@ saved_versions/
 ARCHITECTURE.md
 
 # Offline packages (generated, too large for git)
+_packages/DataForgeStudio/
 _packages/DataForgeStudio_Offline/
+_packages/*.7z
 _packages/*.zip
