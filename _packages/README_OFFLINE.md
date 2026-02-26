@@ -2,48 +2,36 @@
 
 Ce guide explique comment installer DataForge Studio sur une machine **sans acces internet**.
 
----
-
-## Prerequis
-
-Une machine **avec internet** pour preparer le package (une seule fois).
+**Principe** : Une personne disposant d'une connexion internet genere un package autonome, puis le transfere (cle USB, partage reseau) a la machine cible.
 
 ---
 
-## Etape 1 : Preparer le package (machine avec internet)
+## Etape 1 : Generer le package (machine avec internet)
 
-### 1.1 Installer UV et les dependances
+### Methode 1 : Via l'application (recommandee)
 
-```powershell
-# Installer UV
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+1. Lancer DataForge Studio
+2. Menu **Tools > Generate Offline Package**
+3. Suivre la progression dans la console integree
+4. Le package est genere dans `_packages/` avec le nom `DataForgeStudio_vX.Y.Z.7z`
 
-# Cloner le projet
-git clone https://github.com/Lestat2Lioncourt/data-forge-studio.git
-cd data-forge-studio
-
-# Installer toutes les dependances (cree le .venv)
-uv sync
-```
-
-### 1.2 Executer le script de preparation
+### Methode 2 : Via le script (alternative CLI)
 
 ```powershell
-# Genere le dossier _packages\DataForgeStudio\ et l'archive DataForgeStudio.7z
+# Depuis la racine du projet
 _packages\prepare_package.bat
 ```
 
-### 1.3 Recuperer le package
+### Resultat
 
-Le script produit :
-- **`DataForgeStudio.7z`** - Archive prete a distribuer
+La generation produit :
+- **`DataForgeStudio_vX.Y.Z.7z`** - Archive compressée prete a distribuer
 - **`DataForgeStudio\`** - Dossier non compresse
 
 Contenu du package :
 - `src\` - Code source
 - `.venv\` - Environnement Python complet
 - `_python\` - Distribution Python embarquee
-- `uv.exe` - Binaire UV (optionnel)
 - `run.bat` - Lanceur de l'application
 - `pyproject.toml`, `uv.lock` - Configuration
 
@@ -55,19 +43,21 @@ Contenu du package :
 
 ### 2.1 Extraire l'archive
 
-Extraire `DataForgeStudio.7z` vers l'emplacement souhaite, par exemple :
+Extraire `DataForgeStudio_vX.Y.Z.7z` vers l'emplacement souhaite, par exemple :
 ```
 C:\Apps\DataForgeStudio\
 ```
 
 ### 2.2 Lancer l'application
 
+Double-cliquer sur `run.bat`, ou :
+
 ```powershell
 cd C:\Apps\DataForgeStudio
 run.bat
 ```
 
-Ou double-cliquer sur `run.bat`.
+> **Note** : Le package inclut Python, toutes les dependances et UV. Aucune installation prealable n'est necessaire sur la machine cible.
 
 ---
 
@@ -75,15 +65,8 @@ Ou double-cliquer sur `run.bat`.
 
 Pour mettre a jour sur une machine sans internet :
 
-1. Sur la machine avec internet :
-   ```powershell
-   cd data-forge-studio
-   git pull
-   uv sync
-   _packages\prepare_package.bat
-   ```
-
-2. Copier le nouveau `DataForgeStudio.7z` sur la machine cible et extraire (remplacer l'ancien dossier)
+1. Sur la machine avec internet : mettre a jour le projet (`git pull && uv sync`) puis regenerer le package (via le menu Tools ou le script)
+2. Copier la nouvelle archive `.7z` sur la machine cible et extraire (remplacer l'ancien dossier)
 
 ---
 
@@ -100,8 +83,7 @@ DataForgeStudio\
 ├── pyproject.toml          # Configuration projet
 ├── uv.lock                 # Versions des dependances
 ├── run.bat                 # Lanceur Windows
-├── run.py                  # Point d'entree Python
-└── uv.exe                  # Binaire UV (optionnel, pour futures MAJ)
+└── run.py                  # Point d'entree Python
 ```
 
 ---
@@ -116,4 +98,4 @@ DataForgeStudio\
 
 ---
 
-*Genere pour DataForge Studio - Installation Offline*
+*DataForge Studio - Guide d'installation offline*
