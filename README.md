@@ -1,9 +1,9 @@
-# DataForge Studio v0.5.9 🚀
+# DataForge Studio v0.6.1 🚀
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.10+-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.9-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.1-orange.svg)](CHANGELOG.md)
 
 **Multi-database management tool with modern PySide6 interface**
 
@@ -394,6 +394,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **sqlparse** - SQL formatting library
 
 ## 📜 Changelog
+
+### v0.6.1 (2026-02-26) - SQL Formatter Enhancement
+- Ultimate-style formatting for UPDATE/SET with leading commas
+- Multiline CASE WHEN with operator alignment (IS NOT NULL, =, etc.)
+- Multiline COALESCE/function expansion with args aligned under `(`
+
+### v0.6.0 (2026-02-16) - Offline Package Generation
+- Tools > Generate offline package: build self-contained package from the app
+- Real-time console output with colored log lines and 7z progress bar
+- Versioned archive naming (DataForgeStudio_vX.Y.Z.7z)
 
 ### v0.5.9 (2025-02-10) - Offline Installation
 - Offline package preparation script (`_packages/prepare_package.bat`)

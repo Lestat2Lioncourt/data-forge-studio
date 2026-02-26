@@ -1,8 +1,8 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.0
+**Version**: 0.6.1
 **Objectif**: POC v0.9.xx / Production v1.0
-**Date d'analyse**: Janvier 2025
+**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (mise a jour)
 
 ---
 
@@ -14,12 +14,12 @@
 |---------|-------|---------------|
 | **Structure de l'application** | 8/10 | Architecture plugin bien concue, separation des couches (UI/Core/Database), patterns modernes (Repository, Factory, Observer). Points a ameliorer: fichiers trop volumineux (database_manager.py: 2272 lignes) |
 | **Qualite du code** | 7/10 | Code lisible, type hints partiels, docstrings presentes sur les classes principales. Manques: type hints incomplets, quelques TODOs non resolus, magic numbers |
-| **Gestion de la securite** | 6.5/10 | Credentials via keyring (bon), YAML safe_load (bon), mais injections SQL potentielles dans PRAGMA statements et f-strings pour noms de tables. Acceptable pour outil DATA interne |
+| **Gestion de la securite** | 7/10 | Credentials via keyring (bon), YAML safe_load (bon). PRAGMA injection corrigee (Phase 3.1). Acceptable pour outil DATA interne |
 | **Maintenabilite** | 7/10 | Bonne modularite plugin, tests unitaires presents (1517 lignes). A ameliorer: couverture tests (~30%), documentation API |
 | **Fiabilite** | 7.5/10 | Gestion d'erreurs presente, transactions DB, cleanup proper. Points faibles: except broad en certains endroits, pas de retry sur connexions |
 | **Performance** | 7/10 | Caching (schema_cache, cachetools), lazy loading, connection pooling. Ameliorable: async operations, pagination virtuelle complete |
 | **Extensibilite** | 8.5/10 | Excellent systeme de plugins, dialects extensibles, theme system v2 modulaire |
-| **Documentation** | 7/10 | 18 guides utilisateur, README complet. Manque: documentation API developpeur |
+| **Documentation** | 7.5/10 | 23 guides utilisateur, README complet, guide offline. Manque: documentation API developpeur |
 | **UX/UI** | 8/10 | Interface moderne PySide6, themes personnalisables, i18n (3 langues), splash screen progressif |
 
 **Score Global: 7.4/10** - Solide pour une version Beta pre-POC
@@ -31,7 +31,7 @@
 ### Points Positifs (+)
 
 1. **Architecture plugin exemplaire**
-   - 9 plugins bien isoles avec lifecycle complet
+   - 10 plugins bien isoles avec lifecycle complet
    - Signal/slot pour communication inter-plugins
    - Lazy widget creation pour performance
 
@@ -61,12 +61,17 @@
    - PySide6 moderne
 
 7. **Tests unitaires presents**
-   - 6 fichiers de tests (1517 lignes)
+   - 7 fichiers de tests (1517 lignes)
    - Coverage sur repositories, plugins, cache, themes
 
 8. **Documentation utilisateur riche**
-   - 18 guides markdown
+   - 23 guides markdown
    - Documentation d'integration
+
+9. **Deploiement offline**
+   - Package offline complet (Python + .venv inclus)
+   - Generation automatisee via menu Tools
+   - Documentation d'installation offline
 
 ### Points Negatifs (-)
 
@@ -76,15 +81,9 @@
    - `query_tab.py`: 1822 lignes
    - Besoin de refactoring en sous-modules
 
-2. **Injections SQL potentielles**
-   - PRAGMA statements avec f-strings (SQLite)
-   - Noms de DB dans f-strings (SQL Server)
-   - Risque faible car outil interne, mais a corriger
+2. ~~**Injections SQL potentielles**~~ **CORRIGE (Phase 3.1)**
 
-3. **Support MySQL incomplet**
-   - Dialog MySQL existe mais backend manquant
-   - `mysql_dialect.py` et `mysql_loader.py` a creer
-   - Enregistrement dans les factories manquant
+3. ~~**Support MySQL incomplet**~~ **CORRIGE (Phase 3.1)**
 
 4. **Type hints incomplets**
    - ~40% des fonctions sans return type
@@ -116,7 +115,7 @@
 
 | Risque | Severite | Impact | Mitigation |
 |--------|----------|--------|------------|
-| **SQL Injection PRAGMA** | Moyenne | Faible (outil interne) | Echapper les noms de tables |
+| ~~**SQL Injection PRAGMA**~~ | ~~Moyenne~~ | ~~Faible~~ | **CORRIGE** (Phase 3.1) |
 | **Fichiers monolithiques** | Haute | Maintenabilite reduite | Refactoring progressif |
 | **Absence async** | Moyenne | UI freeze possible | QThread existant, a etendre |
 | **Deps Windows (pywin32)** | Faible | Cross-platform limite | Conditional imports OK |
@@ -126,7 +125,7 @@
 | Risque | Severite | Impact | Mitigation |
 |--------|----------|--------|------------|
 | **Scripts non executables** | Haute | Feature incomplete | Phase 3 prioritaire |
-| **MySQL backend manquant** | Haute | Feature incomplete | Creer dialect + loader |
+| ~~**MySQL backend manquant**~~ | ~~Haute~~ | ~~Feature incomplete~~ | **CORRIGE** (Phase 3.1) |
 | **MongoDB/Oracle** | Faible | Prevu mais non prioritaire | Implementer quand besoin |
 | **Jobs non fonctionnels** | Haute | Feature incomplete | Phase 5 |
 
@@ -136,20 +135,20 @@
 
 ### P0 - Critique (POC 0.9.xx)
 
-| Correctif | Fichier(s) | Effort |
-|-----------|------------|--------|
-| Implementer execution des scripts | Phase 3 complete | 3-4j |
-| **Completer support MySQL** | mysql_dialect.py, mysql_loader.py, factories | 1-1.5j |
-| Corriger PRAGMA SQL injection | sqlite_loader.py, schema_cache.py, sqlite_dialect.py | 0.5j |
+| Correctif | Fichier(s) | Effort | Status |
+|-----------|------------|--------|--------|
+| Implementer execution des scripts | Phase 3 complete | 3-4j | **REPORTE** |
+| ~~Completer support MySQL~~ | ~~mysql_dialect.py, mysql_loader.py, factories~~ | ~~1-1.5j~~ | **Done** |
+| ~~Corriger PRAGMA SQL injection~~ | ~~sqlite_loader.py, schema_cache.py, sqlite_dialect.py~~ | ~~0.5j~~ | **Done** |
 
 ### P1 - Important (v0.9.xx)
 
-| Correctif | Fichier(s) | Effort |
-|-----------|------------|--------|
-| Aide contextuelle (boutons [?]) | Tous les managers | 1j |
-| Fenetre d'aide detachable | ui/frames/help_frame.py | 0.5j |
-| Coherence visuelle fenetres | Tous les dialogs | 1j |
-| Extraire constants.py | Nouveau fichier + refactoring | 1j |
+| Correctif | Fichier(s) | Effort | Status |
+|-----------|------------|--------|--------|
+| ~~Aide contextuelle~~ | ~~ui/frames/help_frame.py~~ | ~~1j~~ | **Done** (Phase 3.2) |
+| ~~Fenetre d'aide detachable~~ | ~~ui/frames/help_frame.py~~ | ~~0.5j~~ | **Done** (Phase 3.2) |
+| ~~Coherence visuelle fenetres~~ | ~~Tous les dialogs~~ | ~~1j~~ | **Done** (Phase 3.3) |
+| Extraire constants.py | Nouveau fichier + refactoring | 1j | Todo |
 
 ### P1.5 - Important (v1.0)
 
@@ -173,7 +172,7 @@
 | Correctif | Fichier(s) | Effort |
 |-----------|------------|--------|
 | Plugin System V2 complet | Phase 6 | 5-6j |
-| Support MySQL/Oracle/MongoDB | dialects/ + loaders/ | 3-4j |
+| Support Oracle/MongoDB | dialects/ + loaders/ | 3-4j |
 | Operations async generalisees | Core refactoring | 3j |
 
 ---
@@ -191,11 +190,19 @@
 4. Les refactorings peuvent attendre v1.0
 
 **Priorites pour POC v0.9.xx**:
-1. **Phase 3**: Execution des Scripts (nouveaute critique)
-2. **MySQL**: Completer le support backend (dialect + loader)
-3. **Phase 3.2**: Aide contextuelle + fenetre detachable (UX)
-4. **Phase 3.3**: Coherence visuelle des fenetres (UI)
-5. **Securite**: PRAGMA injection fix (correction importante)
+1. **Phase 3**: Execution des Scripts (nouveaute critique) - **REPORTE, en reflexion**
+2. ~~**MySQL**: Completer le support backend (dialect + loader)~~ **Done**
+3. ~~**Phase 3.2**: Aide contextuelle + fenetre detachable (UX)~~ **Done**
+4. ~~**Phase 3.3**: Coherence visuelle des fenetres (UI)~~ **Done**
+5. ~~**Securite**: PRAGMA injection fix (correction importante)~~ **Done**
+
+**Fonctionnalites livrees depuis (Dec 2025 - Fev 2026)**:
+- Navigation FTP dans les workspaces (ftproot_plugin)
+- Fallback pytds pour SQL Server (quand pyodbc indisponible)
+- Package offline avec generation automatisee (menu Tools)
+- Ameliorations saved queries (execution, edit/update)
+- Formatage SQL dans l'editeur de requetes
+- Connexions DB en thread separe (pas de freeze UI)
 
 **Reporter a v1.0**:
 - Refactoring database_manager.py
@@ -358,50 +365,77 @@
 
 ## Statistiques du Projet
 
-| Metrique | Valeur |
-|----------|--------|
-| Fichiers Python | 185 |
-| Lignes de code (src/) | ~52,000 |
-| Fichiers de tests | 6 |
-| Lignes de tests | 1,517 |
-| Plugins | 9 |
-| Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) |
-| Langues i18n | 3 |
-| Themes | 4 |
-| Guides documentation | 18 |
-| TODOs restants | 6 |
+| Metrique | Valeur | Evolution |
+|----------|--------|-----------|
+| Fichiers Python | 200 | +15 |
+| Lignes de code (src/) | ~60,000 | +8,000 |
+| Fichiers de tests | 7 | +1 |
+| Lignes de tests | 1,517 | = |
+| Plugins | 10 | +1 (ftproot) |
+| Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) | = |
+| Langues i18n | 3 (EN, FR, ES) | = |
+| Themes | 4 | = |
+| Guides documentation | 23 | +5 |
+
+*Statistiques mises a jour: Fevrier 2026*
 
 ---
 
-## Timeline Suggeree
+## Timeline
+
+### Historique reel
 
 ```
-Janvier 2025 (actuel)
-|-- Phase 1 & 2 terminees
-|-- Analyse globale & ROADMAP mis a jour
-|
-Fevrier 2025
-|-- Phase 3 (Execution Scripts)
+Janvier 2025
+|-- Phase 1 & 2 terminees (dev local, pre-git)
+|-- Analyse globale & ROADMAP initial redige
 |-- Phase 3.1 (MySQL backend + PRAGMA fix)
-|-- v0.8.0 release
 |
-Mars 2025
-|-- Phase 3.2 (Aide contextuelle + fenetre detachable)
-|-- Phase 3.3 (Coherence visuelle fenetres)
-|-- v0.9.0 POC Release
+Fevrier - Novembre 2025
+|-- PAUSE (~10 mois)
+|-- Projet en standby, pas de commits
 |
-Avril-Mai 2025
+Decembre 2025
+|-- Publication sur Git (v0.2.0 initial release)
+|-- Migration PySide6 (v0.5.0)
+|-- Themes, DataExplorer, query formatting
+|-- Phases 3.2 & 3.3 terminees
+|-- v0.5.3
+|
+Janvier 2026
+|-- Support FTP, workspace améliorations
+|-- Package offline, pytds fallback
+|-- v0.5.8 / v0.5.9
+|
+Fevrier 2026
+|-- Menu Tools, generation package offline
+|-- SQL formatting, settings
+|-- v0.6.0 (actuel)
+```
+
+### Projection (estimee)
+
+```
+Q1 2026 (en cours)
 |-- Phase 4 (Theming Icons)
-|-- Phase 7 partiel (Refactoring)
+|-- Phase 7 partiel (constants.py, type hints)
+|-- SQL formatting avance
+|-- v0.7.0
 |
-Juin 2025
-|-- Phase 5 (Jobs)
-|-- Phase 7 complete
+Q2 2026
+|-- Phase 3 (Execution Scripts) - si modele defini
+|-- Phase 7 suite (refactoring)
+|-- v0.8.0 - v0.9.0 POC Release
+|
+S2 2026
+|-- Phase 5 (Jobs & Orchestration)
+|-- EVO-1 (Mode CLI)
 |-- v1.0 Production Release
 |
-2025-2026
+2027+
 |-- Phase 6 (Plugin System V2)
 |-- Nouveaux dialects (Oracle, MongoDB)
+|-- EVO-2 (Tunnel SSH)
 |-- v2.0
 ```
 
@@ -409,20 +443,25 @@ Juin 2025
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Les phases 1 et 2 demontrent une bonne capacite d'execution. Pour le POC v0.9.xx:
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Apres une pause de ~10 mois (Fev-Nov 2025), le developpement a repris intensement depuis Decembre 2025 avec 119 commits en 3 mois, portant le projet de v0.2.0 a v0.6.0.
 
-**Priorite absolue**: Phase 3 (Execution des Scripts) - c'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
+**Bilan des corrections realisees**:
+- ~~MySQL backend (dialect + loader + factories)~~ Done
+- ~~PRAGMA injection (securite)~~ Done
+- ~~Aide contextuelle + fenetre detachable~~ Done
+- ~~Coherence visuelle des fenetres~~ Done
+- Navigation FTP, pytds fallback, package offline Done
 
-**Corrections realisees (Janvier 2025)**:
-- ~~Completer support MySQL (dialect + loader + factories)~~ Done
-- ~~Fix PRAGMA injection (securite)~~ Done
+**Priorite actuelle**: Stabilisation et fonctionnalites incrementales (formatting SQL, ameliorations UI, settings).
+
+**Prochaine etape majeure**: Phase 3 (Execution des Scripts) - quand le modele d'execution sera defini. C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 
 **A ne PAS faire maintenant**:
 - Refactoring massif (attendre v1.0)
 - MongoDB/Oracle (pas de base de test, pas de besoin immediat)
 - Tests exhaustifs (incrementer progressivement)
 
-Le ratio **60% nouveautes / 40% corrections** est optimal pour cette phase de developpement.
+Le ratio **70% nouveautes / 30% corrections** reflete la phase actuelle de developpement actif.
 
 ---
 
@@ -505,4 +544,4 @@ Le ratio **60% nouveautes / 40% corrections** est optimal pour cette phase de de
 
 ---
 
-*Derniere mise a jour Evolutions: 2026-02-17*
+*Derniere mise a jour: 2026-02-20*
