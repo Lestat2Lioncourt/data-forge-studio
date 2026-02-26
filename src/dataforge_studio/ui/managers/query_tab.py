@@ -1379,7 +1379,7 @@ class QueryTab(QWidget):
             from ..core.theme_image_generator import get_themed_icon_path
             bridge = ThemeBridge.get_instance()
             colors = bridge.get_theme_colors(bridge.current_theme)
-            icon_color = colors.get('toolbarbtn_fg', colors.get('text_primary', '#e0e0e0'))
+            icon_color = colors.get('icon_color', colors.get('text_primary', '#e0e0e0'))
             is_dark = colors.get('is_dark', True)
             return get_themed_icon_path(icon_name, is_dark, icon_color)
         except Exception:

@@ -203,7 +203,7 @@ class ToolbarBuilder:
             theme_bridge = ThemeBridge.get_instance()
             theme_colors = theme_bridge.get_theme_colors(theme_bridge.current_theme)
             # Use toolbar button fg color for icons (matches text color)
-            icon_color = theme_colors.get('toolbarbtn_fg', theme_colors.get('toolbar_button_fg', theme_colors.get('text_primary', '#e0e0e0')))
+            icon_color = theme_colors.get('icon_color', theme_colors.get('text_primary', '#e0e0e0'))
             is_dark = theme_colors.get('is_dark', True)
 
             themed_path = get_themed_icon_path(icon_name, is_dark, icon_color)
