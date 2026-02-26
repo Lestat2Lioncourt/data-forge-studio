@@ -1,7 +1,7 @@
 [project]
 name = "data-forge-studio"
 version = "0.6.1"
-description = "Multi-database management tool with modern PySide6 interface"
+description = "Multi-Datasource management tool with modern PySide6 interface"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

@@ -5,11 +5,11 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.6.1-orange.svg)](CHANGELOG.md)
 
-**Multi-database management tool with modern PySide6 interface**
+**Multi-Datasource management tool with modern PySide6 interface**
 
 ![DataForge Studio](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)
 
-## ✨ What's New in v0.5.0
+## ✨ Features
 
 ### 🎨 Complete UI Overhaul
 - **Migrated from TKinter to PySide6** - Modern, professional Qt-based interface
