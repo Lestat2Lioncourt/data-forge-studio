@@ -1124,8 +1124,9 @@ class SettingsFrame(BaseManagerView):
         lang_code = self.lang_combo.currentData()
         if lang_code:
             self._load_language_data(lang_code)
-            # Apply language
+            # Apply language and persist preference
             self.i18n_bridge.set_language(lang_code)
+            self.user_prefs.set("language", lang_code)
 
     def _load_language_data(self, lang_code: str):
         """Load language translations into table."""

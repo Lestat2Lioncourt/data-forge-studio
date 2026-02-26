@@ -148,7 +148,10 @@ class SQLHighlighter(QSyntaxHighlighter):
             'GRANT', 'REVOKE', 'WITH', 'CASE', 'WHEN', 'THEN', 'ELSE',
             'UNION', 'INTERSECT', 'EXCEPT', 'ALL',
             'SET', 'INTO', 'VALUES', 'RETURNING',
-            'CASCADE', 'RESTRICT', 'NO', 'ACTION'
+            'CASCADE', 'RESTRICT', 'NO', 'ACTION',
+
+            # T-SQL batch separator
+            'GO'
         ]
 
         # Create pattern for keywords (word boundaries)

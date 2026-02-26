@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                                QTableWidgetItem, QApplication, QDialog,
                                QTabWidget)
 from PySide6.QtCore import Qt, Signal, QObject, QEvent, QTimer
-from PySide6.QtGui import QFont, QKeyEvent
+from PySide6.QtGui import QFont, QKeyEvent, QIcon
 try:
     import pyodbc
 except ImportError:
@@ -223,8 +223,8 @@ class QueryTab(QWidget):
         self.run_btn.setToolTip(tr("query_execute_query_tooltip"))
         self.run_btn.clicked.connect(self._run_execute)
         self.run_btn.setShortcut("F5")
-        self.run_btn.setFixedWidth(35)
-        self.run_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.run_btn.setFixedSize(40, 28)
+        self.run_btn.setStyleSheet("font-weight: bold; font-size: 16px;")
         exec_layout.addWidget(self.run_btn)
 
         toolbar.addWidget(exec_group)
@@ -251,10 +251,16 @@ class QueryTab(QWidget):
         self.format_combo.currentIndexChanged.connect(self._on_format_changed)
         format_layout.addWidget(self.format_combo)
 
-        self.format_btn = QPushButton(tr("query_btn_format"))
+        self.format_btn = QPushButton()
         self.format_btn.setToolTip(tr("format_sql"))
         self.format_btn.clicked.connect(self._run_format)
-        self.format_btn.setFixedWidth(35)
+        self.format_btn.setFixedSize(40, 28)
+        # Load themed Format icon
+        format_icon_path = self._get_themed_icon("Format.png")
+        if format_icon_path:
+            self.format_btn.setIcon(QIcon(str(format_icon_path)))
+        else:
+            self.format_btn.setText(tr("query_btn_format"))
         format_layout.addWidget(self.format_btn)
 
         toolbar.addWidget(format_group)
@@ -377,13 +383,22 @@ class QueryTab(QWidget):
         except Exception:
             pass  # Silently ignore
 
+    def _get_executable_sql(self) -> str:
+        """Return selected text if any, otherwise the full editor content."""
+        cursor = self.sql_editor.textCursor()
+        selected = cursor.selectedText().strip()
+        if selected:
+            # QTextEdit uses \u2029 (paragraph separator) instead of \n
+            return selected.replace('\u2029', '\n')
+        return self.sql_editor.toPlainText().strip()
+
     def _execute_as_query(self):
         """Execute as independent queries (parallel mode with separate connections).
 
         Each SELECT statement runs in its own connection, allowing parallel
         background loading. Best for independent queries.
         """
-        query = self.sql_editor.toPlainText().strip()
+        query = self._get_executable_sql()
 
         if not query:
             DialogHelper.warning(tr("no_query_to_execute"), parent=self)
@@ -477,7 +492,7 @@ class QueryTab(QWidget):
         All statements run sequentially on the same connection, preserving
         session state (temp tables, variables, transactions). Best for scripts.
         """
-        query = self.sql_editor.toPlainText().strip()
+        query = self._get_executable_sql()
 
         if not query:
             DialogHelper.warning(tr("no_query_to_execute"), parent=self)
@@ -1355,6 +1370,20 @@ class QueryTab(QWidget):
         style = self.format_combo.currentData()
         prefs = UserPreferences.instance()
         prefs.set("sql_format_style", style)
+
+    @staticmethod
+    def _get_themed_icon(icon_name: str):
+        """Get themed icon path using the theme bridge system."""
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            from ..core.theme_image_generator import get_themed_icon_path
+            bridge = ThemeBridge.get_instance()
+            colors = bridge.get_theme_colors(bridge.current_theme)
+            icon_color = colors.get('toolbarbtn_fg', colors.get('text_primary', '#e0e0e0'))
+            is_dark = colors.get('is_dark', True)
+            return get_themed_icon_path(icon_name, is_dark, icon_color)
+        except Exception:
+            return None
 
     def _run_format(self):
         """Format SQL based on selected style."""

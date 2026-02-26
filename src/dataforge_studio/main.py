@@ -76,6 +76,8 @@ def main():
     theme_bridge = ThemeBridge.get_instance()
     from .ui.core.i18n_bridge import I18nBridge
     i18n_bridge = I18nBridge.instance()
+    saved_language = user_prefs.get("language", "fr")
+    i18n_bridge.set_language(saved_language)
 
     # Generate and apply global theme
     splash.update_progress(f"Application theme: {saved_theme}...", 12)
