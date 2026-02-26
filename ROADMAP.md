@@ -410,7 +410,7 @@ Janvier 2026
 Fevrier 2026
 |-- Menu Tools, generation package offline
 |-- SQL formatting, settings
-|-- v0.6.0 (actuel)
+|-- v0.6.1 (actuel)
 ```
 
 ### Projection (estimee)
@@ -443,7 +443,7 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Apres une pause de ~10 mois (Fev-Nov 2025), le developpement a repris intensement depuis Decembre 2025 avec 119 commits en 3 mois, portant le projet de v0.2.0 a v0.6.0.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Apres une pause de ~10 mois (Fev-Nov 2025), le developpement a repris intensement depuis Decembre 2025 avec 119 commits en 3 mois, portant le projet de v0.2.0 a v0.6.1.
 
 **Bilan des corrections realisees**:
 - ~~MySQL backend (dialect + loader + factories)~~ Done
@@ -544,4 +544,4 @@ Le ratio **70% nouveautes / 30% corrections** reflete la phase actuelle de devel
 
 ---
 
-*Derniere mise a jour: 2026-02-20*
+*Derniere mise a jour: 2026-02-26*
