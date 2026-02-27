@@ -237,6 +237,8 @@ class DatabaseManager(QWidget):
 
     # Signal emitted when a query is saved in any QueryTab
     query_saved = Signal()
+    # Signal emitted when the set of active connections changes
+    connections_changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -381,16 +383,15 @@ class DatabaseManager(QWidget):
         self.main_splitter.addWidget(self.left_panel)
 
         # Right panel: Query tabs
-        self.tab_widget = QTabWidget()
+        from ..widgets.editable_tab_widget import EditableTabWidget
+        self.tab_widget = EditableTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
-        self.tab_widget.tabBarDoubleClicked.connect(self._rename_query_tab)
+        self.tab_widget.enable_new_tab_button()
+        self.tab_widget.newTabRequested.connect(lambda: self._new_query_tab())
         # Set minimum width to prevent it from pushing left panel
         self.tab_widget.setMinimumWidth(200)
-
-        # Add welcome tab
-        self._create_welcome_tab()
 
         self.main_splitter.addWidget(self.tab_widget)
 
@@ -408,26 +409,6 @@ class DatabaseManager(QWidget):
         self.main_splitter.setStretchFactor(1, 1)  # Right panel: takes remaining space
 
         layout.addWidget(self.main_splitter)
-
-    def _create_welcome_tab(self):
-        """Create welcome tab"""
-        welcome_widget = QWidget()
-        welcome_layout = QVBoxLayout(welcome_widget)
-        welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        title = QLabel(tr("db_welcome_title"))
-        title.setStyleSheet("font-size: 16pt; font-weight: bold;")
-        welcome_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        subtitle = QLabel(tr("db_welcome_subtitle"))
-        subtitle.setStyleSheet("font-size: 11pt; color: gray;")
-        welcome_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        info = QLabel(tr("db_welcome_info"))
-        info.setStyleSheet("font-size: 10pt; color: gray;")
-        welcome_layout.addWidget(info, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self.tab_widget.addTab(welcome_widget, tr("welcome_tab"))
 
     def _restore_splitter_sizes(self):
         """Restore splitter sizes from user preferences."""
@@ -671,6 +652,7 @@ class DatabaseManager(QWidget):
 
         # Store connection
         self.connections[db_conn.id] = connection
+        self.connections_changed.emit()
 
         # Remove loading placeholder
         while server_item.childCount() > 0:
@@ -724,6 +706,7 @@ class DatabaseManager(QWidget):
 
         # Store connection
         self.connections[db_conn.id] = connection
+        self.connections_changed.emit()
 
         # Remove loading placeholder
         while server_item.childCount() > 0:
@@ -1258,6 +1241,10 @@ class DatabaseManager(QWidget):
         db_conn = self._get_connection_by_id(db_id)
         connection = self.connections.get(db_id)
 
+        # Auto-reconnect if no active connection
+        if not connection and db_conn:
+            connection = self.reconnect_database(db_id)
+
         if not connection or not db_conn:
             DialogHelper.warning("Database not connected. Please expand the database node first.", parent=self)
             return
@@ -1781,25 +1768,34 @@ class DatabaseManager(QWidget):
             logger.debug(f"Could not get connection {db_id}: {e}")
             return None
 
-    def _get_or_create_query_tab(self, db_id: str) -> Optional[QueryTab]:
-        """Get existing query tab for database or create new one"""
+    def _get_or_create_query_tab(self, db_id: str, target_tab_widget=None) -> Optional[QueryTab]:
+        """Get existing query tab for database or create new one.
+
+        Args:
+            db_id: Database connection ID.
+            target_tab_widget: Optional target QTabWidget. If None, uses self.tab_widget.
+        """
+        tw = target_tab_widget or self.tab_widget
         # Check if there's already a tab for this database
-        for i in range(1, self.tab_widget.count()):  # Skip welcome tab
-            widget = self.tab_widget.widget(i)
+        for i in range(tw.count()):
+            widget = tw.widget(i)
             if isinstance(widget, QueryTab) and widget.db_connection and widget.db_connection.id == db_id:
-                self.tab_widget.setCurrentIndex(i)
+                tw.setCurrentIndex(i)
                 return widget
 
         # Create new tab for this database
-        return self._new_query_tab(db_id)
+        return self._new_query_tab(db_id, target_tab_widget=target_tab_widget)
 
-    def _new_query_tab(self, db_id: Optional[str] = None, target_tab_widget=None) -> Optional[QueryTab]:
+    def _new_query_tab(self, db_id: Optional[str] = None, target_tab_widget=None,
+                       workspace_id: str = None, target_database: str = None) -> Optional[QueryTab]:
         """Create a new query tab.
 
         Args:
             db_id: Database connection ID. If None, uses first available.
             target_tab_widget: Optional QTabWidget to add the tab to (e.g. workspace).
                                If None, uses the database manager's own tab_widget.
+            workspace_id: Optional workspace ID to scope connections.
+            target_database: Optional database name to pre-select (e.g. for SQL Server).
         """
         # Get database connection
         db_conn = None
@@ -1808,6 +1804,9 @@ class DatabaseManager(QWidget):
         if db_id:
             db_conn = self._get_connection_by_id(db_id)
             connection = self.connections.get(db_id)
+            # Auto-reconnect if no active connection
+            if not connection and db_conn:
+                connection = self.reconnect_database(db_id)
         else:
             # Use first available connection
             if self.connections:
@@ -1828,7 +1827,9 @@ class DatabaseManager(QWidget):
             connection=connection,
             db_connection=db_conn,
             tab_name=tab_name,
-            database_manager=self
+            database_manager=self,
+            workspace_id=workspace_id,
+            target_database=target_database
         )
 
         # Connect query_saved signal to forward to DatabaseManager's signal
@@ -1843,39 +1844,23 @@ class DatabaseManager(QWidget):
 
         return query_tab
 
-    def _close_tab(self, index: int):
-        """Close a tab"""
-        if index == 0:  # Don't close welcome tab
-            return
+    def _close_tab(self, index: int, tab_widget=None):
+        """Close a tab.
 
-        widget = self.tab_widget.widget(index)
-        self.tab_widget.removeTab(index)
+        Args:
+            index: Tab index to close.
+            tab_widget: Optional target QTabWidget. If None, uses self.tab_widget.
+        """
+        tw = tab_widget or self.tab_widget
+        widget = tw.widget(index)
+        tw.removeTab(index)
         if widget:
             # Explicitly cleanup before destroying
             if isinstance(widget, QueryTab):
                 widget.cleanup()
+            elif hasattr(widget, 'cleanup'):
+                widget.cleanup()
             widget.deleteLater()
-
-    def _rename_query_tab(self, index: int):
-        """Rename a query tab via double-click."""
-        if index == 0:  # Don't rename welcome tab
-            return
-
-        current_name = self.tab_widget.tabText(index)
-        new_name, ok = QInputDialog.getText(
-            self,
-            "Rename Tab / Renommer l'onglet",
-            "New name / Nouveau nom:",
-            text=current_name
-        )
-
-        if ok and new_name.strip():
-            self.tab_widget.setTabText(index, new_name.strip())
-            # Also update QueryTab's tab_name attribute
-            widget = self.tab_widget.widget(index)
-            if hasattr(widget, 'tab_name'):
-                widget.tab_name = new_name.strip()
-            logger.info(f"Renamed tab from '{current_name}' to '{new_name.strip()}'")
 
     def _refresh_schema(self):
         """Refresh database schema tree"""
@@ -1985,6 +1970,7 @@ class DatabaseManager(QWidget):
                 except Exception:
                     pass
                 del self.connections[db_conn.id]
+                self.connections_changed.emit()
 
             # Clean up dialect
             if db_conn.id in self._dialects:

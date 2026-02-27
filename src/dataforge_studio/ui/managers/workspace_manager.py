@@ -192,10 +192,14 @@ class WorkspaceManager(QWidget):
         self.main_splitter.addWidget(self.left_panel)
 
         # Right panel: Tab widget for queries (like DatabaseManager)
-        self.tab_widget = QTabWidget()
+        from ..widgets.editable_tab_widget import EditableTabWidget
+        self.tab_widget = EditableTabWidget()
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
+        self.tab_widget.set_protected_tabs({0})  # Preview tab
+        self.tab_widget.enable_new_tab_button()
+        self.tab_widget.newTabRequested.connect(self._on_new_tab_requested)
         self.tab_widget.setMinimumWidth(200)
 
         # Add welcome/preview tab with ObjectViewerWidget
@@ -210,6 +214,14 @@ class WorkspaceManager(QWidget):
         self.main_splitter.setStretchFactor(1, 1)
 
         layout.addWidget(self.main_splitter)
+
+    def _on_new_tab_requested(self):
+        """Create a new query tab via the "+" button."""
+        if self._database_manager:
+            self._database_manager._new_query_tab(
+                target_tab_widget=self.tab_widget,
+                workspace_id=self._current_workspace_id
+            )
 
     def _close_tab(self, index: int):
         """Close a tab (but not the Preview tab)."""
@@ -1054,11 +1066,13 @@ class WorkspaceManager(QWidget):
             # New Query tab (via DatabaseManager, into workspace's tab_widget)
             if self._database_manager:
                 db_id = data.get("db_id") or data.get("id")
+                db_name = data.get("database_name")
                 if db_id:
                     new_query_action = QAction("New Query", self)
                     new_query_action.triggered.connect(
-                        lambda checked, did=db_id: self._database_manager._new_query_tab(
-                            did, target_tab_widget=self.tab_widget
+                        lambda checked, did=db_id, dbn=db_name: self._database_manager._new_query_tab(
+                            did, target_tab_widget=self.tab_widget,
+                            target_database=dbn
                         )
                     )
                     menu.addAction(new_query_action)

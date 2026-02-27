@@ -149,12 +149,16 @@ class ResourcesManager(BaseManagerView):
         if self._ftproot_manager:
             self._ftproot_manager.connection_established.connect(self._on_ftp_connection_established)
 
+        # Connect query_saved signal for auto-refresh of queries list
+        if self._database_manager:
+            self._database_manager.query_saved.connect(self.refresh_queries)
+
         # Add manager right panels to the stack (composition)
         self._setup_manager_pages()
 
     def _setup_manager_pages(self):
         """Add manager content widgets to the stacked widget."""
-        from PySide6.QtWidgets import QTabWidget
+        from ..widgets.editable_tab_widget import EditableTabWidget
 
         # Page 2: DatabaseManager's right panel - QTabWidget with QueryTabs
         # (Page 0 = generic, Page 1 = query editor - created in _setup_content)
@@ -163,22 +167,18 @@ class ResourcesManager(BaseManagerView):
             db_layout = QVBoxLayout(db_wrapper)
             db_layout.setContentsMargins(0, 0, 0, 0)
 
-            # Create our own QTabWidget for query tabs
-            self.query_tab_widget = QTabWidget()
+            # Create our own EditableTabWidget for query tabs
+            self.query_tab_widget = EditableTabWidget()
             self.query_tab_widget.setTabsClosable(True)
             self.query_tab_widget.setMovable(True)
-            self.query_tab_widget.tabCloseRequested.connect(self._close_query_tab)
-            # Double-click on tab to rename
-            self.query_tab_widget.tabBarDoubleClicked.connect(self._rename_query_tab)
-
-            # Add welcome tab
-            self._create_db_welcome_tab()
+            self.query_tab_widget.tabCloseRequested.connect(
+                lambda idx: self._database_manager._close_tab(idx, self.query_tab_widget)
+            )
 
             db_layout.addWidget(self.query_tab_widget)
 
             self.content_stack.addWidget(db_wrapper)
             self._page_indices["database"] = self.content_stack.count() - 1
-            self._query_tab_counter = 1
 
         # Page 3: RootFolderManager's right panel (file viewer via FileContentHandler)
         if self._rootfolder_manager:
@@ -1152,9 +1152,11 @@ class ResourcesManager(BaseManagerView):
             # Database connection context menu
             db_config = data.get("config") or data.get("obj")
             if db_config and self._database_manager:
+                # For SQL Server sub-databases, "name" contains the database name
+                db_name = data.get("name") if item_type == "database" else None
                 # New Query Tab option
                 new_tab_action = QAction(tr("btn_new_query_tab"), self)
-                new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_config.id))
+                new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_config.id, target_database=db_name))
                 menu.addAction(new_tab_action)
 
                 menu.addSeparator()
@@ -1177,11 +1179,12 @@ class ResourcesManager(BaseManagerView):
         elif item_type in ("table", "view"):
             # Table/View context menu - execute queries in our query tab
             db_id = data.get("db_id")
+            db_name = data.get("db_name")
 
             # New Query Tab option
             if db_id:
                 new_tab_action = QAction(tr("btn_new_query_tab"), self)
-                new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_id))
+                new_tab_action.triggered.connect(lambda: self._create_empty_query_tab(db_id, target_database=db_name))
                 menu.addAction(new_tab_action)
                 menu.addSeparator()
 
@@ -1378,171 +1381,32 @@ class ResourcesManager(BaseManagerView):
 
     # ==================== Query Tab Management ====================
 
-    def _create_db_welcome_tab(self):
-        """Create welcome tab for database panel."""
-        welcome_widget = QWidget()
-        welcome_layout = QVBoxLayout(welcome_widget)
-        welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        title = QLabel(tr("db_explorer_title"))
-        title.setStyleSheet("font-size: 16pt; font-weight: bold;")
-        welcome_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        subtitle = QLabel(tr("db_explorer_double_click"))
-        subtitle.setStyleSheet("font-size: 11pt; color: gray;")
-        welcome_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        info = QLabel(tr("db_explorer_right_click"))
-        info.setStyleSheet("font-size: 10pt; color: gray;")
-        welcome_layout.addWidget(info, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self.query_tab_widget.addTab(welcome_widget, tr("welcome_tab"))
-
-    def _close_query_tab(self, index: int):
-        """Close a query tab."""
-        if index == 0:  # Don't close welcome tab
-            return
-
-        widget = self.query_tab_widget.widget(index)
-        self.query_tab_widget.removeTab(index)
-        if widget:
-            # Cleanup QueryTab resources
-            if hasattr(widget, 'cleanup'):
-                widget.cleanup()
-            widget.deleteLater()
-
-    def _rename_query_tab(self, index: int):
-        """Rename a query tab via double-click."""
-        if index == 0:  # Don't rename welcome tab
-            return
-
-        from PySide6.QtWidgets import QInputDialog
-
-        current_name = self.query_tab_widget.tabText(index)
-        new_name, ok = QInputDialog.getText(
-            self,
-            tr("dialog_rename_tab"),
-            tr("dialog_new_name"),
-            text=current_name
-        )
-
-        if ok and new_name.strip():
-            self.query_tab_widget.setTabText(index, new_name.strip())
-            # Also update QueryTab's tab_name attribute
-            widget = self.query_tab_widget.widget(index)
-            if hasattr(widget, 'tab_name'):
-                widget.tab_name = new_name.strip()
-            logger.info(f"Renamed tab from '{current_name}' to '{new_name.strip()}'")
-
     def _get_or_create_query_tab(self, db_id: str, db_name: str = None):
-        """Get existing query tab for database or create new one."""
-        from .query_tab import QueryTab
-
+        """Get existing query tab for database or create new one (delegated to database_manager)."""
         if not self._database_manager:
             return None
-
-        # Get connection from DatabaseManager
-        connection = self._database_manager.connections.get(db_id)
-        db_conn = self._database_manager._get_connection_by_id(db_id)
-
-        if not connection or not db_conn:
-            DialogHelper.warning(tr("db_connection_unavailable"), parent=self)
-            return None
-
-        # Check if there's already a tab for this database
-        for i in range(1, self.query_tab_widget.count()):  # Skip welcome tab
-            widget = self.query_tab_widget.widget(i)
-            if isinstance(widget, QueryTab) and widget.db_connection and widget.db_connection.id == db_id:
-                self.query_tab_widget.setCurrentIndex(i)
-                return widget
-
-        # Create new tab
-        tab_name = f"Query {self._query_tab_counter}"
-        self._query_tab_counter += 1
-
-        query_tab = QueryTab(
-            parent=self,
-            connection=connection,
-            db_connection=db_conn,
-            tab_name=tab_name,
-            database_manager=self._database_manager
+        return self._database_manager._get_or_create_query_tab(
+            db_id, target_tab_widget=self.query_tab_widget
         )
 
-        # Connect query_saved signal to refresh
-        query_tab.query_saved.connect(self.refresh_queries)
-
-        # Add to tab widget
-        index = self.query_tab_widget.addTab(query_tab, tab_name)
-        self.query_tab_widget.setCurrentIndex(index)
-
-        logger.info(f"Created new query tab: {tab_name} for {db_conn.name}")
-
-        return query_tab
-
-    def _create_empty_query_tab(self, db_id: str):
-        """Create a new empty query tab for the given database."""
-        from .query_tab import QueryTab
-
+    def _create_empty_query_tab(self, db_id: str, target_database: str = None):
+        """Create a new empty query tab for the given database (delegated to database_manager)."""
         if not self._database_manager:
             return
 
         # Switch to database page to show the query tabs
         if "database" in self._page_indices:
             self.content_stack.setCurrentIndex(self._page_indices["database"])
-            self._collapse_details_panel()  # Details panel not needed for databases
+            self._collapse_details_panel()
 
-        # Get connection from DatabaseManager (may need to connect first)
-        connection = self._database_manager.connections.get(db_id)
-        db_conn = self._database_manager._get_connection_by_id(db_id)
-
-        if not db_conn:
-            DialogHelper.warning(tr("db_config_not_found"), parent=self)
-            return
-
-        # If not connected, try to connect
-        if not connection:
-            try:
-                connection = self._database_manager.reconnect_database(db_id)
-                if not connection:
-                    DialogHelper.error(
-                        tr("failed_to_connect", name=db_conn.name),
-                        parent=self
-                    )
-                    return
-            except Exception as e:
-                DialogHelper.error(tr("connection_error"), parent=self, details=str(e))
-                return
-
-        # Create new tab (always new, don't reuse existing)
-        tab_name = f"Query {self._query_tab_counter}"
-        self._query_tab_counter += 1
-
-        query_tab = QueryTab(
-            parent=self,
-            connection=connection,
-            db_connection=db_conn,
-            tab_name=tab_name,
-            database_manager=self._database_manager
+        self._database_manager._new_query_tab(
+            db_id=db_id, target_tab_widget=self.query_tab_widget,
+            target_database=target_database
         )
 
-        # Connect query_saved signal to refresh
-        query_tab.query_saved.connect(self.refresh_queries)
-
-        # Add to tab widget
-        index = self.query_tab_widget.addTab(query_tab, tab_name)
-        self.query_tab_widget.setCurrentIndex(index)
-
-        logger.info(f"Created empty query tab: {tab_name} for {db_conn.name}")
-
     def _execute_query_for_table(self, data: dict, limit: int = 100):
-        """Execute a SELECT query for a table/view in a NEW query tab named after the table."""
-        from .query_tab import QueryTab
-
-        table_name = data.get("name", "")
-        db_id = data.get("db_id")
-        db_name = data.get("db_name")
-
-        if not db_id or not table_name or not self._database_manager:
+        """Execute a SELECT query for a table/view (delegated to database_manager)."""
+        if not self._database_manager:
             return
 
         # Switch to database page and collapse details panel
@@ -1550,69 +1414,9 @@ class ResourcesManager(BaseManagerView):
             self.content_stack.setCurrentIndex(self._page_indices["database"])
             self._collapse_details_panel()
 
-        # Get database connection info
-        db_conn = self._database_manager._get_connection_by_id(db_id)
-        if not db_conn:
-            return
-
-        # Get or establish connection
-        connection = self._database_manager.connections.get(db_id)
-        if not connection:
-            try:
-                connection = self._database_manager.reconnect_database(db_id)
-                if not connection:
-                    DialogHelper.error(tr("failed_to_connect", name=db_conn.name), parent=self)
-                    return
-            except Exception as e:
-                DialogHelper.error(tr("connection_error"), parent=self, details=str(e))
-                return
-
-        # Generate query based on database type
-        if db_conn.db_type == "sqlite":
-            if limit:
-                query = f"SELECT * FROM {table_name} LIMIT {limit}"
-            else:
-                query = f"SELECT * FROM {table_name}"
-        elif db_conn.db_type == "sqlserver" and db_name:
-            # SQL Server: use fully qualified name [database].[schema].[table]
-            full_table_name = f"[{db_name}].{table_name}"
-            if limit:
-                query = f"SELECT TOP {limit} * FROM {full_table_name}"
-            else:
-                query = f"SELECT * FROM {full_table_name}"
-        else:
-            # Other databases
-            if limit:
-                query = f"SELECT TOP {limit} * FROM {table_name}"
-            else:
-                query = f"SELECT * FROM {table_name}"
-
-        # Always create a NEW tab named after the table (don't reuse existing)
-        # Extract simple table name for tab title (remove schema prefix if present)
-        simple_name = table_name.split('.')[-1].strip('[]')
-        tab_name = simple_name
-
-        query_tab = QueryTab(
-            parent=self,
-            connection=connection,
-            db_connection=db_conn,
-            tab_name=tab_name,
-            database_manager=self._database_manager,
-            target_database=db_name
+        self._database_manager._generate_select_query(
+            data, limit=limit, target_tab_widget=self.query_tab_widget
         )
-
-        # Connect query_saved signal to refresh
-        query_tab.query_saved.connect(self.refresh_queries)
-
-        # Add to tab widget
-        index = self.query_tab_widget.addTab(query_tab, tab_name)
-        self.query_tab_widget.setCurrentIndex(index)
-
-        # Set query and execute
-        query_tab.set_query_text(query)
-        query_tab._execute_as_query()
-
-        logger.info(f"Created query tab '{tab_name}' for table {table_name}")
 
     # ==================== File Content Loading ====================
 
