@@ -839,11 +839,10 @@ cd /d "{project_root}"
 echo Updating DataForge Studio...
 echo.
 git config --global --add safe.directory "{str(project_root).replace(chr(92), '/')}"
-git stash 2>nul
+git reset --hard
 git checkout main
 git pull origin main
 if errorlevel 1 goto :failed
-git stash drop 2>nul
 uv sync
 if errorlevel 1 goto :failed
 echo.
@@ -858,6 +857,7 @@ echo ============================================
 echo   UPDATE FAILED - Manual commands:
 echo ============================================
 echo.
+echo   git reset --hard
 echo   git pull origin main
 echo   uv sync
 echo.
@@ -873,8 +873,8 @@ del "%~f0"
             # macOS: open new Terminal window
             project_root_str = str(project_root).replace('\\', '/')
             safe_dir_cmd = f'git config --global --add safe.directory "{project_root_str}"'
-            git_update_cmd = 'git stash 2>/dev/null; git checkout main && git pull origin main; git stash drop 2>/dev/null'
-            fail_msg = "echo ''; echo '=== UPDATE FAILED - Manual commands: ==='; echo '  git pull origin main'; echo '  uv sync'; echo '========================================'"
+            git_update_cmd = 'git reset --hard && git checkout main && git pull origin main'
+            fail_msg = "echo ''; echo '=== UPDATE FAILED - Manual commands: ==='; echo '  git reset --hard'; echo '  git pull origin main'; echo '  uv sync'; echo '========================================'"
             script = f'''
             tell application "Terminal"
                 do script "cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && {git_update_cmd} && uv sync && echo '' && echo 'Update complete!' || ( {fail_msg} )"
@@ -887,8 +887,8 @@ del "%~f0"
             # Linux: try common terminal emulators
             project_root_str = str(project_root).replace('\\', '/')
             safe_dir_cmd = f'git config --global --add safe.directory "{project_root_str}"'
-            git_update_cmd = 'git stash 2>/dev/null; git checkout main && git pull origin main; git stash drop 2>/dev/null'
-            fail_msg = "echo ''; echo '=== UPDATE FAILED - Manual commands: ==='; echo '  git pull origin main'; echo '  uv sync'; echo '========================================'"
+            git_update_cmd = 'git reset --hard && git checkout main && git pull origin main'
+            fail_msg = "echo ''; echo '=== UPDATE FAILED - Manual commands: ==='; echo '  git reset --hard'; echo '  git pull origin main'; echo '  uv sync'; echo '========================================'"
             commands = f"cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && {git_update_cmd} && uv sync && echo '' && echo 'Update complete! Press Enter to close.' && read || ( {fail_msg} && read )"
             terminals = [
                 ['gnome-terminal', '--', 'bash', '-c', commands],
