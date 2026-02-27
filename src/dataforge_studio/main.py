@@ -247,25 +247,25 @@ def main():
 
 
 def _check_updates_on_startup(main_window):
-    """Check for updates on startup (respects 24h cooldown)."""
+    """Check for updates on startup. Always shows status bar, popup once per day."""
     try:
         from .utils.update_checker import get_update_checker
 
         checker = get_update_checker()
-
-        # Only check if not in cooldown period
-        if not checker.should_check():
-            return
-
         result = checker.check_for_update()
 
         if result:
             version, url, notes = result
-            # Show status bar notification
+
+            # Status bar notification: always
             if hasattr(main_window, 'window') and hasattr(main_window.window, 'status_bar'):
                 main_window.window.status_bar.set_message(
                     f"🔔 v{version} disponible - Aide → Vérifier les Mises à Jour"
                 )
+
+            # Popup dialog: only once per day
+            if checker.should_check() and hasattr(main_window, '_check_updates'):
+                main_window._check_updates(cached_result=result, silent=True)
     except Exception as e:
         logger.debug(f"Startup update check failed: {e}")
 

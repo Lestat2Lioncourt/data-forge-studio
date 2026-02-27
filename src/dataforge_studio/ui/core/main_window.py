@@ -438,15 +438,20 @@ class DataForgeMainWindow:
         about_dialog = AboutDialog(parent=self.window)
         about_dialog.show()
 
-    def _check_updates(self):
-        """Check for updates from GitHub."""
+    def _check_updates(self, cached_result=None, silent=False):
+        """Check for updates from GitHub.
+
+        Args:
+            cached_result: Optional pre-fetched (version, url, notes) tuple to avoid a second API call.
+            silent: If True, don't show "no update available" dialog (used for startup check).
+        """
         from ...utils.update_checker import get_update_checker
         from PySide6.QtWidgets import QMessageBox, QPushButton
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
 
         checker = get_update_checker()
-        result = checker.check_for_update()
+        result = cached_result or checker.check_for_update()
 
         if result:
             version, url, notes = result
@@ -476,8 +481,8 @@ class DataForgeMainWindow:
                 QDesktopServices.openUrl(QUrl(url))
             else:
                 checker.dismiss_update()
-        else:
-            # No update or error
+        elif not silent:
+            # No update or error (only show when manually triggered)
             msg = QMessageBox(self.window)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle(tr("update_check_title"))
