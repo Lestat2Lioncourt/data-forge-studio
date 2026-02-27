@@ -1,6 +1,6 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.1
+**Version**: 0.6.2
 **Objectif**: POC v0.9.xx / Production v1.0
 **Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (mise a jour)
 
@@ -410,7 +410,7 @@ Janvier 2026
 Fevrier 2026
 |-- Menu Tools, generation package offline
 |-- SQL formatting, settings
-|-- v0.6.1 (actuel)
+|-- v0.6.2 (actuel)
 ```
 
 ### Projection (estimee)
@@ -443,7 +443,7 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Apres une pause de ~10 mois (Fev-Nov 2025), le developpement a repris intensement depuis Decembre 2025 avec 119 commits en 3 mois, portant le projet de v0.2.0 a v0.6.1.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Apres une pause de ~10 mois (Fev-Nov 2025), le developpement a repris intensement depuis Decembre 2025 avec 119 commits en 3 mois, portant le projet de v0.2.0 a v0.6.2.
 
 **Bilan des corrections realisees**:
 - ~~MySQL backend (dialect + loader + factories)~~ Done
