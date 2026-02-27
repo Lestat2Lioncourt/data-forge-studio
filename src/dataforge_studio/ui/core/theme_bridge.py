@@ -66,7 +66,7 @@ class ThemeBridge(BaseThemeManager):
     def _load_palettes(self):
         """Load all palettes from _AppConfig/palettes/ directory."""
         if not PALETTES_PATH.exists():
-            logger.warning(f"Palettes directory not found: {PALETTES_PATH}")
+            PALETTES_PATH.mkdir(parents=True, exist_ok=True)
             return
 
         for palette_file in PALETTES_PATH.glob("*.json"):
@@ -85,7 +85,7 @@ class ThemeBridge(BaseThemeManager):
     def _load_dispositions(self):
         """Load all dispositions from _AppConfig/dispositions/ directory."""
         if not DISPOSITIONS_PATH.exists():
-            logger.warning(f"Dispositions directory not found: {DISPOSITIONS_PATH}")
+            DISPOSITIONS_PATH.mkdir(parents=True, exist_ok=True)
             return
 
         for disposition_file in DISPOSITIONS_PATH.glob("*.json"):
@@ -108,6 +108,7 @@ class ThemeBridge(BaseThemeManager):
     def _load_themes_v2(self):
         """Load new-format themes (palette + disposition + overrides)."""
         if not CUSTOM_THEMES_PATH.exists():
+            CUSTOM_THEMES_PATH.mkdir(parents=True, exist_ok=True)
             return
 
         for theme_file in CUSTOM_THEMES_PATH.glob("*.json"):
@@ -136,6 +137,7 @@ class ThemeBridge(BaseThemeManager):
         Skips v2 themes (already loaded by _load_themes_v2).
         """
         if not CUSTOM_THEMES_PATH.exists():
+            CUSTOM_THEMES_PATH.mkdir(parents=True, exist_ok=True)
             return
 
         for theme_file in CUSTOM_THEMES_PATH.glob("*.json"):
