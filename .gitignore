@@ -12,6 +12,7 @@ wheels/
 # Application data (not in repo)
 _AppConfig/
 _AppLogs/
+_update.bat
 
 # Old migration files
 *.json.migrated

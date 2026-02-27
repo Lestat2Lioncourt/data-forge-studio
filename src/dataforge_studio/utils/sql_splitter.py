@@ -151,7 +151,18 @@ def _is_select_statement(stmt_text: str) -> bool:
         'GRANT', 'REVOKE', 'DENY'
     }
 
-    if first_word in select_keywords:
+    if first_word == 'SELECT':
+        # SELECT ... INTO <table> FROM ... is DDL (creates a table), not a query
+        try:
+            into_pos = words.index('INTO')
+            from_pos = words.index('FROM') if 'FROM' in words else len(words)
+            if into_pos < from_pos:
+                return False
+        except ValueError:
+            pass
+        return True
+
+    if first_word == 'WITH':
         return True
     if first_word in non_select_keywords:
         return False
@@ -161,3 +172,21 @@ def _is_select_statement(stmt_text: str) -> bool:
         return True  # Assume it might return results
 
     return False
+
+
+def needs_script_mode(sql: str, db_type: str = "sqlserver") -> bool:
+    """
+    Determine if SQL text needs script mode (sequential execution).
+
+    Returns True if at least one statement is non-SELECT (DDL, DML, etc.),
+    meaning the SQL should be executed as a script rather than as parallel queries.
+
+    Args:
+        sql: Full SQL text
+        db_type: Database type for statement splitting
+
+    Returns:
+        True if script mode is needed, False if query mode is sufficient
+    """
+    statements = split_sql_statements(sql, db_type)
+    return any(not stmt.is_select for stmt in statements)

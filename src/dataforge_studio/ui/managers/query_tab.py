@@ -9,8 +9,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union, Tuple, List, Any
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                                QPushButton, QLabel, QSplitter, QComboBox,
-                               QTableWidgetItem, QApplication, QDialog,
-                               QTabWidget)
+                               QTableWidgetItem, QApplication, QDialog)
 from PySide6.QtCore import Qt, Signal, QObject, QEvent, QTimer
 from PySide6.QtGui import QFont, QKeyEvent, QIcon
 try:
@@ -28,7 +27,7 @@ from ...database.config_db import DatabaseConnection
 from ...utils.sql_highlighter import SQLHighlighter
 from ...utils.schema_cache import SchemaCache
 from ...utils.sql_formatter import format_sql
-from ...utils.sql_splitter import split_sql_statements, SQLStatement
+from ...utils.sql_splitter import split_sql_statements, SQLStatement, needs_script_mode
 from .query_loader import BackgroundRowLoader
 from ...config.user_preferences import UserPreferences
 from ...database.sqlserver_connection import connect_sqlserver
@@ -168,6 +167,10 @@ class QueryTab(QWidget):
         self._load_connections()
         self._load_databases()
 
+        # Auto-refresh connection list when connections change
+        if self._database_manager and hasattr(self._database_manager, 'connections_changed'):
+            self._database_manager.connections_changed.connect(self._load_connections)
+
     def _setup_ui(self):
         """Setup UI components"""
         from PySide6.QtWidgets import QGroupBox
@@ -212,9 +215,10 @@ class QueryTab(QWidget):
         exec_layout.setSpacing(4)
 
         self.execute_combo = QComboBox()
+        self.execute_combo.addItem(tr("query_execute_auto"), "auto")
         self.execute_combo.addItem(tr("query_execute_query"), "query")
         self.execute_combo.addItem(tr("query_execute_script"), "script")
-        self.execute_combo.setToolTip(tr("query_execute_query_tooltip"))
+        self.execute_combo.setToolTip(tr("query_execute_auto_tooltip"))
         self.execute_combo.setMinimumWidth(100)
         self.execute_combo.currentIndexChanged.connect(self._on_execute_mode_changed)
         exec_layout.addWidget(self.execute_combo)
@@ -329,10 +333,12 @@ class QueryTab(QWidget):
 
         results_layout.addLayout(result_bar)
 
-        # QTabWidget for multiple result sets (SSMS-style)
-        self.results_tab_widget = QTabWidget()
+        # EditableTabWidget for multiple result sets (SSMS-style)
+        from ..widgets.editable_tab_widget import EditableTabWidget
+        self.results_tab_widget = EditableTabWidget()
         self.results_tab_widget.setTabsClosable(False)
         self.results_tab_widget.setDocumentMode(True)
+        self.results_tab_widget.set_protected_suffix_tabs(1)  # Messages tab
         results_layout.addWidget(self.results_tab_widget)
 
         # Messages tab (always present, last tab)
@@ -539,23 +545,37 @@ class QueryTab(QWidget):
                 cursor = self.connection.cursor()
                 cursor.execute(stmt.text)
 
-                if cursor.description:
-                    # SELECT query - create result tab
-                    select_count += 1
-                    tab_name = self._generate_result_tab_name(stmt.text, select_count)
-                    tab_state = self._create_result_tab(i, tab_name)
+                # Process all result sets (a single batch may produce multiple)
+                has_more = True
+                needs_commit = False
+                while has_more:
+                    if cursor.description:
+                        # SELECT query - create result tab
+                        select_count += 1
+                        tab_name = self._generate_result_tab_name(stmt.text, select_count)
+                        tab_state = self._create_result_tab(i, tab_name)
 
-                    # Always use synchronous loading in script mode
-                    self._execute_select_statement(tab_state, cursor, stmt, is_multi_statement=True)
+                        # Always use synchronous loading in script mode
+                        self._execute_select_statement(tab_state, cursor, stmt, is_multi_statement=True)
 
-                    if select_count == 1:
-                        self.results_tab_widget.setCurrentIndex(0)
-                        self.results_grid = tab_state.grid
-                else:
-                    # Non-SELECT statement
-                    rows_affected = cursor.rowcount
+                        if select_count == 1:
+                            self.results_tab_widget.setCurrentIndex(0)
+                            self.results_grid = tab_state.grid
+                    else:
+                        # Non-SELECT statement
+                        rows_affected = cursor.rowcount
+                        if rows_affected >= 0:
+                            self._append_message(f"  \u2192 {rows_affected} row(s) affected")
+                        needs_commit = True
+
+                    # Advance to next result set (if any)
+                    try:
+                        has_more = cursor.nextset()
+                    except Exception:
+                        has_more = False
+
+                if needs_commit:
                     self.connection.commit()
-                    self._append_message(f"  → {rows_affected} row(s) affected")
 
             except Exception as e:
                 error_occurred = True
@@ -753,7 +773,14 @@ class QueryTab(QWidget):
             self._messages_text.append(message)
 
     def _generate_result_tab_name(self, sql_text: str, index: int) -> str:
-        """Generate a name for a result tab."""
+        """Generate a name for a result tab, using the query tab name if available."""
+        tab_widget = self._get_parent_tab_widget()
+        if tab_widget:
+            tab_idx = tab_widget.indexOf(self)
+            if tab_idx >= 0:
+                name = tab_widget.tabText(tab_idx)
+                if name:
+                    return name if index <= 1 else f"{name}({index})"
         return f"Query({index})"
 
     def _load_data_to_grid(self, grid: CustomDataGridView, data: list):
@@ -1189,7 +1216,12 @@ class QueryTab(QWidget):
         self.sql_editor.clear()
 
     def _load_connections(self):
-        """Load available connections into the connection dropdown."""
+        """Load available connections into the connection dropdown.
+
+        Shows all configured connections (not just active ones).
+        If workspace_id is set, only shows connections linked to that workspace.
+        Inactive connections are shown with a dimmed prefix so the user can connect on demand.
+        """
         self.conn_combo.blockSignals(True)
         self.conn_combo.clear()
 
@@ -1198,11 +1230,21 @@ class QueryTab(QWidget):
             self.conn_combo.blockSignals(False)
             return
 
-        # Get all active connections from DatabaseManager
-        for db_id, conn in self._database_manager.connections.items():
-            db_conn = self._database_manager._get_connection_by_id(db_id)
-            if db_conn:
-                self.conn_combo.addItem(db_conn.name, db_id)
+        from ...database.config_db import get_config_db
+        config_db = get_config_db()
+
+        # Get connections scoped to workspace or all
+        if self._workspace_id:
+            all_db_conns = config_db.get_workspace_databases(self._workspace_id)
+        else:
+            all_db_conns = config_db.get_all_database_connections()
+
+        active_ids = set(self._database_manager.connections.keys())
+
+        for db_conn in all_db_conns:
+            is_active = db_conn.id in active_ids
+            label = db_conn.name if is_active else f"○ {db_conn.name}"
+            self.conn_combo.addItem(label, db_conn.id)
 
         # Select current connection
         if self.db_connection:
@@ -1226,11 +1268,36 @@ class QueryTab(QWidget):
         if self.db_connection and self.db_connection.id == db_id:
             return
 
-        # Get new connection
-        new_conn = self._database_manager.connections.get(db_id)
         new_db_conn = self._database_manager._get_connection_by_id(db_id)
-        if not new_conn or not new_db_conn:
+        if not new_db_conn:
             return
+
+        # Get active connection, or auto-connect if inactive
+        new_conn = self._database_manager.connections.get(db_id)
+        if not new_conn:
+            try:
+                self._append_message(f"-- Connecting to {new_db_conn.name}...")
+                QApplication.processEvents()
+                new_conn = self._database_manager._create_connection(new_db_conn)
+                if new_conn:
+                    self._database_manager.connections[db_id] = new_conn
+                    self._database_manager.connections_changed.emit()
+                    self._append_message(f"-- Connected to {new_db_conn.name}")
+                else:
+                    self._append_message(f"-- Failed to connect to {new_db_conn.name}", is_error=True)
+                    # Revert selection
+                    if self.db_connection:
+                        self.conn_combo.blockSignals(True)
+                        for i in range(self.conn_combo.count()):
+                            if self.conn_combo.itemData(i) == self.db_connection.id:
+                                self.conn_combo.setCurrentIndex(i)
+                                break
+                        self.conn_combo.blockSignals(False)
+                    return
+            except Exception as e:
+                self._append_message(f"-- Connection error: {e}", is_error=True)
+                logger.error(f"Auto-connect failed for {new_db_conn.name}: {e}")
+                return
 
         # Switch connection
         self.connection = new_conn
@@ -1350,7 +1417,10 @@ class QueryTab(QWidget):
     def _on_execute_mode_changed(self, index: int):
         """Update tooltip when execute mode changes."""
         mode = self.execute_combo.currentData()
-        if mode == "query":
+        if mode == "auto":
+            self.run_btn.setToolTip(tr("query_execute_auto_tooltip"))
+            self.run_btn.setShortcut("F5")
+        elif mode == "query":
             self.run_btn.setToolTip(tr("query_execute_query_tooltip"))
             self.run_btn.setShortcut("F5")
         else:
@@ -1360,7 +1430,18 @@ class QueryTab(QWidget):
     def _run_execute(self):
         """Execute query based on selected mode."""
         mode = self.execute_combo.currentData()
-        if mode == "script":
+        if mode == "auto":
+            sql = self._get_executable_sql()
+            if not sql:
+                self._execute_as_query()  # Let it show the "no query" warning
+                return
+            if needs_script_mode(sql, self.db_type):
+                logger.debug("Auto mode: detected non-SELECT statements, using script mode")
+                self._execute_as_script()
+            else:
+                logger.debug("Auto mode: all SELECT statements, using query mode")
+                self._execute_as_query()
+        elif mode == "script":
             self._execute_as_script()
         else:
             self._execute_as_query()

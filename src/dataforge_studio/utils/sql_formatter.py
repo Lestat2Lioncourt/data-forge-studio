@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Main SQL keywords for section parsing and alignment
 MAIN_KEYWORDS = [
-    'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY',
+    'SELECT', 'INTO', 'FROM', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY',
     'INNER JOIN', 'LEFT JOIN', 'LEFT OUTER JOIN', 'RIGHT JOIN', 'RIGHT OUTER JOIN',
     'FULL JOIN', 'FULL OUTER JOIN', 'CROSS JOIN', 'JOIN',
     'UNION', 'UNION ALL', 'LIMIT', 'OFFSET',
@@ -363,12 +363,29 @@ def _format_sql_lines(lines: list) -> list:
     for section in from_join_sections:
         global_max_on_left = max(global_max_on_left, section.get('max_on_left_len', 0))
 
+    # Keywords that start a new SQL statement (vs clauses like FROM, WHERE, JOIN)
+    statement_starters = {
+        'SELECT', 'INSERT INTO', 'INSERT', 'UPDATE', 'DELETE', 'DELETE FROM',
+        'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE',
+        'MERGE INTO', 'MERGE', 'WITH',
+        'DECLARE', 'USE', 'PRINT', 'BEGIN', 'END',
+        'GRANT', 'REVOKE', 'DENY', 'TRUNCATE',
+    }
+
     # Format each section
     # When INSERT INTO is present, indent all subsequent sections by 4 spaces
     result = []
     insert_indent = ""
+    is_first_statement = True
     for section in sections:
         lines_before = len(result)
+
+        # Add blank line between separate SQL statements
+        # (but not when SELECT follows INSERT INTO — it's the same statement)
+        if section['type'] in statement_starters or section['type'] == '_PREAMBLE':
+            if not is_first_statement and not insert_indent and result:
+                result.append('')
+            is_first_statement = False
 
         if section['type'] == '_PREAMBLE':
             _format_preamble_section(result, section)
@@ -416,14 +433,61 @@ def _count_paren_delta(text: str) -> int:
     return depth
 
 
+def _split_into_keyword(line: str) -> list:
+    """Split a line that contains a mid-line INTO keyword (SELECT ... INTO).
+
+    Returns a list of 1 or 2 lines. Only splits if INTO appears at paren
+    depth 0 and is NOT at the very start of the line (that case is already
+    handled by the normal keyword matching).
+    """
+    upper = line.upper()
+    # Quick check - no INTO at all
+    if ' INTO ' not in upper:
+        return [line]
+
+    # Don't split if line already starts with INTO or INSERT INTO / MERGE INTO
+    stripped_upper = line.strip().upper()
+    if stripped_upper.startswith('INTO ') or stripped_upper.startswith('INSERT ') or stripped_upper.startswith('MERGE '):
+        return [line]
+
+    # Find INTO at paren depth 0
+    depth = 0
+    in_single = False
+    i = 0
+    text = line
+    while i < len(text) - 4:
+        ch = text[i]
+        if ch == "'" and not in_single:
+            in_single = True
+        elif ch == "'" and in_single:
+            in_single = False
+        elif not in_single:
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif depth == 0 and text[i:i+5].upper() == ' INTO' and (i + 5 >= len(text) or not text[i+5].isalpha()):
+                before = text[:i].rstrip()
+                after = text[i+1:].strip()  # skip the leading space, keep "INTO ..."
+                if before and after:
+                    return [before, after]
+        i += 1
+    return [line]
+
+
 def _parse_sql_sections(lines: list, main_keywords: list) -> list:
     """Parse SQL lines into sections with pre-parsing.
     Tracks parenthesis depth so keywords inside () don't start new sections."""
+    # Pre-split lines where INTO appears mid-line (SELECT ... INTO #table)
+    expanded_lines = []
+    for line in lines:
+        expanded_lines.extend(_split_into_keyword(line))
+
     sections = []
     current_section = None
     paren_depth = 0
 
-    for line in lines:
+    for line in expanded_lines:
         stripped = line.strip()
         if not stripped:
             continue

@@ -829,31 +829,67 @@ class DataForgeMainWindow:
 
         # Get project root directory
         project_root = Path(__file__).parent.parent.parent.parent.parent
-        project_root_str = str(project_root).replace('\\', '/')
 
-        # Git safe.directory command (fixes "dubious ownership" error on Windows)
-        safe_dir_cmd = f'git config --global --add safe.directory "{project_root_str}"'
-
-        # Git update commands: stash local changes if any, checkout main, pull, then drop stash if exists
-        git_update_cmd = 'git stash || true && git checkout main && git pull origin main && (git stash drop 2>nul || true)'
-
-        # Build update commands
+        # Build update commands per platform
         if sys.platform == 'win32':
-            # Windows: open new cmd window with update commands
-            cmd = f'start cmd /k "cd /d {project_root} && echo Updating DataForge Studio... && {safe_dir_cmd} && {git_update_cmd} && uv sync && echo. && echo Update complete! Press any key to close. && pause"'
-            subprocess.Popen(cmd, shell=True)
+            # Windows: use a .bat script to avoid nested quote issues in cmd /k
+            bat_path = project_root / '_update.bat'
+            bat_content = f'''@echo off
+cd /d "{project_root}"
+echo Updating DataForge Studio...
+echo.
+git config --global --add safe.directory "{str(project_root).replace(chr(92), '/')}"
+git stash 2>nul
+git checkout main
+git pull origin main
+if errorlevel 1 goto :failed
+git stash drop 2>nul
+uv sync
+if errorlevel 1 goto :failed
+echo.
+echo Update complete! Press any key to close.
+pause
+del "%~f0"
+exit /b 0
+
+:failed
+echo.
+echo ============================================
+echo   UPDATE FAILED - Manual commands:
+echo ============================================
+echo.
+echo   git pull origin main
+echo   uv sync
+echo.
+echo ============================================
+echo.
+pause
+del "%~f0"
+'''
+            bat_path.write_text(bat_content, encoding='utf-8')
+            subprocess.Popen(f'start cmd /k "{bat_path}"', shell=True)
+
         elif sys.platform == 'darwin':
             # macOS: open new Terminal window
+            project_root_str = str(project_root).replace('\\', '/')
+            safe_dir_cmd = f'git config --global --add safe.directory "{project_root_str}"'
+            git_update_cmd = 'git stash 2>/dev/null; git checkout main && git pull origin main; git stash drop 2>/dev/null'
+            fail_msg = "echo ''; echo '=== UPDATE FAILED - Manual commands: ==='; echo '  git pull origin main'; echo '  uv sync'; echo '========================================'"
             script = f'''
             tell application "Terminal"
-                do script "cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && {git_update_cmd} && uv sync && echo '' && echo 'Update complete!'"
+                do script "cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && {git_update_cmd} && uv sync && echo '' && echo 'Update complete!' || ( {fail_msg} )"
                 activate
             end tell
             '''
             subprocess.Popen(['osascript', '-e', script])
+
         else:
             # Linux: try common terminal emulators
-            commands = f"cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && {git_update_cmd} && uv sync && echo '' && echo 'Update complete! Press Enter to close.' && read"
+            project_root_str = str(project_root).replace('\\', '/')
+            safe_dir_cmd = f'git config --global --add safe.directory "{project_root_str}"'
+            git_update_cmd = 'git stash 2>/dev/null; git checkout main && git pull origin main; git stash drop 2>/dev/null'
+            fail_msg = "echo ''; echo '=== UPDATE FAILED - Manual commands: ==='; echo '  git pull origin main'; echo '  uv sync'; echo '========================================'"
+            commands = f"cd '{project_root}' && echo 'Updating DataForge Studio...' && {safe_dir_cmd} && {git_update_cmd} && uv sync && echo '' && echo 'Update complete! Press Enter to close.' && read || ( {fail_msg} && read )"
             terminals = [
                 ['gnome-terminal', '--', 'bash', '-c', commands],
                 ['xterm', '-e', f'bash -c "{commands}"'],
