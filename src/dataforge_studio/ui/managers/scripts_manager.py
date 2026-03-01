@@ -5,6 +5,7 @@ Provides interface to view, edit, and execute Python scripts organized by type
 
 import json
 import os
+import shutil
 import subprocess
 from typing import List, Optional, TYPE_CHECKING
 from PySide6.QtWidgets import (
@@ -410,7 +411,10 @@ class ScriptsManager(HierarchicalManagerView):
             # Try VS Code first, then fall back to system default
             try:
                 # Try to open with VS Code
-                subprocess.Popen(["code", script.file_path], shell=True)
+                code_path = shutil.which("code")
+                if not code_path:
+                    raise FileNotFoundError("VS Code not found in PATH")
+                subprocess.Popen([code_path, script.file_path])
                 logger.info(f"Opened script in VS Code: {script.file_path}")
             except Exception:
                 # Fall back to system default

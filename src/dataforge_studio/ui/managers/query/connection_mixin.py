@@ -160,7 +160,8 @@ class QueryConnectionMixin:
                     self.current_database = target_db
                     # Switch database context
                     try:
-                        cursor.execute(f"USE [{target_db}]")
+                        safe_target = target_db.replace("]", "]]")
+                        cursor.execute(f"USE [{safe_target}]")
                     except Exception as e:
                         logger.warning(f"Could not switch to database {target_db}: {e}")
 
@@ -195,7 +196,8 @@ class QueryConnectionMixin:
         try:
             # Change database context using USE statement
             cursor = self.connection.cursor()
-            cursor.execute(f"USE [{db_name}]")
+            safe_db = db_name.replace("]", "]]")
+            cursor.execute(f"USE [{safe_db}]")
             self.current_database = db_name
 
             # Clear schema cache for new database

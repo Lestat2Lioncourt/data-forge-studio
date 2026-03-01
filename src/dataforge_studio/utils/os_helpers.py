@@ -3,6 +3,7 @@ OS helpers — cross-platform file/folder operations.
 """
 
 import logging
+import os
 import platform
 import subprocess
 from pathlib import Path
@@ -40,7 +41,7 @@ def open_file_with_default_app(file_path: Path) -> None:
     """Open a file with the system's default application."""
     try:
         if platform.system() == "Windows":
-            subprocess.run(["start", "", str(file_path)], shell=True)
+            os.startfile(str(file_path))
         elif platform.system() == "Darwin":
             subprocess.run(["open", str(file_path)])
         else:

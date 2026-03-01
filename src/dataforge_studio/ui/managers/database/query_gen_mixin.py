@@ -192,26 +192,27 @@ class DatabaseQueryGenMixin:
                     schema, tbl_name = "dbo", table_name
 
                 cursor = connection.cursor()
+                safe_db = db_name.replace("]", "]]")
                 cursor.execute(f"""
                     SELECT c.name
-                    FROM [{db_name}].sys.columns c
-                    INNER JOIN [{db_name}].sys.tables t ON c.object_id = t.object_id
-                    INNER JOIN [{db_name}].sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE t.name = '{tbl_name}' AND s.name = '{schema}'
+                    FROM [{safe_db}].sys.columns c
+                    INNER JOIN [{safe_db}].sys.tables t ON c.object_id = t.object_id
+                    INNER JOIN [{safe_db}].sys.schemas s ON t.schema_id = s.schema_id
+                    WHERE t.name = ? AND s.name = ?
                     ORDER BY c.column_id
-                """)
+                """, (tbl_name, schema))
                 columns = [row[0] for row in cursor.fetchall()]
 
                 # If no columns found, try as a view
                 if not columns:
                     cursor.execute(f"""
                         SELECT c.name
-                        FROM [{db_name}].sys.columns c
-                        INNER JOIN [{db_name}].sys.views v ON c.object_id = v.object_id
-                        INNER JOIN [{db_name}].sys.schemas s ON v.schema_id = s.schema_id
-                        WHERE v.name = '{tbl_name}' AND s.name = '{schema}'
+                        FROM [{safe_db}].sys.columns c
+                        INNER JOIN [{safe_db}].sys.views v ON c.object_id = v.object_id
+                        INNER JOIN [{safe_db}].sys.schemas s ON v.schema_id = s.schema_id
+                        WHERE v.name = ? AND s.name = ?
                         ORDER BY c.column_id
-                    """)
+                    """, (tbl_name, schema))
                     columns = [row[0] for row in cursor.fetchall()]
 
                 full_table_name = f"[{db_name}].[{schema}].[{tbl_name}]"
