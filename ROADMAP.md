@@ -2,42 +2,42 @@
 
 **Version**: 0.6.3
 **Objectif**: POC v0.9.xx / Production v1.0
-**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audit #3)
+**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3 & #4)
 
 ---
 
-## Analyse Globale de la Solution (Audit #3 - 01/03/2026)
+## Analyse Globale de la Solution (Audit #4 - 01/03/2026)
 
 ### Scores sur 10
 
 | Critere | Score | Evol. | Justification |
 |---------|-------|-------|---------------|
-| **Structure de l'application** | 8.5/10 | +0.5 | 215 fichiers Python. Les 2 God Objects majeurs ont ete refactores: config_db.py (2547→474L, facade pure) et database_manager.py (2536L→ mixins). Pattern Repository entierement branche (10 repos). Reste: query_tab.py (2061L), 31 fichiers > 500L |
-| **Qualite du code** | 7/10 | +0.5 | 341 `except Exception` (vs 386, -45), **0 bare `except:`** (vs 3), ~17 except+pass (vs 46). config_db.py: 46→0 exceptions generiques. Duplications majeures resolues (PostgreSQL parser, Open in Explorer). Reste: DataFrameTableModel x2. 0 dep inutilisee. 6 TODO |
-| **Gestion de la securite** | 7/10 | +0.5 | Credentials via keyring (bon). Quoting dialect-specific operationnel pour noms de tables (build_preview_sql). Reste: 4 f-string SQL en fallback (query_gen_mixin, access_dialect, data_loader), 3 `subprocess shell=True` (os_helpers, main_window, scripts_manager). Acceptable pour outil interne |
-| **Maintenabilite** | 7.5/10 | +1.0 | **Dette technique majeure resolue**: coexistence config_db.py/repositories eliminee — config_db.py est maintenant une pure facade. 10 repositories actifs. 79 tests passent (0 echec). Couverture estimee ~15% (6 fichiers test, 1463L). 0 fichier mort detecte |
-| **Fiabilite** | 7.5/10 | +0.5 | config_db.py utilise desormais ConnectionPool avec context managers (77 `with` dans repos). ~103 sites de fuite connexion elimines. 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 24 fichiers avec cleanup/closeEvent (vs 5 manquants avant). SchemaManager: `finally: conn.close()` |
-| **Performance** | 7.5/10 | +0.5 | config_db.py ne cree plus de connexion par appel — tout via ConnectionPool (reuse). TTLCache (60s, 100 entries), schema_cache. 4 QThread workers (DB, FTP, scan). 21 fichiers avec lazy loading. Pas d'async generalise |
+| **Structure de l'application** | 9/10 | +0.5 | 222 fichiers Python. Les 3 God Objects majeurs TOUS refactores: config_db.py (2547→474L, facade), database_manager.py (2536→209L, mixins), query_tab.py (2061→417L, 6 mixins). 10 repos. 29 fichiers > 500L. 6 God Objects >1000L restants (managers non-critiques) |
+| **Qualite du code** | 7/10 | = | 341 `except Exception`, **0 bare `except:`**, ~17 except+pass. Duplications majeures resolues. 0 dep inutilisee. 6 TODO |
+| **Gestion de la securite** | 7.5/10 | +0.5 | Credentials via keyring (bon). Quoting dialect-specific operationnel pour noms de tables (build_preview_sql). **0 `shell=True`** (3 sites corriges: os.startfile, CREATE_NEW_CONSOLE, shutil.which). query_gen_mixin parametrise (? placeholders). Reste: 2 f-string SQL en fallback (access_dialect, data_loader). Acceptable pour outil interne |
+| **Maintenabilite** | 8/10 | +0.5 | **3 architectures facade+mixins completes**: config_db.py (10 repos), database_manager.py (8 mixins), query_tab.py (6 mixins). 28 fichiers mixin/repo. 0 God Object critique restant. 79 tests passent. Couverture ~15% |
+| **Fiabilite** | 7.5/10 | = | ConnectionPool avec context managers (77 `with` dans repos). ~103 sites de fuite connexion elimines. 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 24 fichiers avec cleanup/closeEvent |
+| **Performance** | 7.5/10 | = | ConnectionPool reuse. TTLCache (60s, 100 entries), schema_cache. 4 QThread workers (DB, FTP, scan). 21 fichiers avec lazy loading. Pas d'async generalise |
 | **Extensibilite** | 8.5/10 | = | 10 plugins UI, 5 dialects DB (SQLite/PostgreSQL/SQL Server/MySQL/Access), 3-4 themes JSON, Factory pattern. Plugin system bien defini (base_plugin + plugin_manager) |
 | **Documentation** | 7/10 | = | 24 guides utilisateur, README 428L. Docstrings ameliorees (repositories, config_db). Toujours pas de documentation API developpeur standalone |
 | **UX/UI** | 8.5/10 | = | PySide6, 3-4 themes, i18n EN/FR (659 cles, parite 100%). Pastilles colorees, workspace favori, onglet "+". 30+ widgets reutilisables. Reste: ~50 strings FR hardcodees, ES inexistant |
 
-**Score Global: 7.7/10** (vs 7.3 precedemment) — Le refactoring config_db.py et la resolution de la dette technique ont significativement ameliore la maintenabilite, la fiabilite et la performance
+**Score Global: 7.8/10** (vs 7.7 precedemment) — Le refactoring query_tab.py complete la trilogie des God Objects refactores, ameliorant Structure et Maintenabilite
 
 ### Historique des scores
 
-| Critere | Audit #1 | Audit #2 | Audit #3 | Tendance |
-|---------|----------|----------|----------|----------|
-| Structure | 8 | 8 | 8.5 | ↗ |
-| Qualite du code | 7 | 6.5 | 7 | ↗ |
-| Securite | 7 | 6.5 | 7 | ↗ |
-| Maintenabilite | 7 | 6.5 | 7.5 | ↗↗ |
-| Fiabilite | 7.5 | 7 | 7.5 | ↗ |
-| Performance | 7 | 7 | 7.5 | ↗ |
-| Extensibilite | 8.5 | 8.5 | 8.5 | = |
-| Documentation | 7.5 | 7 | 7 | = |
-| UX/UI | 8 | 8.5 | 8.5 | = |
-| **Global** | **7.4** | **7.3** | **7.7** | **↗** |
+| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Tendance |
+|---------|----------|----------|----------|----------|----------|
+| Structure | 8 | 8 | 8.5 | 9 | ↗↗ |
+| Qualite du code | 7 | 6.5 | 7 | 7 | = |
+| Securite | 7 | 6.5 | 7 | 7 | = |
+| Maintenabilite | 7 | 6.5 | 7.5 | 8 | ↗↗ |
+| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | = |
+| Performance | 7 | 7 | 7.5 | 7.5 | = |
+| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | = |
+| Documentation | 7.5 | 7 | 7 | 7 | = |
+| UX/UI | 8 | 8.5 | 8.5 | 8.5 | = |
+| **Global** | **7.4** | **7.3** | **7.7** | **7.8** | **↗** |
 
 ---
 
@@ -93,7 +93,7 @@
 
 ### Points Negatifs (-)
 
-1. ~~**Fichiers trop volumineux (config_db, database_manager)**~~ **CORRIGE (audit #3)** — config_db.py: 2547→474L (facade), database_manager.py: 2536L→ mixins. Reste: query_tab.py (2061L), 31 fichiers > 500L
+1. ~~**Fichiers trop volumineux (config_db, database_manager, query_tab)**~~ **CORRIGE (audits #3 & #4)** — config_db.py: 2547→474L (facade), database_manager.py: 2536→209L (mixins), query_tab.py: 2061→417L (6 mixins). 29 fichiers > 500L
 
 2. ~~**Injections SQL PRAGMA**~~ **CORRIGE (Phase 3.1)**
 
@@ -130,9 +130,7 @@
     - Pas de chemin OS standard (`%APPDATA%`, `~/.config/`)
     - Perdue en cas de reinstallation
 
-13. **query_tab.py reste volumineux** (2061L, 68 methodes)
-    - Plus gros fichier du projet
-    - Candidat prioritaire pour un refactoring en mixins
+13. ~~**query_tab.py reste volumineux**~~ **CORRIGE (audit #4)** — 2061→417L, 6 mixins dans query/ subpackage
 
 ---
 
@@ -145,14 +143,15 @@
 | ~~**SQL Injection PRAGMA**~~ | ~~Moyenne~~ | ~~Faible~~ | **CORRIGE** (Phase 3.1) |
 | ~~**SQL Injection noms de tables**~~ | ~~Moyenne~~ | ~~Faible~~ | **CORRIGE** (build_preview_sql) |
 | ~~**Fichiers monolithiques (config_db, database_manager)**~~ | ~~Haute~~ | ~~Maintenabilite tres reduite~~ | **CORRIGE** (config_db→facade, database_manager→mixins) |
-| **query_tab.py monolithique** (2061L) | Moyenne | Maintenabilite reduite | Refactoring en mixins — priorite P1.5 |
+| ~~**query_tab.py monolithique**~~ | ~~Moyenne~~ | ~~Maintenabilite reduite~~ | **CORRIGE** (audit #4: 2061→417L, 6 mixins) |
 | ~~**Fuites memoire managers**~~ | ~~Haute~~ | ~~Degradation RAM~~ | **CORRIGE** (cleanup ajoute, 24 fichiers) |
 | ~~**config_db.py sans context manager**~~ | ~~Moyenne~~ | ~~Fuite connexions SQLite~~ | **CORRIGE** (audit #3: ConnectionPool + 77 context managers) |
 | **Absence async** | Moyenne | UI freeze possible | 4 QThread workers existants, a etendre |
 | ~~**Test casse (test_theme_patch.py)**~~ | ~~Faible~~ | ~~CI cassee~~ | **CORRIGE** |
 | ~~**Deps inutilisees**~~ | ~~Faible~~ | ~~Taille install~~ | **CORRIGE** |
-| **subprocess shell=True** | Faible | Injection si path malicieux | Supprimer `shell=True` (3 sites: os_helpers, main_window, scripts_manager) |
-| **4 f-string SQL en fallback** | Faible | Injection theorique | Ajouter quoting dans query_gen_mixin, access_dialect, data_loader |
+| ~~**subprocess shell=True**~~ | ~~Faible~~ | ~~Injection si path malicieux~~ | **CORRIGE** (os.startfile, CREATE_NEW_CONSOLE, shutil.which) |
+| ~~**f-string SQL query_gen_mixin**~~ | ~~Faible~~ | ~~Injection theorique~~ | **CORRIGE** (parametres ? + sanitize db_name ]] ) |
+| **2 f-string SQL en fallback** | Faible | Injection theorique | Ajouter quoting dans access_dialect, data_loader |
 
 ### Risques Fonctionnels
 
@@ -197,7 +196,7 @@
 | ~~Refactorer database_manager.py~~ | ~~ui/managers/database_manager.py~~ | ~~2-3j~~ | **Done** (mixins) |
 | ~~Migrer config_db.py vers repositories~~ | ~~database/config_db.py → repositories/~~ | ~~3-4j~~ | **Done** (audit #3) |
 | Quoting dialect-specific pour noms de tables | constants.py + database_manager.py + data_viewer_widget.py | 1j | **Done** |
-| Refactorer query_tab.py en mixins (2061L) | ui/tabs/query_tab.py | 2-3j | Todo *(nouveau, prioritaire)* |
+| ~~Refactorer query_tab.py en mixins (2061L)~~ | ~~ui/managers/query_tab.py~~ | ~~2-3j~~ | **Done** (audit #4: 6 mixins) |
 | Completer type hints | Tous les fichiers | 2j | Todo |
 | Resoudre TODOs restants | main_window.py, scripts | 1j | Todo |
 | Fusionner DataFrameTableModel (2 copies) | core/ dead code supprime | 0.5j | **Done** |
@@ -213,8 +212,9 @@
 | Ajouter docstrings API | Tous les modules publics | 2j | Todo |
 | Implementer Jobs & Orchestration | Phase 5 complete | 4-5j | Todo |
 | Reducer except generiques (cibler 50%) | Principaux offenseurs | 2j | Todo (341→~170, 0 bare except) |
-| Supprimer `shell=True` dans subprocess | os_helpers, main_window, scripts_manager | 0.5j | Todo *(nouveau)* |
-| Ajouter quoting aux 4 f-string SQL | query_gen_mixin, access_dialect, data_loader | 0.5j | Todo *(nouveau)* |
+| ~~Supprimer `shell=True` dans subprocess~~ | ~~os_helpers, main_window, scripts_manager~~ | ~~0.5j~~ | **Done** |
+| ~~Parametrer SQL query_gen_mixin~~ | ~~query_gen_mixin, connection_mixin~~ | ~~0.5j~~ | **Done** |
+| Ajouter quoting aux 2 f-string SQL restantes | access_dialect, data_loader | 0.5j | Todo |
 
 ### P3 - Nice to Have (v2.0)
 
@@ -240,9 +240,10 @@
 4. Le score est passe de 7.3 a 7.7 — la base est assez saine pour accelerer les fonctionnalites
 
 **Priorites immediates**:
-1. **Refactoring query_tab.py** en mixins (2061L, dernier gros fichier) — P1.5
-2. **Phase 3** : Execution des Scripts (nouveaute critique) - **REPORTE, en reflexion**
-3. **Reducer except generiques** de 341 a ~170 (-50%) — P2
+1. ~~**Refactoring query_tab.py**~~ **Done** (audit #4)
+2. **Reducer except generiques** de 341 a ~170 (-50%) — P2
+3. ~~**Supprimer `shell=True`**~~ **Done**
+4. ~~**Parametrer SQL query_gen_mixin**~~ **Done** — reste 2 f-string SQL (access_dialect, data_loader)
 
 **Fonctionnalites livrees depuis (Dec 2025 - Mars 2026)**:
 - Navigation FTP dans les workspaces (ftproot_plugin)
@@ -438,9 +439,10 @@
 | Supprimer code deprecie (I18n) | **Done** | P2 |
 | Quoting SQL noms de tables | **Done** | P2 |
 | Reducer except generiques | Todo | P2 |
-| Refactorer query_tab.py en mixins | Todo *(nouveau)* | P1.5 |
-| Supprimer `shell=True` subprocess | Todo *(nouveau)* | P2 |
-| Quoting 4 f-string SQL restantes | Todo *(nouveau)* | P2 |
+| ~~Refactorer query_tab.py en mixins~~ | **Done** (audit #4) | P1.5 |
+| ~~Supprimer `shell=True` subprocess~~ | **Done** | P2 |
+| ~~Parametrer SQL query_gen_mixin~~ | **Done** | P2 |
+| Quoting 2 f-string SQL restantes | Todo | P2 |
 
 ---
 
@@ -448,10 +450,10 @@
 
 | Metrique | Valeur | Evolution |
 |----------|--------|-----------|
-| Fichiers Python | 215 | +14 |
-| Lignes de code (src/) | 59,343 | -1,466 |
-| Fichiers de tests | 6 | -1 |
-| Lignes de tests | 1,463 | -54 |
+| Fichiers Python | 222 | +7 |
+| Lignes de code (src/) | 59,491 | +148 |
+| Fichiers de tests | 7 | +1 |
+| Lignes de tests | 1,463 | = |
 | Tests en echec | 0 (79 passed) | = |
 | Plugins | 10 | = |
 | Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) | = |
@@ -461,11 +463,11 @@
 | Commits depuis Dec 2025 | ~140 | +7 |
 | `except Exception` generiques | 341 | -45 (-12%) |
 | `.connect()` / `.disconnect()` | 448 / 25 | ratio 18:1 (Qt signals) |
-| Fichiers > 500 lignes | 31 | +20 (croissance code) |
+| Fichiers > 500 lignes | 29 | -2 |
 | Repositories actifs | 10 | *(nouveau)* |
 | ConnectionPool context managers | 77 | *(nouveau)* |
 
-*Statistiques mises a jour: 01 Mars 2026 (audit #3)*
+*Statistiques mises a jour: 01 Mars 2026 (audit #4)*
 
 ---
 
@@ -508,6 +510,8 @@ Mars 2026
 |-- 10 repositories actifs, ConnectionPool branche
 |-- FTPRootRepository cree, ProjectRepository complete
 |-- Audit #3 complet (7.3→7.7/10)
+|-- Refactoring query_tab.py → 6 mixins (2061→417L)
+|-- Audit #4 (7.7→7.8/10) — 3 God Objects majeurs tous refactores
 |-- v0.6.3 (actuel)
 ```
 
@@ -515,7 +519,8 @@ Mars 2026
 
 ```
 Q1 2026 (en cours)
-|-- Refactoring query_tab.py en mixins (2061L)
+|-- Refactoring query_tab.py en mixins (2061L) — DONE
+|-- Reducer except generiques (-50%)
 |-- Phase 4 (Theming Icons)
 |-- v0.7.0
 |
@@ -544,7 +549,7 @@ S2 2026
 
 DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.3.
 
-**Score global: 7.7/10** (+0.4 vs audit #2) — Le refactoring config_db.py (2547→474L) et la resolution de la dette technique majeure (coexistence config_db/repos, fuites connexion, duplications) ont significativement ameliore la maintenabilite (+1.0), la fiabilite (+0.5) et la performance (+0.5). La base est desormais saine pour accelerer les fonctionnalites.
+**Score global: 7.8/10** (+0.5 vs audit #2) — Les 3 God Objects majeurs sont tous refactores (config_db, database_manager, query_tab). La dette technique structurelle est resolue. La base est saine pour accelerer les fonctionnalites.
 
 **Bilan des corrections realisees**:
 - ~~MySQL backend (dialect + loader + factories)~~ Done
@@ -555,12 +560,13 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 - Pastilles colorees, workspace favori, onglet "+", raccourci bureau Done
 - **config_db.py refactore en facade** (2547→474L, 10 repos, 0 SQL inline) Done *(audit #3)*
 - **database_manager.py refactore en mixins** Done
+- **query_tab.py refactore en 6 mixins** (2061→417L) Done *(audit #4)*
 
 **Actions immediates recommandees** (2-3 jours):
-1. Refactorer query_tab.py en mixins (2061L, dernier God Object)
+1. ~~Refactorer query_tab.py en mixins~~ **Done**
 2. Reducer `except Exception` generiques de 341 a ~170
-3. Supprimer `shell=True` dans 3 subprocess (os_helpers, main_window, scripts_manager)
-4. Ajouter quoting aux 4 f-string SQL restantes
+3. ~~Supprimer `shell=True` dans 3 subprocess~~ **Done**
+4. ~~Parametrer SQL query_gen_mixin~~ **Done** — reste 2 f-string SQL (access_dialect, data_loader)
 
 **Prochaine etape majeure**: Phase 3 (Execution des Scripts) — quand le modele d'execution sera defini. C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 
