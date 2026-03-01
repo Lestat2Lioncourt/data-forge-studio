@@ -76,7 +76,7 @@ class AccessDialect(DatabaseDialect):
             # Fallback: query the table and get column names from description
             try:
                 cursor = self.connection.cursor()
-                cursor.execute(f"SELECT TOP 1 * FROM [{table_name}]")
+                cursor.execute(f"SELECT TOP 1 * FROM {self.quote_identifier(table_name)}")
                 return [
                     ColumnInfo(name=desc[0], type_name="UNKNOWN")
                     for desc in cursor.description

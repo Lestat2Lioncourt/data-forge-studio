@@ -14,7 +14,7 @@
 |---------|-------|-------|---------------|
 | **Structure de l'application** | 9/10 | +0.5 | 222 fichiers Python. Les 3 God Objects majeurs TOUS refactores: config_db.py (2547→474L, facade), database_manager.py (2536→209L, mixins), query_tab.py (2061→417L, 6 mixins). 10 repos. 29 fichiers > 500L. 6 God Objects >1000L restants (managers non-critiques) |
 | **Qualite du code** | 7/10 | = | 341 `except Exception`, **0 bare `except:`**, ~17 except+pass. Duplications majeures resolues. 0 dep inutilisee. 6 TODO |
-| **Gestion de la securite** | 7.5/10 | +0.5 | Credentials via keyring (bon). Quoting dialect-specific operationnel pour noms de tables (build_preview_sql). **0 `shell=True`** (3 sites corriges: os.startfile, CREATE_NEW_CONSOLE, shutil.which). query_gen_mixin parametrise (? placeholders). Reste: 2 f-string SQL en fallback (access_dialect, data_loader). Acceptable pour outil interne |
+| **Gestion de la securite** | 8/10 | +1.0 | Credentials via keyring (bon). Quoting dialect-specific operationnel pour noms de tables (build_preview_sql). **0 `shell=True`** (3 sites corriges). **0 f-string SQL non protegee** — query_gen_mixin parametrise (? placeholders), base dialect quote_identifier escape, data_loader _quote_id helper. Tous les identifiants SQL sanitises |
 | **Maintenabilite** | 8/10 | +0.5 | **3 architectures facade+mixins completes**: config_db.py (10 repos), database_manager.py (8 mixins), query_tab.py (6 mixins). 28 fichiers mixin/repo. 0 God Object critique restant. 79 tests passent. Couverture ~15% |
 | **Fiabilite** | 7.5/10 | = | ConnectionPool avec context managers (77 `with` dans repos). ~103 sites de fuite connexion elimines. 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 24 fichiers avec cleanup/closeEvent |
 | **Performance** | 7.5/10 | = | ConnectionPool reuse. TTLCache (60s, 100 entries), schema_cache. 4 QThread workers (DB, FTP, scan). 21 fichiers avec lazy loading. Pas d'async generalise |
@@ -151,7 +151,7 @@
 | ~~**Deps inutilisees**~~ | ~~Faible~~ | ~~Taille install~~ | **CORRIGE** |
 | ~~**subprocess shell=True**~~ | ~~Faible~~ | ~~Injection si path malicieux~~ | **CORRIGE** (os.startfile, CREATE_NEW_CONSOLE, shutil.which) |
 | ~~**f-string SQL query_gen_mixin**~~ | ~~Faible~~ | ~~Injection theorique~~ | **CORRIGE** (parametres ? + sanitize db_name ]] ) |
-| **2 f-string SQL en fallback** | Faible | Injection theorique | Ajouter quoting dans access_dialect, data_loader |
+| ~~**f-string SQL access_dialect, data_loader**~~ | ~~Faible~~ | ~~Injection theorique~~ | **CORRIGE** (quote_identifier escape + _quote_id helper) |
 
 ### Risques Fonctionnels
 
@@ -214,7 +214,7 @@
 | Reducer except generiques (cibler 50%) | Principaux offenseurs | 2j | Todo (341→~170, 0 bare except) |
 | ~~Supprimer `shell=True` dans subprocess~~ | ~~os_helpers, main_window, scripts_manager~~ | ~~0.5j~~ | **Done** |
 | ~~Parametrer SQL query_gen_mixin~~ | ~~query_gen_mixin, connection_mixin~~ | ~~0.5j~~ | **Done** |
-| Ajouter quoting aux 2 f-string SQL restantes | access_dialect, data_loader | 0.5j | Todo |
+| ~~Ajouter quoting SQL access_dialect, data_loader~~ | ~~access_dialect, data_loader, base dialect~~ | ~~0.5j~~ | **Done** |
 
 ### P3 - Nice to Have (v2.0)
 
@@ -243,7 +243,7 @@
 1. ~~**Refactoring query_tab.py**~~ **Done** (audit #4)
 2. **Reducer except generiques** de 341 a ~170 (-50%) — P2
 3. ~~**Supprimer `shell=True`**~~ **Done**
-4. ~~**Parametrer SQL query_gen_mixin**~~ **Done** — reste 2 f-string SQL (access_dialect, data_loader)
+4. ~~**Parametrer/quoting SQL**~~ **Done** (query_gen_mixin, access_dialect, data_loader, base dialect)
 
 **Fonctionnalites livrees depuis (Dec 2025 - Mars 2026)**:
 - Navigation FTP dans les workspaces (ftproot_plugin)
@@ -442,7 +442,7 @@
 | ~~Refactorer query_tab.py en mixins~~ | **Done** (audit #4) | P1.5 |
 | ~~Supprimer `shell=True` subprocess~~ | **Done** | P2 |
 | ~~Parametrer SQL query_gen_mixin~~ | **Done** | P2 |
-| Quoting 2 f-string SQL restantes | Todo | P2 |
+| ~~Quoting SQL access_dialect, data_loader~~ | **Done** | P2 |
 
 ---
 
@@ -566,7 +566,7 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 1. ~~Refactorer query_tab.py en mixins~~ **Done**
 2. Reducer `except Exception` generiques de 341 a ~170
 3. ~~Supprimer `shell=True` dans 3 subprocess~~ **Done**
-4. ~~Parametrer SQL query_gen_mixin~~ **Done** — reste 2 f-string SQL (access_dialect, data_loader)
+4. ~~Parametrer/quoting SQL~~ **Done** (query_gen_mixin, access_dialect, data_loader)
 
 **Prochaine etape majeure**: Phase 3 (Execution des Scripts) — quand le modele d'execution sera defini. C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 

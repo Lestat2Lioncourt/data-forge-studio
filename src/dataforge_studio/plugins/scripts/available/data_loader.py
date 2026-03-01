@@ -228,15 +228,20 @@ class DataLoader:
         count = cursor.fetchone()[0]
         return count > 0
 
+    @staticmethod
+    def _quote_id(name: str) -> str:
+        """Quote a SQL Server bracket identifier, escaping ] as ]]."""
+        return f"[{name.replace(']', ']]')}]"
+
     def _create_table(self, cursor, table_name: str, columns: List[str]) -> None:
         """Create a new table with all columns as NVARCHAR(MAX)."""
-        columns_def = ", ".join([f"[{col}] {self.field_type}" for col in columns])
-        query = f"CREATE TABLE [{table_name}] ({columns_def})"
+        columns_def = ", ".join([f"{self._quote_id(col)} {self.field_type}" for col in columns])
+        query = f"CREATE TABLE {self._quote_id(table_name)} ({columns_def})"
         cursor.execute(query)
 
     def _truncate_table(self, cursor, table_name: str) -> None:
         """Empty the table."""
-        query = f"TRUNCATE TABLE [{table_name}]"
+        query = f"TRUNCATE TABLE {self._quote_id(table_name)}"
         cursor.execute(query)
 
     def _add_missing_columns(self, cursor, table_name: str, file_columns: List[str]) -> None:
@@ -251,7 +256,7 @@ class DataLoader:
 
         for column in file_columns:
             if column not in existing_columns:
-                alter_query = f"ALTER TABLE [{table_name}] ADD [{column}] {self.field_type}"
+                alter_query = f"ALTER TABLE {self._quote_id(table_name)} ADD {self._quote_id(column)} {self.field_type}"
                 cursor.execute(alter_query)
                 logger.info(f"Added column [{column}] to table {table_name}")
 
@@ -259,9 +264,9 @@ class DataLoader:
         """Insert data from DataFrame into table."""
         df = df.fillna("")
 
-        columns = ", ".join([f"[{col}]" for col in df.columns])
+        columns = ", ".join([self._quote_id(col) for col in df.columns])
         placeholders = ", ".join(["?" for _ in df.columns])
-        query = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
+        query = f"INSERT INTO {self._quote_id(table_name)} ({columns}) VALUES ({placeholders})"
 
         data = [tuple(row) for row in df.values]
         cursor.executemany(query, data)

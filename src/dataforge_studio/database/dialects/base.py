@@ -75,7 +75,9 @@ class DatabaseDialect(ABC):
 
     def quote_identifier(self, identifier: str) -> str:
         """Quote a single identifier (table, column, schema name)."""
-        return f"{self.quote_char}{identifier}{self.quote_char_end}"
+        # Escape closing quote char inside the identifier to prevent injection
+        safe = identifier.replace(self.quote_char_end, self.quote_char_end * 2)
+        return f"{self.quote_char}{safe}{self.quote_char_end}"
 
     def quote_full_table_name(
         self,
