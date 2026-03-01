@@ -9,8 +9,8 @@ This dialog provides:
 """
 
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget, QHBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import Qt, Signal, QPoint
-from PySide6.QtGui import QFont, QMouseEvent
+from PySide6.QtCore import Qt, Signal, QPoint, QSize
+from PySide6.QtGui import QFont, QMouseEvent, QIcon
 
 
 class SelectorTitleBar(QWidget):
@@ -54,13 +54,22 @@ class SelectorTitleBar(QWidget):
         # Spacer
         layout.addStretch()
 
-        # Close button
+        # Close button — use same icon as main TitleBar for consistency
         BUTTON_SIZE = 32
-        self.close_btn = QPushButton("\u2715")  # Unicode X
+        self.close_btn = QPushButton("\u2715")  # Unicode X fallback
         self.close_btn.setObjectName("closeButton")
         self.close_btn.setFixedSize(BUTTON_SIZE, BUTTON_SIZE)
         self.close_btn.clicked.connect(self.close_clicked.emit)
         self.close_btn.setToolTip("Close")
+
+        # Load btn_close.png from the window template icons
+        from ..window.resources import get_icon_path
+        icon_path = get_icon_path("btn_close.png")
+        if icon_path:
+            self.close_btn.setIcon(QIcon(icon_path))
+            self.close_btn.setIconSize(QSize(24, 24))
+            self.close_btn.setText("")
+
         layout.addWidget(self.close_btn)
 
     def set_title(self, title: str):

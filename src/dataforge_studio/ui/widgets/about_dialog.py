@@ -3,9 +3,9 @@ About Dialog - Shows application information and support options
 """
 
 from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QWidget, QGroupBox, QGridLayout)
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QDesktopServices
+                               QPushButton, QWidget, QGroupBox)
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QFont, QDesktopServices, QCursor
 from ..templates.dialog import SelectorDialog
 from ..core.theme_bridge import ThemeBridge
 from ...utils.image_loader import get_pixmap
@@ -15,30 +15,45 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class _ClickableIcon(QLabel):
+    """A QLabel displaying a pixmap that opens a URL on click."""
+
+    def __init__(self, pixmap: QPixmap, url: str, tooltip: str, parent=None):
+        super().__init__(parent)
+        self.setPixmap(pixmap)
+        self.setFixedSize(pixmap.size())
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setToolTip(tooltip)
+        self._url = url
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            from PySide6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl(self._url))
+
+
 class AboutDialog(SelectorDialog):
-    """About dialog showing app information and donation options.
+    """About dialog showing app information and support options.
 
     Inherits from SelectorDialog for consistent styling with custom title bar.
     """
 
-    # Configuration URLs - To be updated before publication
-    DONATION_URLS = {
-        "github_sponsors": "https://github.com/sponsors/Lestat2Lioncourt",  # Update when available
-        "ko_fi": "https://ko-fi.com/dataforgestudio",  # Update with your account
-        "buy_me_coffee": "https://buymeacoffee.com/dataforgestudio",  # Update with your account
-        "paypal": "https://paypal.me/dataforgestudio",  # Update with your account
-        "liberapay": "https://liberapay.com/DataForgeStudio"  # Update with your account
-    }
+    DONATION_LINKS = [
+        ("github-sponsors.png", "GitHub Sponsors", "https://github.com/sponsors/Lestat2Lioncourt"),
+        ("ko-fi.png",           "Ko-fi",           "https://ko-fi.com/dataforgestudio"),
+        ("buy-me-a-coffee.png", "Buy Me a Coffee", "https://buymeacoffee.com/dataforgestudio"),
+        ("paypal.png",          "PayPal",          "https://paypal.me/dataforgestudio"),
+        ("liberapay.png",       "Liberapay",       "https://liberapay.com/DataForgeStudio"),
+    ]
 
     def __init__(self, parent=None):
         super().__init__(
             title="About DataForge Studio",
             parent=parent,
-            width=600,
-            height=700
+            width=560,
+            height=650
         )
 
-        # Get theme colors
         self._load_theme_colors()
         self._setup_content()
 
@@ -50,76 +65,35 @@ class AboutDialog(SelectorDialog):
         except Exception:
             colors = {}
 
-        # Store theme colors with fallbacks
         self._colors = {
             'text_primary': colors.get('main_menu_bar_fg', '#ffffff'),
             'text_secondary': colors.get('text_secondary', '#808080'),
             'text_muted': colors.get('text_muted', '#c0c0c0'),
             'border': colors.get('border_color', '#3d3d3d'),
             'accent': colors.get('accent_color', '#0078d4'),
-            'accent_hover': colors.get('accent_hover', '#1084d8'),
-            'accent_pressed': colors.get('accent_pressed', '#006cc1'),
         }
 
     def _setup_content(self):
         """Setup the dialog content inside self.content_widget."""
         content_layout = QVBoxLayout(self.content_widget)
         content_layout.setContentsMargins(30, 20, 30, 20)
-        content_layout.setSpacing(15)
+        content_layout.setSpacing(12)
 
-        # Header: Logo + Name + Version
         self._create_header(content_layout)
-
-        # Description
         self._create_description(content_layout)
-
-        # Features
         self._create_features(content_layout)
-
-        # GitHub Link
         self._create_github_link(content_layout)
-
-        # Support Section
+        self._create_discussions_link(content_layout)
         self._create_support_section(content_layout)
-
-        # Copyright
         self._create_footer(content_layout)
 
-        # Spacer
         content_layout.addStretch()
 
-        # Close button
-        close_btn = QPushButton("Fermer")
-        close_btn.clicked.connect(self.close)
-        close_btn.setFixedWidth(100)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self._colors['accent']};
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 11pt;
-            }}
-            QPushButton:hover {{
-                background-color: {self._colors['accent_hover']};
-            }}
-            QPushButton:pressed {{
-                background-color: {self._colors['accent_pressed']};
-            }}
-        """)
-        close_layout = QHBoxLayout()
-        close_layout.addStretch()
-        close_layout.addWidget(close_btn)
-        close_layout.addStretch()
-        content_layout.addLayout(close_layout)
-
     def _create_header(self, layout: QVBoxLayout):
-        """Create header with logo, name, and version"""
+        """Create header with logo, name, and version."""
         header_layout = QHBoxLayout()
         header_layout.setSpacing(20)
 
-        # Logo
         logo_pixmap = get_pixmap("DataForge Studio", width=80, height=80)
         if logo_pixmap:
             logo_label = QLabel()
@@ -127,37 +101,32 @@ class AboutDialog(SelectorDialog):
             logo_label.setFixedSize(80, 80)
             header_layout.addWidget(logo_label)
 
-        # Name and Version
         text_layout = QVBoxLayout()
         text_layout.setSpacing(5)
 
         name_label = QLabel("DataForge Studio")
-        name_font = QFont("Arial", 20, QFont.Weight.Bold)
-        name_label.setFont(name_font)
+        name_label.setFont(QFont("Arial", 20, QFont.Weight.Bold))
         name_label.setStyleSheet(f"color: {self._colors['text_primary']};")
         text_layout.addWidget(name_label)
 
         version_label = QLabel(f"Version {__version__}")
-        version_font = QFont("Arial", 12)
-        version_label.setFont(version_font)
+        version_label.setFont(QFont("Arial", 12))
         version_label.setStyleSheet(f"color: {self._colors['text_secondary']};")
         text_layout.addWidget(version_label)
 
         header_layout.addLayout(text_layout)
         header_layout.addStretch()
-
         layout.addLayout(header_layout)
 
     def _create_description(self, layout: QVBoxLayout):
-        """Create description section"""
+        """Create description section."""
         desc_label = QLabel("Multi-database management tool")
-        desc_font = QFont("Arial", 11)
-        desc_label.setFont(desc_font)
+        desc_label.setFont(QFont("Arial", 11))
         desc_label.setStyleSheet(f"color: {self._colors['text_muted']}; padding: 10px 0;")
         layout.addWidget(desc_label)
 
     def _create_features(self, layout: QVBoxLayout):
-        """Create features list"""
+        """Create features list."""
         features_group = QGroupBox("Fonctionnalites")
         features_group.setStyleSheet(f"""
             QGroupBox {{
@@ -190,176 +159,109 @@ class AboutDialog(SelectorDialog):
             "  Orchestrateur de jobs multi-plateformes",
             "  Gestionnaire de requetes enregistrees",
             "  Plusieurs themes + editeur de themes",
-            "  Multilingue + editeur pour nouvelle traduction"
+            "  Multilingue + editeur pour nouvelle traduction",
         ]
 
         for feature in features:
-            feature_label = QLabel(feature)
-            feature_label.setStyleSheet(f"color: {self._colors['text_muted']}; padding-left: 10px;")
-            feature_font = QFont("Arial", 10)
-            feature_label.setFont(feature_font)
-            features_layout.addWidget(feature_label)
+            lbl = QLabel(feature)
+            lbl.setStyleSheet(f"color: {self._colors['text_muted']}; padding-left: 10px;")
+            lbl.setFont(QFont("Arial", 10))
+            features_layout.addWidget(lbl)
 
         layout.addWidget(features_group)
 
     def _create_github_link(self, layout: QVBoxLayout):
-        """Create GitHub link section"""
+        """Create GitHub link section."""
         github_layout = QHBoxLayout()
         github_layout.setSpacing(10)
 
         github_icon = QLabel("link")
-        github_icon.setStyleSheet("font-size: 16pt;")
+        github_icon.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        github_icon.setStyleSheet(f"color: {self._colors['text_primary']};")
         github_layout.addWidget(github_icon)
 
-        github_link = QLabel(f'<a href="https://github.com/Lestat2Lioncourt/data-forge-studio" style="color: {self._colors["accent"]}; text-decoration: none;">GitHub: Lestat2Lioncourt/data-forge-studio</a>')
+        accent = self._colors['accent']
+        github_link = QLabel(
+            f'<a href="https://github.com/Lestat2Lioncourt/data-forge-studio" '
+            f'style="color: {accent}; text-decoration: none;">'
+            f'GitHub: Lestat2Lioncourt/data-forge-studio</a>'
+        )
         github_link.setOpenExternalLinks(True)
         github_link.setStyleSheet("font-size: 10pt;")
-        github_link.linkActivated.connect(self._open_url)
         github_layout.addWidget(github_link)
         github_layout.addStretch()
 
         layout.addLayout(github_layout)
 
+    def _create_discussions_link(self, layout: QVBoxLayout):
+        """Create Discussions link with icon."""
+        discussions_layout = QHBoxLayout()
+        discussions_layout.setSpacing(10)
+
+        # Discussion icon (themed from icons/base/)
+        icon_size = 20
+        disc_pixmap = get_pixmap("discussion.png", width=icon_size, height=icon_size)
+        if disc_pixmap:
+            icon_label = QLabel()
+            icon_label.setPixmap(disc_pixmap)
+            icon_label.setFixedSize(icon_size, icon_size)
+            discussions_layout.addWidget(icon_label)
+
+        accent = self._colors['accent']
+        disc_link = QLabel(
+            f'<a href="https://github.com/Lestat2Lioncourt/data-forge-studio/discussions" '
+            f'style="color: {accent}; text-decoration: none;">'
+            f'Discussions &amp; Feedback</a>'
+        )
+        disc_link.setOpenExternalLinks(True)
+        disc_link.setStyleSheet("font-size: 10pt;")
+        discussions_layout.addWidget(disc_link)
+        discussions_layout.addStretch()
+
+        layout.addLayout(discussions_layout)
+
     def _create_support_section(self, layout: QVBoxLayout):
-        """Create support/donation section"""
-        support_group = QGroupBox("Soutenir le projet")
-        support_group.setStyleSheet(f"""
-            QGroupBox {{
-                color: {self._colors['text_primary']};
-                border: 1px solid {self._colors['border']};
-                border-radius: 4px;
-                margin-top: 10px;
-                padding-top: 10px;
-                font-size: 11pt;
-                font-weight: bold;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }}
-        """)
+        """Create compact support section with a row of clickable logo icons."""
+        # Separator
+        separator = QLabel()
+        separator.setFixedHeight(1)
+        separator.setStyleSheet(f"background-color: {self._colors['border']};")
+        layout.addWidget(separator)
 
-        support_layout = QVBoxLayout(support_group)
-        support_layout.setSpacing(10)
+        # Title
+        title_label = QLabel("Soutenir le projet")
+        title_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        title_label.setStyleSheet(f"color: {self._colors['text_primary']};")
+        layout.addWidget(title_label)
 
-        # Info text
-        info_label = QLabel("Les donations volontaires soutiennent le developpement du projet")
-        info_label.setStyleSheet(f"color: {self._colors['text_muted']}; padding: 5px 10px;")
-        info_label.setWordWrap(True)
-        info_font = QFont("Arial", 9)
-        info_label.setFont(info_font)
-        support_layout.addWidget(info_label)
+        # Row of logo icons
+        icons_layout = QHBoxLayout()
+        icons_layout.setSpacing(16)
+        icons_layout.setContentsMargins(0, 4, 0, 0)
 
-        # Donation buttons grid
-        buttons_layout = QGridLayout()
-        buttons_layout.setSpacing(10)
+        icon_size = 32
+        for filename, tooltip, url in self.DONATION_LINKS:
+            pixmap = get_pixmap(filename, width=icon_size, height=icon_size)
+            if not pixmap:
+                logger.debug(f"Donation icon not found: {filename}")
+                continue
 
-        # GitHub Sponsors
-        github_btn = self._create_donation_button(
-            "GitHub Sponsors",
-            "#ea4aaa",
-            self.DONATION_URLS["github_sponsors"]
-        )
-        buttons_layout.addWidget(github_btn, 0, 0)
+            icon_label = _ClickableIcon(pixmap, url, tooltip, parent=self)
+            icons_layout.addWidget(icon_label)
 
-        # Ko-fi
-        kofi_btn = self._create_donation_button(
-            "Ko-fi",
-            "#ff5e5b",
-            self.DONATION_URLS["ko_fi"]
-        )
-        buttons_layout.addWidget(kofi_btn, 0, 1)
-
-        # Buy Me a Coffee
-        bmc_btn = self._create_donation_button(
-            "Buy Me a Coffee",
-            "#ffdd00",
-            self.DONATION_URLS["buy_me_coffee"],
-            text_color="#000000"
-        )
-        buttons_layout.addWidget(bmc_btn, 1, 0)
-
-        # PayPal
-        paypal_btn = self._create_donation_button(
-            "PayPal",
-            "#0070ba",
-            self.DONATION_URLS["paypal"]
-        )
-        buttons_layout.addWidget(paypal_btn, 1, 1)
-
-        # Liberapay
-        liberapay_btn = self._create_donation_button(
-            "Liberapay",
-            "#f6c915",
-            self.DONATION_URLS["liberapay"],
-            text_color="#000000"
-        )
-        buttons_layout.addWidget(liberapay_btn, 2, 0, 1, 2)  # Span 2 columns
-
-        support_layout.addLayout(buttons_layout)
-        layout.addWidget(support_group)
-
-    def _create_donation_button(self, text: str, color: str, url: str, text_color: str = "#ffffff") -> QPushButton:
-        """Create a styled donation button"""
-        btn = QPushButton(text)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setMinimumHeight(40)
-
-        # Store URL in button property
-        btn.setProperty("donation_url", url)
-
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {color};
-                color: {text_color};
-                border: none;
-                padding: 10px 20px;
-                border-radius: 6px;
-                font-size: 11pt;
-                font-weight: bold;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                background-color: {self._adjust_color_brightness(color, 1.1)};
-            }}
-            QPushButton:pressed {{
-                background-color: {self._adjust_color_brightness(color, 0.9)};
-            }}
-        """)
-
-        btn.clicked.connect(lambda: self._open_url(url))
-        return btn
-
-    def _adjust_color_brightness(self, hex_color: str, factor: float) -> str:
-        """Adjust color brightness for hover/press effects"""
-        # Remove # if present
-        hex_color = hex_color.lstrip('#')
-
-        # Convert to RGB
-        r = int(hex_color[0:2], 16)
-        g = int(hex_color[2:4], 16)
-        b = int(hex_color[4:6], 16)
-
-        # Adjust brightness
-        r = min(255, int(r * factor))
-        g = min(255, int(g * factor))
-        b = min(255, int(b * factor))
-
-        # Convert back to hex
-        return f"#{r:02x}{g:02x}{b:02x}"
+        icons_layout.addStretch()
+        layout.addLayout(icons_layout)
 
     def _create_footer(self, layout: QVBoxLayout):
-        """Create copyright footer"""
+        """Create copyright footer."""
         footer_label = QLabel("2024-2025 - MIT License")
         footer_label.setStyleSheet(f"color: {self._colors['text_secondary']}; padding: 15px 0 5px 0;")
         footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        footer_font = QFont("Arial", 9)
-        footer_label.setFont(footer_font)
+        footer_label.setFont(QFont("Arial", 9))
         layout.addWidget(footer_label)
 
     def _open_url(self, url: str):
-        """Open URL in default browser"""
+        """Open URL in default browser."""
         from PySide6.QtCore import QUrl
         QDesktopServices.openUrl(QUrl(url))
         logger.info(f"Opening URL: {url}")
