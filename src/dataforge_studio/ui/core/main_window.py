@@ -964,7 +964,7 @@ pause
 del "%~f0"
 '''
             bat_path.write_text(bat_content, encoding='utf-8')
-            subprocess.Popen(f'start cmd /k "{bat_path}"', shell=True)
+            subprocess.Popen(f'start cmd /c "{bat_path}"', shell=True)
 
         elif sys.platform == 'darwin':
             # macOS: open new Terminal window
