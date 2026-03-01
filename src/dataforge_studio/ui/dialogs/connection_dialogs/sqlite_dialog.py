@@ -54,7 +54,8 @@ class SQLiteConnectionDialog(FileBasedConnectionDialog):
             file_path = connection_string.replace("sqlite:///", "")
 
             # Try to connect
-            conn = sqlite3.connect(file_path, timeout=5)
+            from ....constants import CONNECTION_TIMEOUT_S
+            conn = sqlite3.connect(file_path, timeout=CONNECTION_TIMEOUT_S)
             cursor = conn.cursor()
 
             # Get SQLite version

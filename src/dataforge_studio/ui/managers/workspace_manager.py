@@ -25,12 +25,13 @@ from ..utils.tree_helpers import (
 )
 from ...database.config_db import get_config_db, Workspace, Script
 from ...database.models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
-from ...utils.image_loader import get_icon, get_database_icon
+from ...utils.image_loader import get_icon, get_database_icon, get_database_icon_with_dot, get_auto_color
 from ...utils.workspace_export import (
     export_workspace_to_json, save_export_to_file, get_export_summary,
     load_import_from_file, check_workspace_conflict, import_workspace_from_json,
     ImportConflictMode, get_import_summary
 )
+from ...constants import QUERY_PREVIEW_LIMIT
 
 import logging
 import uuid
@@ -140,7 +141,7 @@ class WorkspaceManager(QWidget):
 
         # Toolbar
         toolbar_builder = ToolbarBuilder(self)
-        toolbar_builder.add_button("+ New", self._new_workspace, icon="add.png")
+        toolbar_builder.add_button("New", self._new_workspace, icon="add.png")
         toolbar_builder.add_button("Edit", self._edit_workspace, icon="edit.png")
         toolbar_builder.add_button("Delete", self._delete_workspace, icon="delete.png")
         toolbar_builder.add_separator()
@@ -198,13 +199,11 @@ class WorkspaceManager(QWidget):
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
         self.tab_widget.set_protected_tabs({0})  # Preview tab
-        self.tab_widget.enable_new_tab_button()
-        self.tab_widget.newTabRequested.connect(self._on_new_tab_requested)
         self.tab_widget.setMinimumWidth(200)
 
         # Add welcome/preview tab with ObjectViewerWidget
         self.object_viewer = ObjectViewerWidget()
-        self.tab_widget.addTab(self.object_viewer, "Preview")
+        self.tab_widget.addTab(self.object_viewer, "Info")
 
         self.main_splitter.addWidget(self.tab_widget)
 
@@ -285,7 +284,7 @@ class WorkspaceManager(QWidget):
         # Check if we need to load lazy items
         has_lazy = self._has_lazy_items(self.workspace_tree.invisibleRootItem())
         if has_lazy:
-            self._show_status_message("⏳ Chargement du workspace en cours...", timeout=0)
+            self._show_status_message(tr("ws_loading_workspace"), timeout=0)
 
         # First, expand all items with dummy children to load content
         self._expand_all_lazy_items(self.workspace_tree.invisibleRootItem())
@@ -321,7 +320,7 @@ class WorkspaceManager(QWidget):
         # Check for pending FTP loads
         if self._pending_ftp_loads_map:
             self._show_status_message(
-                f"⏳ Connexion FTP en cours ({len(self._pending_ftp_loads_map)} restante(s))...",
+                tr("ws_ftp_connecting", count=len(self._pending_ftp_loads_map)),
                 timeout=0
             )
             from PySide6.QtCore import QTimer
@@ -334,7 +333,7 @@ class WorkspaceManager(QWidget):
         # Clear filter state and show result
         self._filter_pending_pattern = None
         match_count = self._count_visible_items(self.workspace_tree.invisibleRootItem())
-        self._show_status_message(f"✓ Filtre appliqué: {match_count} élément(s) trouvé(s)")
+        self._show_status_message(tr("ws_filter_applied", count=match_count))
 
     def _has_lazy_items(self, parent: QTreeWidgetItem) -> bool:
         """Check if any items still have dummy children."""
@@ -437,11 +436,27 @@ class WorkspaceManager(QWidget):
         """Load all workspaces into tree."""
         self.workspace_tree.clear()
         workspaces = self.config_db.get_all_workspaces()
+
+        # Put auto_connect (favorite) workspace first
+        workspaces.sort(key=lambda w: (not getattr(w, 'auto_connect', False), w.name))
+
         for ws in workspaces:
             self._add_workspace_to_tree(ws)
 
-        # Auto-select and expand if only one workspace
-        if self.workspace_tree.topLevelItemCount() == 1:
+        # Auto-expand: favorite workspace, or the only one if there's just one
+        favorite_item = None
+        for i in range(self.workspace_tree.topLevelItemCount()):
+            item = self.workspace_tree.topLevelItem(i)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            ws = data.get("workspace_obj") if data else None
+            if ws and getattr(ws, 'auto_connect', False):
+                favorite_item = item
+                break
+
+        if favorite_item:
+            self.workspace_tree.setCurrentItem(favorite_item)
+            self._auto_expand_workspace(favorite_item)
+        elif self.workspace_tree.topLevelItemCount() == 1:
             ws_item = self.workspace_tree.topLevelItem(0)
             self.workspace_tree.setCurrentItem(ws_item)
             self._auto_expand_workspace(ws_item)
@@ -486,7 +501,7 @@ class WorkspaceManager(QWidget):
         })
 
         if auto_connect:
-            ws_item.setToolTip(0, "Connexion automatique au démarrage")
+            ws_item.setToolTip(0, tr("ws_auto_connect_tooltip"))
 
         TreePopulator.add_dummy_child(ws_item)
 
@@ -496,10 +511,11 @@ class WorkspaceManager(QWidget):
         ws_databases = self.config_db.get_workspace_databases_with_context(workspace_id)
         if ws_databases:
             db_cat = self._create_category_item(ws_item, "Databases", "database.png", len(ws_databases))
-            for ws_db in ws_databases:
+            for i, ws_db in enumerate(ws_databases):
                 db = ws_db.connection
                 db_item = QTreeWidgetItem(db_cat)
-                db_icon = get_database_icon(db.db_type, size=16)
+                color = db.color or get_auto_color(i)
+                db_icon = get_database_icon_with_dot(db.db_type, color)
                 if db_icon:
                     db_item.setIcon(0, db_icon)
                 db_item.setText(0, ws_db.display_name)
@@ -813,7 +829,7 @@ class WorkspaceManager(QWidget):
         success = self._ftproot_manager.load_folder_to_tree(ftp_root_id, remote_path, parent_item)
 
         if not success:
-            DialogHelper.warning("Erreur de chargement FTP. Verifiez la connexion.", parent=self)
+            DialogHelper.warning(tr("ws_ftp_load_error"), parent=self)
 
     def _on_ftp_connection_established(self, ftp_root_id: str):
         """Handle FTP connection established - process pending load if any."""
@@ -869,30 +885,16 @@ class WorkspaceManager(QWidget):
             self._auto_expand_workspace(item)
 
         elif item_type == "database":
-            db = data.get("resource_obj")
-            db_name = data.get("database_name", "")
-            if db_name:
-                self.object_viewer.show_details(db_name, f"Database on {db.name}", db.description or "")
-            else:
-                self.object_viewer.show_details(db.name, f"Server ({db.db_type})", db.description or "")
-            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+            pass  # Info shown in query tabs, not in Info tab
 
         elif item_type == "query":
-            query = data["resource_obj"]
-            self.object_viewer.show_details(query.name, "Query", query.description or "")
-            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+            pass  # Info shown in query tabs, not in Info tab
 
         elif item_type == "script":
-            script = data["resource_obj"]
-            if self._scripts_manager:
-                self._scripts_manager.show_script(script, target_viewer=self.object_viewer)
-            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+            pass  # Future: dedicated script editor tab
 
         elif item_type == "job":
-            job = data["resource_obj"]
-            if self._jobs_manager:
-                self._jobs_manager.show_job(job, target_viewer=self.object_viewer)
-            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+            pass  # Future: dedicated job viewer tab
 
         elif item_type == "rootfolder":
             fr = data.get("resource_obj")
@@ -931,15 +933,10 @@ class WorkspaceManager(QWidget):
                 self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
         elif item_type in ["table", "view"]:
-            name = data.get("name", "")
-            db_name = data.get("db_name", "")
-            self.object_viewer.show_details(name, item_type.title(), f"Database: {db_name}" if db_name else "")
-            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+            pass  # Info shown in query tabs, not in Info tab
 
         elif item_type in ["resource_category", "query_category", "script_type", "job_type", "tables_folder", "views_folder"]:
-            name = data.get("name", item_type)
-            self.object_viewer.show_details(name, item_type.replace("_", " ").title(), "")
-            self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
+            pass  # Category nodes, no info to show
 
     def _on_tree_double_click(self, item: QTreeWidgetItem, column: int):
         """Handle double-click - display content or expand."""
@@ -953,7 +950,7 @@ class WorkspaceManager(QWidget):
             # Use DatabaseManager method with QueryTab in WorkspaceManager's tab_widget
             if self._database_manager:
                 self._database_manager._generate_select_query(
-                    data, limit=100, target_tab_widget=self.tab_widget,
+                    data, limit=QUERY_PREVIEW_LIMIT, target_tab_widget=self.tab_widget,
                     workspace_id=self._current_workspace_id
                 )
         elif item_type == "query":
@@ -995,9 +992,21 @@ class WorkspaceManager(QWidget):
         menu = QMenu(self)
 
         if item_type == "workspace":
+            ws = data.get("workspace_obj")
+
             edit_action = QAction("Edit", self)
             edit_action.triggered.connect(lambda: self._edit_workspace_item(item, data))
             menu.addAction(edit_action)
+
+            # Set as favorite / unfavorite
+            is_favorite = getattr(ws, 'auto_connect', False) if ws else False
+            if is_favorite:
+                fav_action = QAction("⚡ Remove favorite", self)
+                fav_action.triggered.connect(lambda: self._toggle_favorite_workspace(ws, False))
+            else:
+                fav_action = QAction("⚡ Set as favorite", self)
+                fav_action.triggered.connect(lambda: self._toggle_favorite_workspace(ws, True))
+            menu.addAction(fav_action)
 
             menu.addSeparator()
 
@@ -1048,7 +1057,7 @@ class WorkspaceManager(QWidget):
             if self._database_manager:
                 query_obj = data.get("resource_obj")
                 if query_obj:
-                    exec_action = QAction("Execute / Exécuter", self)
+                    exec_action = QAction(tr("ws_execute"), self)
                     ws_id = self._current_workspace_id
                     exec_action.triggered.connect(
                         lambda checked, q=query_obj, w=ws_id: self._database_manager.execute_saved_query(
@@ -1105,7 +1114,7 @@ class WorkspaceManager(QWidget):
                 select_top_action = QAction("SELECT TOP 100 *", self)
                 select_top_action.triggered.connect(
                     lambda checked, d=data, w=ws_id: self._database_manager._generate_select_query(
-                        d, limit=100, target_tab_widget=self.tab_widget, workspace_id=w
+                        d, limit=QUERY_PREVIEW_LIMIT, target_tab_widget=self.tab_widget, workspace_id=w
                     )
                 )
                 menu.addAction(select_top_action)
@@ -1267,9 +1276,9 @@ class WorkspaceManager(QWidget):
                     if auto_connect:
                         self.config_db.set_workspace_auto_connect(ws.id, True)
                     self._refresh()
-                    DialogHelper.info(f"Workspace '{name}' créé")
+                    DialogHelper.info(tr("ws_created", name=name))
                 else:
-                    DialogHelper.warning("Échec de création. Le nom existe peut-être déjà.")
+                    DialogHelper.warning(tr("ws_create_failed"))
 
     def _edit_workspace(self):
         """Edit selected workspace."""
@@ -1281,6 +1290,11 @@ class WorkspaceManager(QWidget):
         data = selected[0].data(0, Qt.ItemDataRole.UserRole)
         if data and data.get("type") == "workspace":
             self._edit_workspace_item(selected[0], data)
+
+    def _toggle_favorite_workspace(self, ws, enable: bool):
+        """Set or remove a workspace as favorite (auto_connect)."""
+        self.config_db.set_workspace_auto_connect(ws.id, enable)
+        self._refresh()
 
     def _edit_workspace_item(self, item: QTreeWidgetItem, data: dict):
         """Edit workspace dialog."""
@@ -1311,9 +1325,9 @@ class WorkspaceManager(QWidget):
                     if auto_connect:
                         self.config_db.set_workspace_auto_connect(ws.id, True)
                     self._refresh()
-                    DialogHelper.info("Workspace mis à jour")
+                    DialogHelper.info(tr("ws_updated"))
                 else:
-                    DialogHelper.warning("Échec de mise à jour")
+                    DialogHelper.warning(tr("ws_update_failed"))
 
     def _delete_workspace(self):
         """Delete selected workspace."""
@@ -1453,3 +1467,38 @@ class WorkspaceManager(QWidget):
         except Exception as e:
             logger.error(f"Import failed: {e}")
             DialogHelper.error(f"Import failed: {str(e)}")
+
+    def cleanup(self):
+        """Disconnect cross-manager signals and stop timers."""
+        if hasattr(self, '_filter_debounce_timer') and self._filter_debounce_timer is not None:
+            try:
+                self._filter_debounce_timer.stop()
+                self._filter_debounce_timer.deleteLater()
+            except Exception:
+                pass
+            self._filter_debounce_timer = None
+
+        if self._ftproot_manager is not None:
+            try:
+                self._ftproot_manager.connection_established.disconnect(
+                    self._on_ftp_connection_established
+                )
+                self._ftproot_manager.connection_failed.disconnect(
+                    self._on_ftp_connection_failed
+                )
+            except Exception:
+                pass
+
+        if self._database_manager is not None:
+            try:
+                self._database_manager.query_saved.disconnect(
+                    self._on_query_saved_from_workspace
+                )
+            except Exception:
+                pass
+
+        self._database_manager = None
+        self._rootfolder_manager = None
+        self._ftproot_manager = None
+        self._scripts_manager = None
+        self._jobs_manager = None

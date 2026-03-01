@@ -189,7 +189,8 @@ class SQLServerConnectionDialog(BaseConnectionDialog):
     def _test_connection(self, connection_string: str) -> tuple[bool, str]:
         """Test SQL Server connection"""
         try:
-            conn = connect_sqlserver(connection_string, timeout=5)
+            from ....constants import CONNECTION_TIMEOUT_S
+            conn = connect_sqlserver(connection_string, timeout=CONNECTION_TIMEOUT_S)
 
             # Get server version
             cursor = conn.cursor()

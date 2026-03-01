@@ -232,20 +232,13 @@ class ImageContentHandler(QObject):
 
     def _open_image_location(self):
         """Open the image file location in explorer."""
-        import subprocess
-        import platform
-
         if not self._current_image_obj:
             return
 
         filepath = Path(self._current_image_obj.filepath)
         if filepath.exists():
-            if platform.system() == "Windows":
-                subprocess.run(["explorer", "/select,", str(filepath)])
-            elif platform.system() == "Darwin":  # macOS
-                subprocess.run(["open", "-R", str(filepath)])
-            else:  # Linux
-                subprocess.run(["xdg-open", str(filepath.parent)])
+            from ....utils.os_helpers import reveal_in_explorer
+            reveal_in_explorer(filepath)
 
     def _copy_image_to_clipboard(self):
         """Copy the current image to clipboard."""

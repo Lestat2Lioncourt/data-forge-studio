@@ -16,6 +16,7 @@ class DatabaseConnection:
     connection_string: str
     created_at: str = None
     updated_at: str = None
+    color: str = None
 
     def __post_init__(self):
         if not self.id:

@@ -160,18 +160,9 @@ class DataViewerWidget(QWidget):
         self._current_query = None
         self._is_saved_query = False
 
-        # Build SQL based on database type
-        if db_type == "sqlserver" and schema:
-            # SQL Server: [database].[schema].[table] format
-            full_table = f"[{schema}].{table_name}"
-            sql = f"SELECT TOP 100 * FROM {full_table}"
-        elif db_type == "sqlserver":
-            sql = f"SELECT TOP 100 * FROM {table_name}"
-        elif schema:
-            full_table = f"{schema}.{table_name}"
-            sql = f"SELECT * FROM {full_table} LIMIT 100"
-        else:
-            sql = f"SELECT * FROM {table_name} LIMIT 100"
+        # Build SQL with proper identifier quoting
+        from ...constants import QUERY_PREVIEW_LIMIT, build_preview_sql
+        sql = build_preview_sql(table_name, db_type or "sqlite", schema=schema, limit=QUERY_PREVIEW_LIMIT)
 
         # Update Query tab
         self.sql_editor.setPlainText(sql)
@@ -260,7 +251,7 @@ class DataViewerWidget(QWidget):
             try:
                 from datetime import datetime
                 created = datetime.fromisoformat(query.created_at).strftime("%Y-%m-%d %H:%M:%S")
-            except:
+            except (ValueError, TypeError):
                 created = query.created_at
 
         updated = '-'
@@ -268,7 +259,7 @@ class DataViewerWidget(QWidget):
             try:
                 from datetime import datetime
                 updated = datetime.fromisoformat(query.updated_at).strftime("%Y-%m-%d %H:%M:%S")
-            except:
+            except (ValueError, TypeError):
                 updated = query.updated_at
 
         self.details_form_builder.set_value("name", name)

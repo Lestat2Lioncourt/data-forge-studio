@@ -26,10 +26,6 @@ Usage:
 
     # Register observer for language changes
     i18n_manager.register_observer(my_callback)
-
-Backwards Compatibility:
-    The old I18n class and get_i18n() function are still available for
-    existing code that uses them.
 """
 
 from .manager import I18nManager, get_manager, t
@@ -41,65 +37,9 @@ i18n_manager = get_manager()
 from . import core  # noqa: F401, E402
 
 
-# ============================================================================
-# Backwards Compatibility Layer
-# ============================================================================
-# These classes and functions maintain compatibility with code that used
-# the old config/i18n.py module.
-
-class I18n:
-    """
-    DEPRECATED: Use i18n_manager instead.
-
-    This class is a thin wrapper for backwards compatibility.
-    """
-
-    _instance = None
-
-    @classmethod
-    def get_instance(cls) -> 'I18n':
-        """Get singleton instance"""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def get_current_language(self) -> str:
-        """Get current language code"""
-        return i18n_manager.get_current_language()
-
-    def set_language(self, language: str):
-        """Set the current language"""
-        i18n_manager.set_language(language)
-
-    def get_available_languages(self):
-        """Get available languages"""
-        return i18n_manager.get_available_languages()
-
-    def t(self, key: str, **kwargs) -> str:
-        """Translate a key"""
-        return t(key, **kwargs)
-
-    def register_observer(self, callback):
-        """Register a language change observer"""
-        i18n_manager.register_observer(callback)
-
-    def unregister_observer(self, callback):
-        """Unregister a language change observer"""
-        i18n_manager.unregister_observer(callback)
-
-
-def get_i18n() -> I18n:
-    """DEPRECATED: Use i18n_manager instead."""
-    return I18n.get_instance()
-
-
 __all__ = [
-    # New API
     'I18nManager',
     'i18n_manager',
     'get_manager',
     't',
-    # Backwards compatibility
-    'I18n',
-    'get_i18n',
 ]

@@ -8,8 +8,9 @@ import uuid
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                                QLineEdit, QTextEdit, QPushButton, QDialogButtonBox,
-                               QGroupBox, QMessageBox)
+                               QGroupBox, QMessageBox, QColorDialog, QLabel)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 
 from ....database.config_db import get_config_db, DatabaseConnection
 from ....utils.credential_manager import CredentialManager
@@ -91,6 +92,34 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
         self.description_edit.setPlaceholderText(tr("conn_description_placeholder"))
         self.description_edit.setMaximumHeight(80)
         common_layout.addRow(tr("conn_description_label"), self.description_edit)
+
+        # Color picker
+        color_layout = QHBoxLayout()
+        self.color_btn = QPushButton()
+        self.color_btn.setFixedSize(24, 24)
+        self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.color_btn.setToolTip(tr("conn_color_tooltip"))
+        self.color_btn.clicked.connect(self._pick_color)
+        color_layout.addWidget(self.color_btn)
+
+        self.color_label = QLabel(tr("conn_color_auto"))
+        color_layout.addWidget(self.color_label)
+        color_layout.addStretch()
+
+        common_layout.addRow(tr("conn_color_label"), color_layout)
+
+        # Initialize color from existing connection or auto-assign
+        self._connection_color = None
+        if self.connection and getattr(self.connection, 'color', None):
+            self._connection_color = self.connection.color
+        elif not self.is_editing:
+            # Auto-assign for new connections
+            from ....utils.image_loader import get_auto_color
+            config_db = get_config_db()
+            count = len(config_db.get_all_database_connections())
+            self._connection_color = get_auto_color(count)
+
+        self._update_color_button()
 
         layout.addWidget(common_group)
 
@@ -176,6 +205,24 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
         """
         return ""
 
+    def _pick_color(self):
+        """Open color picker dialog"""
+        initial = QColor(self._connection_color) if self._connection_color else QColor("#3498db")
+        color = QColorDialog.getColor(initial, self, tr("conn_color_picker_title"))
+        if color.isValid():
+            self._connection_color = color.name()
+            self.color_label.setText(self._connection_color)
+            self._update_color_button()
+
+    def _update_color_button(self):
+        """Update the color button appearance"""
+        color = self._connection_color or "#888888"
+        self.color_btn.setStyleSheet(
+            f"background-color: {color}; border: 1px solid palette(mid); border-radius: 12px;"
+        )
+        if self._connection_color:
+            self.color_label.setText(self._connection_color)
+
     def _load_existing_connection(self):
         """Load existing connection data into fields"""
         if not self.connection:
@@ -184,6 +231,11 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
         # Load common fields
         self.alias_edit.setText(self.connection.name or "")
         self.description_edit.setPlainText(self.connection.description or "")
+
+        # Load color
+        if getattr(self.connection, 'color', None):
+            self._connection_color = self.connection.color
+            self._update_color_button()
 
         # Subclasses should override this to load their specific fields
 
@@ -252,7 +304,8 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
                 name=alias,
                 db_type=self._get_db_type(),
                 connection_string=connection_string,
-                description=self.description_edit.toPlainText().strip()
+                description=self.description_edit.toPlainText().strip(),
+                color=self._connection_color
             )
 
             # Save to database

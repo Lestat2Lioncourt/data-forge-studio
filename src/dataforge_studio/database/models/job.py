@@ -67,7 +67,7 @@ class Job:
         from ...core.parameter_types import parse_job_parameters
         return parse_job_parameters(self.parameters)
 
-    def set_parameters(self, values: Dict[str, Any]):
+    def set_parameters(self, values: Dict[str, Any]) -> None:
         """
         Set parameters from values dict.
 

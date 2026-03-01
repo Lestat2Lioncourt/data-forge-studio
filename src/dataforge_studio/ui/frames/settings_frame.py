@@ -1627,3 +1627,18 @@ class SettingsFrame(BaseManagerView):
         self.debug_status.setText(tr("settings_options_applied"))
         from PySide6.QtCore import QTimer
         QTimer.singleShot(3000, lambda: self.debug_status.setText(""))
+
+    def cleanup(self):
+        """Unregister theme observer and release held references."""
+        try:
+            self.theme_bridge.unregister_observer(self._on_theme_changed)
+        except Exception:
+            pass
+        if hasattr(self, '_current_lang_data'):
+            self._current_lang_data.clear()
+        if hasattr(self, '_current_overrides'):
+            self._current_overrides.clear()
+        if hasattr(self, '_palette_color_rows'):
+            self._palette_color_rows.clear()
+        if hasattr(self, '_generated_color_rows'):
+            self._generated_color_rows.clear()

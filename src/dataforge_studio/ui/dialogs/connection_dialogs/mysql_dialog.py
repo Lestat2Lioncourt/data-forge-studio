@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 
 from .multimode_connection_dialog import MultiModeConnectionDialog
 from ....database.config_db import DatabaseConnection
+from ....constants import CONNECTION_TIMEOUT_S
 
 import logging
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ class MySQLConnectionDialog(MultiModeConnectionDialog):
                     user=username,
                     password=password,
                     database=database if database else None,
-                    connect_timeout=5
+                    connect_timeout=CONNECTION_TIMEOUT_S
                 )
 
                 cursor = conn.cursor()
@@ -105,6 +106,7 @@ class MySQLConnectionDialog(MultiModeConnectionDialog):
                 return (False, "Unsupported connection string format. Use mysql+pymysql:// format.")
 
         except ImportError:
-            return (False, "PyMySQL library not installed. Please install it:\npip install pymysql")
+            from ....config.i18n import t
+            return (False, t("dep_pymysql_missing"))
         except Exception as e:
             return (False, str(e))

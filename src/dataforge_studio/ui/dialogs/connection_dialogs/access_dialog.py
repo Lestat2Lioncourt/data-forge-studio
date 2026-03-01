@@ -144,7 +144,8 @@ class AccessConnectionDialog(FileBasedConnectionDialog):
         """Test Access connection"""
         try:
             # Try to connect
-            conn = pyodbc.connect(connection_string, timeout=5)
+            from ....constants import CONNECTION_TIMEOUT_S
+            conn = pyodbc.connect(connection_string, timeout=CONNECTION_TIMEOUT_S)
             cursor = conn.cursor()
 
             # Get table count

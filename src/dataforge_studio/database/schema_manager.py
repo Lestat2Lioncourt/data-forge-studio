@@ -77,7 +77,8 @@ class SchemaManager:
                     description TEXT,
                     connection_string TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    color TEXT
                 )
             """)
 
@@ -372,6 +373,9 @@ class SchemaManager:
             # Migration 6: Add 'target_database_name' column to saved_queries
             self._migrate_saved_queries_database_name(cursor, conn)
 
+            # Migration 7: Add 'color' column to database_connections
+            self._migrate_database_connections_color(cursor, conn)
+
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
 
@@ -530,6 +534,19 @@ class SchemaManager:
 
             conn.commit()
             logger.info("[OK] Migration complete: saved_queries now supports target_database_name")
+
+    def _migrate_database_connections_color(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 7: Add 'color' column to database_connections if it doesn't exist."""
+        cursor.execute("PRAGMA table_info(database_connections)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'color' not in columns:
+            logger.info("[MIGRATION] Adding 'color' column to database_connections table...")
+
+            cursor.execute("ALTER TABLE database_connections ADD COLUMN color TEXT")
+
+            conn.commit()
+            logger.info("[OK] Migration complete: database_connections now supports color")
 
     def _ensure_image_indexes(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Ensure image indexes exist (for fresh installs or post-migration)."""

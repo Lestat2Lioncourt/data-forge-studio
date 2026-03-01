@@ -26,26 +26,26 @@ class DatabaseConnectionRepository(BaseRepository[DatabaseConnection]):
     def _get_insert_sql(self) -> str:
         return """
             INSERT INTO database_connections
-            (id, name, db_type, description, connection_string, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (id, name, db_type, description, connection_string, created_at, updated_at, color)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     def _get_update_sql(self) -> str:
         return """
             UPDATE database_connections
             SET name = ?, db_type = ?, description = ?,
-                connection_string = ?, updated_at = ?
+                connection_string = ?, updated_at = ?, color = ?
             WHERE id = ?
         """
 
     def _model_to_insert_tuple(self, model: DatabaseConnection) -> tuple:
         return (model.id, model.name, model.db_type, model.description,
-                model.connection_string, model.created_at, model.updated_at)
+                model.connection_string, model.created_at, model.updated_at, model.color)
 
     def _model_to_update_tuple(self, model: DatabaseConnection) -> tuple:
         model.updated_at = datetime.now().isoformat()
         return (model.name, model.db_type, model.description,
-                model.connection_string, model.updated_at, model.id)
+                model.connection_string, model.updated_at, model.color, model.id)
 
     def get_all_connections(self) -> List[DatabaseConnection]:
         """Get all database connections (including configuration.db)."""

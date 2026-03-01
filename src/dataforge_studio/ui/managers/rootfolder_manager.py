@@ -241,7 +241,7 @@ class RootFolderManager(QWidget):
             if rootfolder.updated_at:
                 try:
                     modified = datetime.fromisoformat(rootfolder.updated_at).strftime("%Y-%m-%d %H:%M:%S")
-                except:
+                except (ValueError, TypeError):
                     modified = rootfolder.updated_at
 
             self.object_viewer.show_folder(
@@ -372,18 +372,8 @@ class RootFolderManager(QWidget):
 
     def _open_file_location(self, file_path: Path):
         """Open file location in file explorer"""
-        import subprocess
-        import platform
-
-        try:
-            if platform.system() == "Windows":
-                subprocess.run(['explorer', '/select,', str(file_path)])
-            elif platform.system() == "Darwin":
-                subprocess.run(['open', '-R', str(file_path)])
-            else:
-                subprocess.run(['xdg-open', str(file_path.parent)])
-        except Exception as e:
-            logger.error(f"Error opening file location: {e}")
+        from ...utils.os_helpers import reveal_in_explorer
+        reveal_in_explorer(file_path)
 
     # ==================== RootFolder CRUD ====================
 

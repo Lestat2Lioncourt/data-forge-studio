@@ -609,43 +609,14 @@ class QueryTab(QWidget):
                             if not conn_str.endswith(";"):
                                 conn_str += ";"
                             conn_str += f"UID={username};PWD={password};"
-                return connect_sqlserver(conn_str, timeout=5)
+                from ...constants import CONNECTION_TIMEOUT_S
+                return connect_sqlserver(conn_str, timeout=CONNECTION_TIMEOUT_S)
             elif self.db_type == "postgresql":
-                # PostgreSQL: create new psycopg2 connection
                 import psycopg2
-                from ...utils.credential_manager import CredentialManager
-                conn_str = self.db_connection.connection_string
-
-                if conn_str.startswith("postgresql://"):
-                    url_part = conn_str.replace("postgresql://", "")
-                    username, password = CredentialManager.get_credentials(self.db_connection.id)
-
-                    if "@" in url_part:
-                        auth_part, server_part = url_part.split("@", 1)
-                        if not username:
-                            username = auth_part.split(":")[0] if ":" in auth_part else auth_part
-                        if not password and ":" in auth_part:
-                            password = auth_part.split(":", 1)[1]
-                    else:
-                        server_part = url_part
-
-                    if "/" in server_part:
-                        host_port, database = server_part.split("/", 1)
-                        database = database.split("?")[0]
-                    else:
-                        host_port = server_part
-                        database = "postgres"
-
-                    host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
-
-                    return psycopg2.connect(
-                        host=host,
-                        port=int(port),
-                        user=username or "",
-                        password=password or "",
-                        database=database,
-                        connect_timeout=5
-                    )
+                from ...utils.connection_helpers import parse_postgresql_url
+                pg_kwargs = parse_postgresql_url(self.db_connection.connection_string, self.db_connection.id)
+                if pg_kwargs:
+                    return psycopg2.connect(**pg_kwargs)
             # Add other database types as needed
         except Exception as e:
             logger.warning(f"Could not create parallel connection: {e}")

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Dict
 import logging
 
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap, QIcon, QPainter, QBrush, QPen, QColor
 from PySide6.QtCore import Qt
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,8 @@ class ImageLoader:
         cls._theme_initialized = True
         # Clear cache to force reload with new colors
         cls._images_cache.clear()
+        # Clear color dot caches too
+        _clear_color_caches()
 
     def get_image_path(self, image_name: str, use_themed: bool = True) -> Optional[Path]:
         """
@@ -201,6 +203,119 @@ def get_pixmap(image_name: str, width: Optional[int] = None,
 def get_icon(image_name: str, size: int = 24) -> Optional[QIcon]:
     """Get a QIcon for an image."""
     return get_image_loader().get_icon(image_name, size)
+
+
+# ==================== Connection Color Utilities ====================
+
+# Palette of 7 bold, high-contrast colors (compatible with light & dark themes)
+CONNECTION_COLORS = [
+    "#FF1744",  # Rouge vif
+    "#2979FF",  # Bleu électrique
+    "#C6FF00",  # Jaune citron
+    "#76FF03",  # Vert lime
+    "#FF9100",  # Orange néon
+    "#AA00FF",  # Violet intense
+    "#00E5FF",  # Turquoise saturé
+]
+
+# Caches for color dot icons
+_color_dot_cache: Dict[str, QIcon] = {}
+_db_icon_with_dot_cache: Dict[str, QIcon] = {}
+
+
+def get_auto_color(index: int) -> str:
+    """Get a color from the palette by index (cycles through 12 colors)."""
+    return CONNECTION_COLORS[index % len(CONNECTION_COLORS)]
+
+
+def create_color_dot_icon(hex_color: str, size: int = 10) -> QIcon:
+    """
+    Create a small colored circle icon.
+
+    Args:
+        hex_color: Hex color string (e.g., "#e74c3c")
+        size: Diameter of the circle in pixels
+
+    Returns:
+        QIcon with a colored circle
+    """
+    cache_key = f"{hex_color}_{size}"
+    if cache_key in _color_dot_cache:
+        return _color_dot_cache[cache_key]
+
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    color = QColor(hex_color)
+    painter.setBrush(QBrush(color))
+    painter.setPen(QPen(color.darker(130), 1))
+    painter.drawEllipse(1, 1, size - 2, size - 2)
+    painter.end()
+
+    icon = QIcon(pixmap)
+    _color_dot_cache[cache_key] = icon
+    return icon
+
+
+def get_database_icon_with_dot(db_type: str, hex_color: str, icon_size: int = 16, dot_size: int = 8) -> Optional[QIcon]:
+    """
+    Get a database type icon with a colored dot overlay in the bottom-right corner.
+
+    Args:
+        db_type: Database type (sqlite, sqlserver, etc.)
+        hex_color: Hex color for the dot
+        icon_size: Size of the base icon
+        dot_size: Size of the color dot
+
+    Returns:
+        QIcon with database icon + color dot overlay
+    """
+    cache_key = f"{db_type}_{hex_color}_{icon_size}_{dot_size}"
+    theme_key = "dark" if ImageLoader._is_dark_theme else "light"
+    cache_key = f"{cache_key}_{theme_key}"
+
+    if cache_key in _db_icon_with_dot_cache:
+        return _db_icon_with_dot_cache[cache_key]
+
+    # Get base database icon as pixmap
+    base_icon = get_database_icon(db_type, size=icon_size)
+    if not base_icon:
+        return create_color_dot_icon(hex_color, icon_size)
+
+    base_pixmap = base_icon.pixmap(icon_size, icon_size)
+
+    # Create composite pixmap
+    composite = QPixmap(icon_size, icon_size)
+    composite.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(composite)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Draw base icon
+    painter.drawPixmap(0, 0, base_pixmap)
+
+    # Draw color dot in bottom-right corner
+    dot_x = icon_size - dot_size
+    dot_y = icon_size - dot_size
+    color = QColor(hex_color)
+    painter.setBrush(QBrush(color))
+    painter.setPen(QPen(color.darker(130), 1))
+    painter.drawEllipse(dot_x, dot_y, dot_size - 1, dot_size - 1)
+
+    painter.end()
+
+    icon = QIcon(composite)
+    _db_icon_with_dot_cache[cache_key] = icon
+    return icon
+
+
+def _clear_color_caches():
+    """Clear color dot icon caches (called on theme change)."""
+    _color_dot_cache.clear()
+    _db_icon_with_dot_cache.clear()
 
 
 def get_database_icon(db_type: str, size: int = 16) -> Optional[QIcon]:

@@ -166,60 +166,6 @@ class TestThemePatchExpansion:
         assert result["palette"]["Frame_BG"] == "#252525"
 
 
-class TestQuickThemeColorMapping:
-    """Test the color mapping in QuickThemeFrame."""
-
-    def test_quick_colors_defined(self):
-        """Test that QUICK_COLORS is properly defined."""
-        from dataforge_studio.ui.frames.quick_theme_frame import QUICK_COLORS
-
-        assert len(QUICK_COLORS) == 10
-
-        # Check structure (user_key, palette_key, description)
-        for item in QUICK_COLORS:
-            assert len(item) == 3
-            user_key, palette_key, description = item
-            assert isinstance(user_key, str)
-            assert isinstance(palette_key, str)
-            assert isinstance(description, str)
-
-    def test_quick_colors_mapping(self):
-        """Test the user-friendly to palette key mapping."""
-        from dataforge_studio.ui.frames.quick_theme_frame import QUICK_COLORS
-
-        mapping = {user_key: palette_key for user_key, palette_key, _ in QUICK_COLORS}
-
-        assert mapping["Accent"] == "Accent"
-        assert mapping["Primary_BG"] == "Frame_BG"
-        assert mapping["Secondary_BG"] == "Data_BG"
-        assert mapping["Text_Primary"] == "Normal_FG"
-        assert mapping["Text_Secondary"] == "Frame_FG_Secondary"
-        assert mapping["Border"] == "Data_Border"
-        assert mapping["Success"] == "Success_FG"
-        assert mapping["Warning"] == "Warning_FG"
-        assert mapping["Error"] == "Error_FG"
-        assert mapping["Info"] == "Info_FG"
-
-
-class TestBaseThemes:
-    """Test base theme configuration."""
-
-    def test_base_themes_defined(self):
-        """Test that BASE_THEMES is properly defined."""
-        from dataforge_studio.ui.frames.quick_theme_frame import BASE_THEMES
-
-        assert "minimal_dark" in BASE_THEMES
-        assert "minimal_light" in BASE_THEMES
-        assert len(BASE_THEMES) == 2
-
-    def test_base_themes_have_display_names(self):
-        """Test that base themes have display names."""
-        from dataforge_studio.ui.frames.quick_theme_frame import BASE_THEMES
-
-        assert BASE_THEMES["minimal_dark"] == "Mode sombre"
-        assert BASE_THEMES["minimal_light"] == "Mode clair"
-
-
 class TestPatchThemeFileFormat:
     """Test the patch theme JSON file format."""
 

@@ -783,6 +783,7 @@ class ImageLibraryManager(QWidget):
 
     def _open_image_location(self):
         """Open the current image's location in file explorer."""
+        from ...utils.os_helpers import reveal_in_explorer
         if not self._current_image:
             return
 
@@ -791,40 +792,27 @@ class ImageLibraryManager(QWidget):
             DialogHelper.warning(tr("image_file_not_found") + ".", parent=self)
             return
 
-        if platform.system() == "Windows":
-            subprocess.run(["explorer", "/select,", str(path)])
-        elif platform.system() == "Darwin":
-            subprocess.run(["open", "-R", str(path)])
-        else:
-            subprocess.run(["xdg-open", str(path.parent)])
+        reveal_in_explorer(path)
 
     def _open_folder_in_explorer(self, folder_path: str):
         """Open a folder in file explorer."""
+        from ...utils.os_helpers import open_in_explorer
         path = Path(folder_path)
         if not path.exists():
             DialogHelper.warning(tr("image_folder_not_found") + ".", parent=self)
             return
 
-        if platform.system() == "Windows":
-            subprocess.run(["explorer", str(path)])
-        elif platform.system() == "Darwin":
-            subprocess.run(["open", str(path)])
-        else:
-            subprocess.run(["xdg-open", str(path)])
+        open_in_explorer(path)
 
     def _open_image_external(self, image: SavedImage):
         """Open image with system default viewer."""
+        from ...utils.os_helpers import open_file_with_default_app
         path = Path(image.filepath)
         if not path.exists():
             DialogHelper.warning(tr("image_file_not_found") + ".", parent=self)
             return
 
-        if platform.system() == "Windows":
-            subprocess.run(["start", "", str(path)], shell=True)
-        elif platform.system() == "Darwin":
-            subprocess.run(["open", str(path)])
-        else:
-            subprocess.run(["xdg-open", str(path)])
+        open_file_with_default_app(path)
 
     def _copy_image_to_clipboard(self):
         """Copy the current image to clipboard."""
@@ -996,3 +984,9 @@ class ImageLibraryManager(QWidget):
         clear_item = QTreeWidgetItem(results_item, ["✕ " + tr("image_clear_search")])
         clear_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "clear_search"})
         clear_item.setForeground(0, Qt.GlobalColor.gray)
+
+    def cleanup(self):
+        """Release held references."""
+        self._current_image = None
+        if hasattr(self, '_tree_items'):
+            self._tree_items.clear()

@@ -514,6 +514,16 @@ class ConfigDatabase:
             conn.commit()
             logger.info("Migration complete: projects now supports auto_connect")
 
+        # Migration 5: Add 'color' column to database_connections if it doesn't exist
+        cursor.execute("PRAGMA table_info(database_connections)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'color' not in columns:
+            logger.info("[MIGRATION] Adding 'color' column to database_connections table...")
+            cursor.execute("ALTER TABLE database_connections ADD COLUMN color TEXT")
+            conn.commit()
+            logger.info("Migration complete: database_connections now supports color")
+
         # Ensure image indexes exist (for fresh installs or post-migration)
         try:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_rootfolder ON saved_images(rootfolder_id)")
@@ -583,10 +593,10 @@ class ConfigDatabase:
 
             cursor.execute("""
                 INSERT INTO database_connections
-                (id, name, db_type, description, connection_string, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, name, db_type, description, connection_string, created_at, updated_at, color)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (conn.id, conn.name, conn.db_type, conn.description,
-                  conn.connection_string, conn.created_at, conn.updated_at))
+                  conn.connection_string, conn.created_at, conn.updated_at, conn.color))
 
             db_conn.commit()
             db_conn.close()
@@ -606,10 +616,10 @@ class ConfigDatabase:
             cursor.execute("""
                 UPDATE database_connections
                 SET name = ?, db_type = ?, description = ?,
-                    connection_string = ?, updated_at = ?
+                    connection_string = ?, updated_at = ?, color = ?
                 WHERE id = ?
             """, (conn.name, conn.db_type, conn.description,
-                  conn.connection_string, conn.updated_at, conn.id))
+                  conn.connection_string, conn.updated_at, conn.color, conn.id))
 
             db_conn.commit()
             db_conn.close()

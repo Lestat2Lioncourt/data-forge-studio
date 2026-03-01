@@ -7,8 +7,9 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
                                QLineEdit, QTextEdit, QPushButton, QLabel,
-                               QFileDialog, QDialogButtonBox)
+                               QFileDialog, QDialogButtonBox, QColorDialog)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 
 from ..core.i18n_bridge import tr
 
@@ -95,17 +96,18 @@ class EditRootFolderDialog(QDialog):
 
 
 class EditDatabaseConnectionDialog(QDialog):
-    """Dialog for editing DatabaseConnection name and description"""
+    """Dialog for editing DatabaseConnection name, description and color"""
 
-    def __init__(self, parent=None, name: str = "", description: str = ""):
+    def __init__(self, parent=None, name: str = "", description: str = "", color: str = None):
         super().__init__(parent)
 
         self.setWindowTitle(tr("edit_database_connection_title"))
         self.setMinimumWidth(500)
-        self.setMinimumHeight(250)
+        self.setMinimumHeight(280)
 
         self.name = name
         self.description = description
+        self._color = color
 
         self._setup_ui()
 
@@ -127,6 +129,23 @@ class EditDatabaseConnectionDialog(QDialog):
         self.description_edit.setMaximumHeight(100)
         form_layout.addRow(tr("description") + ":", self.description_edit)
 
+        # Color picker
+        color_layout = QHBoxLayout()
+        self.color_btn = QPushButton()
+        self.color_btn.setFixedSize(24, 24)
+        self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.color_btn.setToolTip(tr("conn_color_tooltip"))
+        self.color_btn.clicked.connect(self._pick_color)
+        color_layout.addWidget(self.color_btn)
+
+        self.color_label = QLabel(self._color or tr("conn_color_auto"))
+        color_layout.addWidget(self.color_label)
+        color_layout.addStretch()
+
+        form_layout.addRow(tr("conn_color_label"), color_layout)
+
+        self._update_color_button()
+
         layout.addLayout(form_layout)
 
         # Buttons
@@ -137,11 +156,28 @@ class EditDatabaseConnectionDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
+    def _pick_color(self):
+        """Open color picker dialog"""
+        initial = QColor(self._color) if self._color else QColor("#3498db")
+        color = QColorDialog.getColor(initial, self, tr("conn_color_picker_title"))
+        if color.isValid():
+            self._color = color.name()
+            self.color_label.setText(self._color)
+            self._update_color_button()
+
+    def _update_color_button(self):
+        """Update the color button appearance"""
+        color = self._color or "#888888"
+        self.color_btn.setStyleSheet(
+            f"background-color: {color}; border: 1px solid palette(mid); border-radius: 12px;"
+        )
+
     def get_values(self) -> tuple:
-        """Return (name, description)"""
+        """Return (name, description, color)"""
         return (
             self.name_edit.text().strip(),
-            self.description_edit.toPlainText().strip()
+            self.description_edit.toPlainText().strip(),
+            self._color
         )
 
 

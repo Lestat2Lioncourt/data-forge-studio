@@ -24,25 +24,25 @@ logger = logging.getLogger(__name__)
 
 
 class _EditableTabBar(QTabBar):
-    """Tab bar that can shrink the last tab (the "+" tab) to a compact size."""
+    """Tab bar with a compact "+" tab at the end."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._compact_last_tab = False
+        self._has_plus_tab = False
 
-    def set_compact_last_tab(self, enabled: bool):
-        self._compact_last_tab = enabled
+    def set_has_plus_tab(self, enabled: bool):
+        self._has_plus_tab = enabled
+        self.setExpanding(not enabled)
 
     def tabSizeHint(self, index: int) -> QSize:
         size = super().tabSizeHint(index)
-        if self._compact_last_tab and index == self.count() - 1:
-            icon_w = self.iconSize().width() or 16
-            # icon + 5px margin, padding removed via stylesheet
-            size.setWidth(icon_w + 5)
+        if self._has_plus_tab and index == self.count() - 1:
+            # Square-ish tab + 4px breathing room
+            size.setWidth(size.height() + 4)
         return size
 
     def minimumTabSizeHint(self, index: int) -> QSize:
-        if self._compact_last_tab and index == self.count() - 1:
+        if self._has_plus_tab and index == self.count() - 1:
             return self.tabSizeHint(index)
         return super().minimumTabSizeHint(index)
 
@@ -99,24 +99,17 @@ class EditableTabWidget(QTabWidget):
         placeholder = QWidget()
         placeholder.setEnabled(False)
 
-        # Try to use themed "add" icon
-        icon = self._get_add_icon()
-        if icon and not icon.isNull():
-            super().addTab(placeholder, icon, "")
-        else:
-            super().addTab(placeholder, "+")
+        # Use plain text "+" — no icon avoids Qt icon/text gap issues
+        super().addTab(placeholder, "+")
         self._plus_placeholder = placeholder
 
         plus_index = self.count() - 1
-        # Make the "+" tab non-closable and compact
+        # Make the "+" tab non-closable
         tab_bar = self.tabBar()
         tab_bar.setTabButton(plus_index, QTabBar.RightSide, None)
         tab_bar.setTabButton(plus_index, QTabBar.LeftSide, None)
-        # Remove internal padding on the "+" tab so the icon can center properly
-        tab_bar.setStyleSheet(
-            f"QTabBar::tab:last {{ padding: 0px; margin: 0px; }}"
-        )
-        self._tab_bar.set_compact_last_tab(True)
+
+        self._tab_bar.set_has_plus_tab(True)
 
         self.tabBar().tabBarClicked.connect(self._intercept_plus_tab)
 
@@ -132,31 +125,6 @@ class EditableTabWidget(QTabWidget):
             self.setCurrentIndex(prev)
             self.blockSignals(False)
             self.newTabRequested.emit()
-
-    @staticmethod
-    def _get_add_icon() -> QIcon | None:
-        """Try to load the themed 'add' icon."""
-        try:
-            from ..core.theme_bridge import ThemeBridge
-            from ..core.theme_image_generator import get_themed_icon_path
-            bridge = ThemeBridge.get_instance()
-            colors = bridge.get_theme_colors(bridge.current_theme)
-            icon_color = colors.get('icon_color', colors.get('text_primary', '#e0e0e0'))
-            is_dark = colors.get('is_dark', True)
-            path = get_themed_icon_path("add", is_dark, icon_color)
-            if path:
-                return QIcon(path)
-        except Exception:
-            pass
-        # Fallback: try base icon
-        try:
-            from pathlib import Path
-            base = Path(__file__).parent.parent / "assets" / "icons" / "base" / "add.png"
-            if base.exists():
-                return QIcon(str(base))
-        except Exception:
-            pass
-        return None
 
     def addTab(self, widget, *args):
         """Override to insert before the "+" tab when it exists."""

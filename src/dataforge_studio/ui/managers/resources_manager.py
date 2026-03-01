@@ -23,7 +23,8 @@ from ..widgets.form_builder import FormBuilder
 from ..widgets.dialog_helper import DialogHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db
-from ...utils.image_loader import get_icon, get_database_icon
+from ...utils.image_loader import get_icon, get_database_icon, get_database_icon_with_dot, get_auto_color
+from ...constants import QUERY_PREVIEW_LIMIT
 
 import logging
 logger = logging.getLogger(__name__)
@@ -315,13 +316,14 @@ class ResourcesManager(BaseManagerView):
                 databases = config_db.get_workspace_database_connections(self._workspace_filter)
             else:
                 databases = config_db.get_all_database_connections()
-            for db in databases:
+            for i, db in enumerate(databases):
                 item = self.tree_view.add_item(
                     parent=self._category_items["databases"],
                     text=[db.name],
                     data={"type": "database", "id": db.id, "obj": db}
                 )
-                db_icon = get_database_icon(db.db_type, size=16)
+                color = db.color or get_auto_color(i)
+                db_icon = get_database_icon_with_dot(db.db_type, color)
                 if db_icon:
                     item.setIcon(0, db_icon)
                 self._add_dummy_child(item)
@@ -349,7 +351,7 @@ class ResourcesManager(BaseManagerView):
                 display_name = ftp.name or f"{ftp.protocol.upper()}://{ftp.host}"
                 # Check if connected via FTPRootManager
                 is_connected = self._ftproot_manager and self._ftproot_manager.is_connected(ftp.id)
-                status = " [connecté]" if is_connected else ""
+                status = tr("res_connected") if is_connected else ""
                 item = self.tree_view.add_item(
                     parent=self._category_items["ftproots"],
                     text=[f"{display_name}{status}"],
@@ -809,8 +811,8 @@ class ResourcesManager(BaseManagerView):
             size = item_data.get("size", 0)
             size_str = format_file_size(size) if size else "-"
             self.details_form_builder.set_value("name", name)
-            self.details_form_builder.set_value("resource_type", "Fichier distant (FTP)")
-            self.details_form_builder.set_value("description", f"Taille: {size_str}")
+            self.details_form_builder.set_value("resource_type", tr("res_remote_file_ftp"))
+            self.details_form_builder.set_value("description", tr("res_size_label", size=size_str))
             self.details_form_builder.set_value("path", path)
             self.details_form_builder.set_value("encoding", "-")
             self.details_form_builder.set_value("separator", "-")
@@ -1061,7 +1063,7 @@ class ResourcesManager(BaseManagerView):
             # Error loading - show message
             error_item = self.tree_view.add_item(
                 parent=parent_item,
-                text=["Erreur de chargement"],
+                text=[tr("res_load_error")],
                 data={"type": "error"}
             )
 
@@ -1081,7 +1083,7 @@ class ResourcesManager(BaseManagerView):
             # Connection lost - show error
             error_item = self.tree_view.add_item(
                 parent=parent_item,
-                text=["Connexion perdue"],
+                text=[tr("res_connection_lost")],
                 data={"type": "error"}
             )
             return
@@ -1092,7 +1094,7 @@ class ResourcesManager(BaseManagerView):
         if not success:
             error_item = self.tree_view.add_item(
                 parent=parent_item,
-                text=["Erreur de chargement"],
+                text=[tr("res_load_error")],
                 data={"type": "error"}
             )
 
@@ -1120,7 +1122,7 @@ class ResourcesManager(BaseManagerView):
 
         ftp_root_id = data.get("ftproot_id")
         if not self._ftproot_manager.is_connected(ftp_root_id):
-            DialogHelper.warning("Non connecté au serveur FTP.", parent=self)
+            DialogHelper.warning(tr("res_ftp_not_connected"), parent=self)
             return
 
         # Use FTPRootManager's download functionality
@@ -1190,7 +1192,7 @@ class ResourcesManager(BaseManagerView):
 
             # SELECT TOP 100 action
             select_top_action = QAction(tr("menu_select_top_100"), self)
-            select_top_action.triggered.connect(lambda: self._execute_query_for_table(data, limit=100))
+            select_top_action.triggered.connect(lambda: self._execute_query_for_table(data, limit=QUERY_PREVIEW_LIMIT))
             menu.addAction(select_top_action)
 
             # SELECT * action
@@ -1228,7 +1230,7 @@ class ResourcesManager(BaseManagerView):
             if ftp_obj and self._ftproot_manager:
                 if is_connected:
                     # Disconnect option
-                    disconnect_action = QAction("Déconnecter", self)
+                    disconnect_action = QAction(tr("res_disconnect"), self)
                     disconnect_action.triggered.connect(
                         lambda: self._disconnect_ftp_and_refresh(ftp_obj.id))
                     menu.addAction(disconnect_action)
@@ -1265,13 +1267,13 @@ class ResourcesManager(BaseManagerView):
             ftp_root_id = data.get("ftproot_id")
             if ftp_root_id and self._ftproot_manager:
                 # Preview
-                preview_action = QAction("Prévisualiser", self)
+                preview_action = QAction(tr("res_preview"), self)
                 preview_action.triggered.connect(
                     lambda: self._ftproot_manager._preview_remote_file(data))
                 menu.addAction(preview_action)
 
                 # Download
-                download_action = QAction("Télécharger", self)
+                download_action = QAction(tr("res_download"), self)
                 download_action.triggered.connect(
                     lambda: self._download_remote_file(data))
                 menu.addAction(download_action)
@@ -1366,18 +1368,8 @@ class ResourcesManager(BaseManagerView):
 
     def _open_location(self, path: Path):
         """Open folder location in file explorer."""
-        import subprocess
-        import platform
-
-        try:
-            if platform.system() == "Windows":
-                subprocess.run(['explorer', str(path)])
-            elif platform.system() == "Darwin":
-                subprocess.run(['open', str(path)])
-            else:
-                subprocess.run(['xdg-open', str(path)])
-        except Exception as e:
-            logger.error(f"Error opening location: {e}")
+        from ...utils.os_helpers import open_in_explorer
+        open_in_explorer(path)
 
     # ==================== Query Tab Management ====================
 

@@ -87,13 +87,17 @@ class DataForgeMainWindow:
             (tr("menu_preferences"), lambda: self._switch_frame("options"))
         ])
 
-        # Tools menu (only in dev environment where _packages/ exists)
+        # Tools menu
         from pathlib import Path
+        tools_items = [
+            (tr("menu_create_shortcut"), self._create_desktop_shortcut),
+        ]
+        # Dev-only: generate offline package
         packages_dir = Path(__file__).parent.parent.parent.parent.parent / "_packages"
         if packages_dir.exists():
-            menu_bar.add_menu_with_submenu("tools", tr("menu_tools"), [
-                (tr("menu_generate_package"), self._generate_offline_package)
-            ])
+            tools_items.append((None, None))  # separator
+            tools_items.append((tr("menu_generate_package"), self._generate_offline_package))
+        menu_bar.add_menu_with_submenu("tools", tr("menu_tools"), tools_items)
 
         # Help menu
         menu_bar.add_menu_with_submenu("help", tr("menu_help"), [
@@ -489,6 +493,92 @@ class DataForgeMainWindow:
             msg.setText(tr("no_update_available"))
             msg.exec()
 
+    def _create_desktop_shortcut(self):
+        """Create a desktop shortcut to launch the application."""
+        import sys
+        from pathlib import Path
+        from ..widgets.dialog_helper import DialogHelper
+
+        project_root = Path(__file__).parent.parent.parent.parent.parent
+        ico_icon = project_root / "src" / "dataforge_studio" / "ui" / "assets" / "images" / "DataForge-Studio-logo.ico"
+        png_icon = project_root / "src" / "dataforge_studio" / "ui" / "assets" / "images" / "DataForge-Studio-logo.png"
+        run_script = project_root / "run.py"
+
+        if sys.platform == "win32":
+            try:
+                import win32com.client
+
+                # Find desktop
+                try:
+                    shell = win32com.client.Dispatch("WScript.Shell")
+                    desktop = Path(shell.SpecialFolders("Desktop"))
+                except Exception:
+                    desktop = Path.home() / "Desktop"
+                    if not desktop.exists():
+                        desktop = Path.home() / "Bureau"
+
+                if not desktop.exists():
+                    DialogHelper.error(tr("shortcut_desktop_not_found"), parent=self.window)
+                    return
+
+                # Find pythonw.exe (no console window)
+                venv_pythonw = project_root / ".venv" / "Scripts" / "pythonw.exe"
+                if not venv_pythonw.exists():
+                    DialogHelper.error(tr("shortcut_pythonw_not_found"), parent=self.window)
+                    return
+
+                # Determine icon
+                icon_to_use = ico_icon if ico_icon.exists() else (png_icon if png_icon.exists() else None)
+
+                # Create shortcut
+                shortcut_path = desktop / "DataForge Studio.lnk"
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortCut(str(shortcut_path))
+                shortcut.TargetPath = str(venv_pythonw)
+                shortcut.Arguments = f'"{run_script}"'
+                shortcut.WorkingDirectory = str(project_root)
+                shortcut.Description = "DataForge Studio"
+                if icon_to_use:
+                    shortcut.IconLocation = str(icon_to_use)
+                shortcut.save()
+
+                DialogHelper.info(tr("shortcut_created"), parent=self.window)
+
+            except ImportError:
+                DialogHelper.error(tr("shortcut_pywin32_required"), parent=self.window)
+            except Exception as e:
+                DialogHelper.error(f"{tr('shortcut_error')}\n{e}", parent=self.window)
+
+        elif sys.platform == "darwin":
+            # macOS: create .command file on desktop
+            try:
+                desktop = Path.home() / "Desktop"
+                command_file = desktop / "DataForge Studio.command"
+                venv_python = project_root / ".venv" / "bin" / "python"
+                command_file.write_text(f'#!/bin/bash\ncd "{project_root}"\n"{venv_python}" "{run_script}"\n')
+                command_file.chmod(0o755)
+                DialogHelper.info(tr("shortcut_created"), parent=self.window)
+            except Exception as e:
+                DialogHelper.error(f"{tr('shortcut_error')}\n{e}", parent=self.window)
+
+        else:
+            # Linux: create .desktop file
+            try:
+                desktop = Path.home() / "Desktop"
+                desktop.mkdir(exist_ok=True)
+                venv_python = project_root / ".venv" / "bin" / "python"
+                icon = png_icon if png_icon.exists() else ""
+                desktop_file = desktop / "dataforge-studio.desktop"
+                desktop_file.write_text(
+                    f"[Desktop Entry]\nType=Application\nName=DataForge Studio\n"
+                    f"Exec={venv_python} {run_script}\nPath={project_root}\n"
+                    f"Icon={icon}\nTerminal=false\n"
+                )
+                desktop_file.chmod(0o755)
+                DialogHelper.info(tr("shortcut_created"), parent=self.window)
+            except Exception as e:
+                DialogHelper.error(f"{tr('shortcut_error')}\n{e}", parent=self.window)
+
     def _generate_offline_package(self):
         """Launch the offline package generation script in a progress dialog."""
         from pathlib import Path
@@ -807,7 +897,9 @@ class DataForgeMainWindow:
 
             # Cleanup other managers if they have cleanup methods
             for manager in [self.queries_manager, self.scripts_manager,
-                            self.jobs_manager, self.resources_manager]:
+                            self.jobs_manager, self.resources_manager,
+                            self.workspace_manager, self.image_library_manager,
+                            self.settings_frame]:
                 if manager and hasattr(manager, 'cleanup'):
                     try:
                         manager.cleanup()

@@ -542,3 +542,7 @@ class ScriptsManager(HierarchicalManagerView):
         actions.append(delete_action)
 
         return actions
+
+    def cleanup(self):
+        """Release external references."""
+        self._workspace_manager = None

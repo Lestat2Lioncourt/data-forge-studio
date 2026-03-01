@@ -321,3 +321,11 @@ class QueriesManager(HierarchicalManagerView):
             return
         # Emit signal with the query object for external handling
         self.query_execute_requested.emit(self._current_item)
+
+    def cleanup(self):
+        """Release external references and caches."""
+        self._workspace_manager = None
+        if hasattr(self, '_db_names'):
+            self._db_names.clear()
+        if hasattr(self, '_db_types'):
+            self._db_types.clear()

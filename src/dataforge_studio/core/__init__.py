@@ -1,18 +1,12 @@
 """
-Core module - Shared data loading and viewing functions.
+Core module - Shared data loading, parameter types, and script schemas.
 
-This module implements the DataFrame-Pivot pattern:
 - data_loader: Load heterogeneous sources into pandas DataFrame
-- data_viewer: Display DataFrame in Qt widgets
-- dataframe_model: High-performance Qt model for large datasets
 - parameter_types: Script/Job parameter type system
+- script_schemas: Built-in script definitions
 
-Architecture:
-    Sources (CSV, JSON, Excel, SQL)
-           ↓
-    data_loader.py → DataFrame (pivot)
-           ↓
-    data_viewer.py → Qt Widgets (TreeView, TableView, ComboBox)
+Note: dataframe_model.py and data_viewer.py are legacy modules
+      superseded by ui/widgets/dataframe_model.py and custom_datagridview.py.
 """
 
 from .data_loader import (
@@ -22,15 +16,6 @@ from .data_loader import (
     query_to_dataframe,
     DataLoadResult,
     LARGE_DATASET_THRESHOLD,
-)
-
-from .dataframe_model import DataFrameTableModel
-
-from .data_viewer import (
-    dataframe_to_tableview,
-    dataframe_to_datagridview,
-    dataframe_to_treeview,
-    dataframe_to_combobox,
 )
 
 from .parameter_types import (
@@ -62,13 +47,6 @@ __all__ = [
     'query_to_dataframe',
     'DataLoadResult',
     'LARGE_DATASET_THRESHOLD',
-    # Model
-    'DataFrameTableModel',
-    # Data viewing
-    'dataframe_to_tableview',
-    'dataframe_to_datagridview',
-    'dataframe_to_treeview',
-    'dataframe_to_combobox',
     # Parameter types
     'ParameterType',
     'create_parameter',
