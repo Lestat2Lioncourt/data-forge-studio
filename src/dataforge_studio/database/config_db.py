@@ -1,21 +1,13 @@
 """
-Configuration Database Module - SQLite database for all configuration
-Migrated for PySide6 version.
+Configuration Database Module - Facade for all configuration database operations.
 
+Delegates to repository classes and SchemaManager for actual implementation.
 Models are defined in database/models/ package.
-This module provides the ConfigDatabase class as a facade for all database operations.
 """
-import sqlite3
 import logging
-
-logger = logging.getLogger(__name__)
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from dataclasses import asdict
-import uuid
-from datetime import datetime
 
-# Import all models from the models package
 from .models import (
     DatabaseConnection,
     FileConfig,
@@ -30,10 +22,31 @@ from .models import (
     SavedImage,
 )
 from .models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase, WorkspaceFTPRoot
+from .schema_manager import SchemaManager
+from .connection_pool import ConnectionPool
+from .repositories import (
+    DatabaseConnectionRepository,
+    SavedQueryRepository,
+    ProjectRepository,
+    FileRootRepository,
+    FTPRootRepository,
+    ScriptRepository,
+    JobRepository,
+    ImageRootfolderRepository,
+    SavedImageRepository,
+    UserPreferencesRepository,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigDatabase:
-    """SQLite database for configuration management"""
+    """
+    SQLite database for configuration management.
+
+    Facade that delegates all operations to specialized repositories.
+    Public API is unchanged for backward compatibility.
+    """
 
     # Configuration database internal ID
     CONFIG_DB_ID = "config-db-self-ref"
@@ -41,2501 +54,415 @@ class ConfigDatabase:
 
     def __init__(self):
         # Store config in project root/_AppConfig/
-        # Path: src/dataforge_studio/database/config_db.py -> need 4 levels up to reach project root
         project_root = Path(__file__).parent.parent.parent.parent
         self.db_path = project_root / "_AppConfig" / "configuration.db"
-        self._ensure_db_folder()
-        self._init_database()
-        self._migrate_database()
-
-    def _ensure_db_folder(self):
-        """Ensure config folder exists"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get database connection"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        # Initialize schema (creates tables + runs migrations)
+        self._schema = SchemaManager(self.db_path)
+        self._schema.initialize()
 
-    def _init_database(self):
-        """Initialize database schema"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
-        # Database Connections table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS database_connections (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                db_type TEXT NOT NULL,
-                description TEXT,
-                connection_string TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        # File Configurations table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS file_configs (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                location TEXT NOT NULL,
-                description TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        # Saved Queries table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS saved_queries (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                target_database_id TEXT NOT NULL,
-                query_text TEXT NOT NULL,
-                category TEXT DEFAULT 'No category',
-                target_database_name TEXT DEFAULT '',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (target_database_id) REFERENCES database_connections(id)
-            )
-        """)
-
-        # Migration: Add target_database_name column if missing (for existing databases)
-        cursor.execute("PRAGMA table_info(saved_queries)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if "target_database_name" not in columns:
-            cursor.execute("ALTER TABLE saved_queries ADD COLUMN target_database_name TEXT DEFAULT ''")
-
-        # Projects table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS projects (
-                id TEXT PRIMARY KEY,
-                name TEXT UNIQUE NOT NULL,
-                description TEXT,
-                is_default INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                last_used_at TEXT
-            )
-        """)
-
-        # File Roots table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS file_roots (
-                id TEXT PRIMARY KEY,
-                path TEXT NOT NULL,
-                name TEXT,
-                description TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        # Project-Database junction table (database_name allows specific database within a server)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_databases (
-                project_id TEXT NOT NULL,
-                database_id TEXT NOT NULL,
-                database_name TEXT DEFAULT '',
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, database_id, database_name),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY (database_id) REFERENCES database_connections(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Project-Query junction table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_queries (
-                project_id TEXT NOT NULL,
-                query_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, query_id),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY (query_id) REFERENCES saved_queries(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Project-FileRoot junction table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_file_roots (
-                project_id TEXT NOT NULL,
-                file_root_id TEXT NOT NULL,
-                subfolder_path TEXT,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, file_root_id, subfolder_path),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY (file_root_id) REFERENCES file_roots(id) ON DELETE CASCADE
-            )
-        """)
-
-        # FTP Roots table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ftp_roots (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                protocol TEXT NOT NULL CHECK(protocol IN ('ftp', 'ftps', 'sftp')),
-                host TEXT NOT NULL,
-                port INTEGER NOT NULL,
-                initial_path TEXT DEFAULT '/',
-                passive_mode INTEGER DEFAULT 1,
-                description TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        # Project-FTPRoot junction table (for workspace assignments)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_ftp_roots (
-                project_id TEXT NOT NULL,
-                ftp_root_id TEXT NOT NULL,
-                subfolder_path TEXT DEFAULT '',
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, ftp_root_id, subfolder_path),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY (ftp_root_id) REFERENCES ftp_roots(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Project-Job junction table (for workspace assignments)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_jobs (
-                project_id TEXT NOT NULL,
-                job_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, job_id),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Project-Script junction table (for workspace assignments)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS project_scripts (
-                project_id TEXT NOT NULL,
-                script_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (project_id, script_id),
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Scripts table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS scripts (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT,
-                script_type TEXT NOT NULL,
-                file_path TEXT DEFAULT '',
-                parameters_schema TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        # Migration: Add file_path column if missing (for existing databases)
-        cursor.execute("PRAGMA table_info(scripts)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if "file_path" not in columns:
-            cursor.execute("ALTER TABLE scripts ADD COLUMN file_path TEXT DEFAULT ''")
-
-        # Jobs table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                job_type TEXT NOT NULL CHECK(job_type IN ('script', 'workflow')),
-                script_id TEXT,
-                project_id TEXT,
-                parent_job_id TEXT,
-                previous_job_id TEXT,
-                parameters TEXT,
-                enabled INTEGER DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                last_run_at TEXT,
-                FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE,
-                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                FOREIGN KEY (parent_job_id) REFERENCES jobs(id) ON DELETE CASCADE,
-                FOREIGN KEY (previous_job_id) REFERENCES jobs(id) ON DELETE SET NULL
-            )
-        """)
-
-        # Image Rootfolders table (for automatic image scanning)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS image_rootfolders (
-                id TEXT PRIMARY KEY,
-                path TEXT NOT NULL UNIQUE,
-                name TEXT,
-                description TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        # Saved Images table (image library)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS saved_images (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                filepath TEXT NOT NULL UNIQUE,
-                rootfolder_id TEXT,
-                physical_path TEXT DEFAULT '',
-                description TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (rootfolder_id) REFERENCES image_rootfolders(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Image Categories junction table (many-to-many: image <-> logical categories)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS image_categories (
-                image_id TEXT NOT NULL,
-                category_name TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (image_id, category_name),
-                FOREIGN KEY (image_id) REFERENCES saved_images(id) ON DELETE CASCADE
-            )
-        """)
-
-        # Image Tags junction table (many-to-many: image <-> tags)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS image_tags (
-                image_id TEXT NOT NULL,
-                tag_name TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (image_id, tag_name),
-                FOREIGN KEY (image_id) REFERENCES saved_images(id) ON DELETE CASCADE
-            )
-        """)
-
-        # User Preferences table (key-value store)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-
-        # Create indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_db_name ON database_connections(name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_name ON file_configs(name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_query_category ON saved_queries(category)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_name ON projects(name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_root_path ON file_roots(path)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_script_name ON scripts(name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_project ON jobs(project_id)")
-        # Image library indexes (created after migration adds the columns)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_category_name ON image_categories(category_name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_tag_name ON image_tags(tag_name)")
-
-        conn.commit()
-
-        # Ensure config DB self-reference exists
-        self._ensure_config_db_connection(cursor, conn)
-
-        conn.close()
-
-    def _ensure_config_db_connection(self, cursor, conn):
-        """Ensure a connection to the configuration database itself exists"""
-        cursor.execute("""
-            SELECT connection_string FROM database_connections
-            WHERE id = ?
-        """, (self.CONFIG_DB_ID,))
-
-        result = cursor.fetchone()
-        # Use sqlite:/// format for consistency with DatabaseManager
-        expected_conn_string = f"sqlite:///{str(self.db_path)}"
-
-        if result is None:
-            # Add connection to configuration database
-            config_conn = DatabaseConnection(
-                id=self.CONFIG_DB_ID,
-                name=self.CONFIG_DB_NAME,
-                db_type="sqlite",
-                description="Application configuration database (internal use)",
-                connection_string=expected_conn_string
-            )
-
-            cursor.execute("""
-                INSERT INTO database_connections
-                (id, name, db_type, description, connection_string, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (config_conn.id, config_conn.name, config_conn.db_type,
-                  config_conn.description, config_conn.connection_string,
-                  config_conn.created_at, config_conn.updated_at))
-
-            conn.commit()
-            logger.info("Added self-reference connection to Configuration Database")
-        elif result[0] != expected_conn_string:
-            # Update connection string if path has changed
-            cursor.execute("""
-                UPDATE database_connections
-                SET connection_string = ?, updated_at = ?
-                WHERE id = ?
-            """, (expected_conn_string, datetime.now().isoformat(), self.CONFIG_DB_ID))
-
-            conn.commit()
-            logger.info("Updated Configuration Database connection path")
-
-    def _migrate_database(self):
-        """Apply database migrations for schema updates"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
-        # Migration 1: Add 'name' column to file_roots if it doesn't exist
-        cursor.execute("PRAGMA table_info(file_roots)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if 'name' not in columns:
-            logger.info("[MIGRATION] Adding 'name' column to file_roots table...")
-
-            # Add the column
-            cursor.execute("ALTER TABLE file_roots ADD COLUMN name TEXT")
-
-            # Initialize name from path for existing records
-            cursor.execute("SELECT id, path FROM file_roots WHERE name IS NULL")
-            rows = cursor.fetchall()
-
-            for row_id, path in rows:
-                # Extract folder name from path
-                folder_name = Path(path).name if path else "Unnamed"
-                cursor.execute(
-                    "UPDATE file_roots SET name = ? WHERE id = ?",
-                    (folder_name, row_id)
-                )
-
-            conn.commit()
-            logger.info(f"Migration complete: Initialized {len(rows)} file root names from paths")
-
-        # Migration 2: Add 'database_name' column to project_databases if it doesn't exist
-        cursor.execute("PRAGMA table_info(project_databases)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if 'database_name' not in columns:
-            logger.info("[MIGRATION] Adding 'database_name' column to project_databases table...")
-
-            # SQLite doesn't support adding column with PRIMARY KEY constraint
-            # So we need to recreate the table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS project_databases_new (
-                    project_id TEXT NOT NULL,
-                    database_id TEXT NOT NULL,
-                    database_name TEXT DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY (project_id, database_id, database_name),
-                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-                    FOREIGN KEY (database_id) REFERENCES database_connections(id) ON DELETE CASCADE
-                )
-            """)
-
-            # Copy existing data with empty database_name (meaning all databases)
-            cursor.execute("""
-                INSERT INTO project_databases_new (project_id, database_id, database_name, created_at)
-                SELECT project_id, database_id, '', created_at FROM project_databases
-            """)
-
-            # Drop old table and rename new one
-            cursor.execute("DROP TABLE project_databases")
-            cursor.execute("ALTER TABLE project_databases_new RENAME TO project_databases")
-
-            conn.commit()
-            logger.info("Migration complete: project_databases now supports database_name")
-
-        # Migration 3: Update saved_images table structure (add rootfolder_id, physical_path)
-        cursor.execute("PRAGMA table_info(saved_images)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if 'rootfolder_id' not in columns:
-            logger.info("[MIGRATION] Updating saved_images table structure...")
-
-            # Create new table with updated schema
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS saved_images_new (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    filepath TEXT NOT NULL UNIQUE,
-                    rootfolder_id TEXT,
-                    physical_path TEXT DEFAULT '',
-                    description TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY (rootfolder_id) REFERENCES image_rootfolders(id) ON DELETE CASCADE
-                )
-            """)
-
-            # Copy existing data (old 'category' column becomes a logical category)
-            cursor.execute("""
-                INSERT INTO saved_images_new (id, name, filepath, rootfolder_id, physical_path, description, created_at, updated_at)
-                SELECT id, name, filepath, NULL, '', description, created_at, updated_at FROM saved_images
-            """)
-
-            # Migrate old categories to image_categories junction table
-            cursor.execute("""
-                SELECT id, category FROM saved_images WHERE category IS NOT NULL AND category != 'No category'
-            """)
-            old_categories = cursor.fetchall()
-
-            for image_id, category in old_categories:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO image_categories (image_id, category_name, created_at)
-                    VALUES (?, ?, ?)
-                """, (image_id, category, datetime.now().isoformat()))
-
-            # Drop old table and rename new one
-            cursor.execute("DROP TABLE saved_images")
-            cursor.execute("ALTER TABLE saved_images_new RENAME TO saved_images")
-
-            # Create indexes on new columns
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_rootfolder ON saved_images(rootfolder_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_physical_path ON saved_images(physical_path)")
-
-            conn.commit()
-            logger.info(f"Migration complete: saved_images updated, {len(old_categories)} categories migrated")
-
-        # Migration 4: Add 'auto_connect' column to projects if it doesn't exist
-        cursor.execute("PRAGMA table_info(projects)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if 'auto_connect' not in columns:
-            logger.info("[MIGRATION] Adding 'auto_connect' column to projects table...")
-            cursor.execute("ALTER TABLE projects ADD COLUMN auto_connect INTEGER DEFAULT 0")
-            conn.commit()
-            logger.info("Migration complete: projects now supports auto_connect")
-
-        # Migration 5: Add 'color' column to database_connections if it doesn't exist
-        cursor.execute("PRAGMA table_info(database_connections)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if 'color' not in columns:
-            logger.info("[MIGRATION] Adding 'color' column to database_connections table...")
-            cursor.execute("ALTER TABLE database_connections ADD COLUMN color TEXT")
-            conn.commit()
-            logger.info("Migration complete: database_connections now supports color")
-
-        # Ensure image indexes exist (for fresh installs or post-migration)
-        try:
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_rootfolder ON saved_images(rootfolder_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_physical_path ON saved_images(physical_path)")
-            conn.commit()
-        except Exception:
-            pass  # Indexes may already exist or columns don't exist yet
-
-        conn.close()
+        # Initialize connection pool and repositories
+        self._pool = ConnectionPool(self.db_path)
+        self._db_conn_repo = DatabaseConnectionRepository(self._pool)
+        self._query_repo = SavedQueryRepository(self._pool)
+        self._project_repo = ProjectRepository(self._pool)
+        self._file_root_repo = FileRootRepository(self._pool)
+        self._ftp_root_repo = FTPRootRepository(self._pool)
+        self._script_repo = ScriptRepository(self._pool)
+        self._job_repo = JobRepository(self._pool)
+        self._image_rootfolder_repo = ImageRootfolderRepository(self._pool)
+        self._image_repo = SavedImageRepository(self._pool)
+        self._prefs_repo = UserPreferencesRepository(self._pool)
 
     # ==================== Database Connections ====================
 
     def get_all_database_connections(self) -> List[DatabaseConnection]:
-        """Get all database connections (including configuration.db)"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM database_connections ORDER BY name")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [DatabaseConnection(**dict(row)) for row in rows]
+        return self._db_conn_repo.get_all_connections()
 
     def get_business_database_connections(self) -> List[DatabaseConnection]:
-        """
-        Get business database connections only (excludes configuration.db).
-        Use this for script/job configuration where config DB should not be proposed.
-        """
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT * FROM database_connections
-            WHERE id != ?
-            ORDER BY name
-        """, (self.CONFIG_DB_ID,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [DatabaseConnection(**dict(row)) for row in rows]
+        return self._db_conn_repo.get_business_connections()
 
     def is_config_database(self, connection_id: str) -> bool:
-        """Check if a database connection is the configuration database"""
-        return connection_id == self.CONFIG_DB_ID
+        return self._db_conn_repo.is_config_database(connection_id)
 
     def get_database_connection(self, conn_id: str) -> Optional[DatabaseConnection]:
-        """Get a database connection by ID"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM database_connections WHERE id = ?", (conn_id,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        if row:
-            return DatabaseConnection(**dict(row))
-        return None
+        return self._db_conn_repo.get_by_id(conn_id)
 
     def add_database_connection(self, conn: DatabaseConnection) -> bool:
-        """Add a new database connection"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT INTO database_connections
-                (id, name, db_type, description, connection_string, created_at, updated_at, color)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (conn.id, conn.name, conn.db_type, conn.description,
-                  conn.connection_string, conn.created_at, conn.updated_at, conn.color))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding database connection: {e}")
-            return False
+        return self._db_conn_repo.add(conn)
 
     def update_database_connection(self, conn: DatabaseConnection) -> bool:
-        """Update an existing database connection"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            conn.updated_at = datetime.now().isoformat()
-
-            cursor.execute("""
-                UPDATE database_connections
-                SET name = ?, db_type = ?, description = ?,
-                    connection_string = ?, updated_at = ?, color = ?
-                WHERE id = ?
-            """, (conn.name, conn.db_type, conn.description,
-                  conn.connection_string, conn.updated_at, conn.color, conn.id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating database connection: {e}")
-            return False
+        return self._db_conn_repo.update(conn)
 
     def delete_database_connection(self, conn_id: str) -> bool:
-        """Delete a database connection"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("DELETE FROM database_connections WHERE id = ?", (conn_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting database connection: {e}")
-            return False
+        return self._db_conn_repo.delete(conn_id)
 
     def save_database_connection(self, conn: DatabaseConnection) -> bool:
-        """
-        Save a database connection (add if new, update if exists).
-
-        Args:
-            conn: DatabaseConnection object to save
-
-        Returns:
-            True if saved successfully, False otherwise
-        """
-        # Check if connection already exists
-        existing = self.get_database_connection(conn.id)
-
-        if existing:
-            return self.update_database_connection(conn)
-        else:
-            return self.add_database_connection(conn)
+        return self._db_conn_repo.save(conn)
 
     # ==================== Saved Queries ====================
 
     def get_all_saved_queries(self) -> List[SavedQuery]:
-        """Get all saved queries"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
+        return self._query_repo.get_all_queries()
 
-        cursor.execute("SELECT * FROM saved_queries ORDER BY category, name")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedQuery(**dict(row)) for row in rows]
+    def get_saved_query(self, query_id: str) -> Optional[SavedQuery]:
+        return self._query_repo.get_by_id(query_id)
 
     def add_saved_query(self, query: SavedQuery) -> bool:
-        """Add a new saved query"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT INTO saved_queries
-                (id, name, target_database_id, query_text, category, description,
-                 target_database_name, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (query.id, query.name, query.target_database_id, query.query_text,
-                  query.category, query.description, query.target_database_name or "",
-                  query.created_at, query.updated_at))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding saved query: {e}")
-            return False
+        return self._query_repo.add(query)
 
     def update_saved_query(self, query: SavedQuery) -> bool:
-        """Update an existing saved query"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            query.updated_at = datetime.now().isoformat()
-
-            cursor.execute("""
-                UPDATE saved_queries
-                SET name = ?, target_database_id = ?, query_text = ?,
-                    category = ?, description = ?, target_database_name = ?,
-                    updated_at = ?
-                WHERE id = ?
-            """, (query.name, query.target_database_id, query.query_text,
-                  query.category, query.description, query.target_database_name or "",
-                  query.updated_at, query.id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating saved query: {e}")
-            return False
+        return self._query_repo.update(query)
 
     def delete_saved_query(self, query_id: str) -> bool:
-        """Delete a saved query"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("DELETE FROM saved_queries WHERE id = ?", (query_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting saved query: {e}")
-            return False
+        return self._query_repo.delete(query_id)
 
     # ==================== Scripts ====================
 
     def get_all_scripts(self) -> List[Script]:
-        """Get all scripts"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM scripts ORDER BY name")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Script(**dict(row)) for row in rows]
+        return self._script_repo.get_all()
 
     def get_script(self, script_id: str) -> Optional[Script]:
-        """Get script by ID"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM scripts WHERE id = ?", (script_id,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        if row:
-            return Script(**dict(row))
-        return None
+        return self._script_repo.get_by_id(script_id)
 
     def add_script(self, script: Script) -> bool:
-        """Add a new script"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT INTO scripts
-                (id, name, description, script_type, parameters_schema, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (script.id, script.name, script.description, script.script_type,
-                  script.parameters_schema, script.created_at, script.updated_at))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding script: {e}")
-            return False
+        return self._script_repo.add(script)
 
     def update_script(self, script: Script) -> bool:
-        """Update an existing script"""
-        try:
-            script.updated_at = datetime.now().isoformat()
-
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                UPDATE scripts
-                SET name = ?, description = ?, script_type = ?, file_path = ?,
-                    parameters_schema = ?, updated_at = ?
-                WHERE id = ?
-            """, (script.name, script.description, script.script_type,
-                  script.file_path, script.parameters_schema, script.updated_at, script.id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating script: {e}")
-            return False
+        return self._script_repo.update(script)
 
     def delete_script(self, script_id: str) -> bool:
-        """Delete a script"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("DELETE FROM scripts WHERE id = ?", (script_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting script: {e}")
-            return False
+        return self._script_repo.delete(script_id)
 
     # ==================== Jobs ====================
 
     def get_all_jobs(self) -> List[Job]:
-        """Get all jobs"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM jobs ORDER BY name")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Job(**dict(row)) for row in rows]
+        return self._job_repo.get_all()
 
     def get_job(self, job_id: str) -> Optional[Job]:
-        """Get job by ID"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        if row:
-            return Job(**dict(row))
-        return None
-
-    def update_job(self, job: Job) -> bool:
-        """Update an existing job"""
-        try:
-            job.updated_at = datetime.now().isoformat()
-
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                UPDATE jobs
-                SET name = ?, description = ?, job_type = ?, script_id = ?, project_id = ?,
-                    parent_job_id = ?, previous_job_id = ?, parameters = ?, enabled = ?,
-                    updated_at = ?, last_run_at = ?
-                WHERE id = ?
-            """, (
-                job.name, job.description, job.job_type, job.script_id, job.project_id,
-                job.parent_job_id, job.previous_job_id, job.parameters, job.enabled,
-                job.updated_at, job.last_run_at, job.id
-            ))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating job: {e}")
-            return False
+        return self._job_repo.get_by_id(job_id)
 
     def add_job(self, job: Job) -> bool:
-        """Add a new job"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
+        return self._job_repo.add(job)
 
-            cursor.execute("""
-                INSERT INTO jobs
-                (id, name, description, job_type, script_id, project_id,
-                 parent_job_id, previous_job_id, parameters, enabled,
-                 created_at, updated_at, last_run_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                job.id, job.name, job.description, job.job_type, job.script_id,
-                job.project_id, job.parent_job_id, job.previous_job_id,
-                job.parameters, job.enabled, job.created_at, job.updated_at,
-                job.last_run_at
-            ))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding job: {e}")
-            return False
+    def update_job(self, job: Job) -> bool:
+        return self._job_repo.update(job)
 
     def delete_job(self, job_id: str) -> bool:
-        """Delete a job"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting job: {e}")
-            return False
+        return self._job_repo.delete(job_id)
 
     # ==================== Projects ====================
 
     def get_all_projects(self, sort_by_usage: bool = True) -> List[Project]:
-        """Get all projects"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        if sort_by_usage:
-            cursor.execute("""
-                SELECT * FROM projects
-                ORDER BY last_used_at DESC, name ASC
-            """)
-        else:
-            cursor.execute("SELECT * FROM projects ORDER BY name")
-
-        rows = cursor.fetchall()
-        db_conn.close()
-
-        return [Project(**dict(row)) for row in rows]
+        return self._project_repo.get_all_projects(sort_by_usage)
 
     def get_project(self, project_id: str) -> Optional[Project]:
-        """Get a project by ID"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
+        return self._project_repo.get_by_id(project_id)
 
-        cursor.execute("SELECT * FROM projects WHERE id = ?", (project_id,))
-        row = cursor.fetchone()
+    # Aliases for CachedConfigDB compatibility
+    def add_project(self, project: Project) -> bool:
+        return self._project_repo.add(project)
 
-        db_conn.close()
+    def update_project(self, project: Project) -> bool:
+        return self._project_repo.update(project)
 
-        if row:
-            return Project(**dict(row))
-        return None
+    def delete_project(self, project_id: str) -> bool:
+        return self._project_repo.delete(project_id)
 
-    # ==================== Workspaces (alias for Projects) ====================
+    # ==================== Workspaces (aliases for Projects) ====================
 
-    # Alias methods for workspace terminology
     def get_all_workspaces(self, sort_by_usage: bool = True) -> List[Project]:
-        """Get all workspaces (alias for get_all_projects)"""
-        return self.get_all_projects(sort_by_usage)
+        return self._project_repo.get_all_projects(sort_by_usage)
 
     def get_workspace(self, workspace_id: str) -> Optional[Project]:
-        """Get a workspace by ID (alias for get_project)"""
-        return self.get_project(workspace_id)
+        return self._project_repo.get_by_id(workspace_id)
 
     def add_workspace(self, workspace: Project) -> bool:
-        """Add a new workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT INTO projects
-                (id, name, description, is_default, auto_connect, created_at, updated_at, last_used_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (workspace.id, workspace.name, workspace.description,
-                  1 if workspace.is_default else 0,
-                  1 if workspace.auto_connect else 0,
-                  workspace.created_at, workspace.updated_at, workspace.last_used_at))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding workspace: {e}")
-            return False
+        return self._project_repo.add(workspace)
 
     def update_workspace(self, workspace: Project) -> bool:
-        """Update an existing workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            workspace.updated_at = datetime.now().isoformat()
-
-            cursor.execute("""
-                UPDATE projects
-                SET name = ?, description = ?, is_default = ?, auto_connect = ?,
-                    updated_at = ?, last_used_at = ?
-                WHERE id = ?
-            """, (workspace.name, workspace.description,
-                  1 if workspace.is_default else 0,
-                  1 if workspace.auto_connect else 0,
-                  workspace.updated_at, workspace.last_used_at, workspace.id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating workspace: {e}")
-            return False
-
-    def get_auto_connect_workspace(self) -> Optional[Project]:
-        """
-        Get the workspace with auto_connect enabled.
-        Only one workspace can have auto_connect at a time.
-        Returns None if no workspace has auto_connect enabled.
-        """
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM projects WHERE auto_connect = 1 LIMIT 1")
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        if row:
-            return Project(**dict(row))
-        return None
-
-    def set_workspace_auto_connect(self, workspace_id: str, auto_connect: bool) -> bool:
-        """
-        Set auto_connect for a workspace.
-        If enabling, disables auto_connect on all other workspaces first.
-        """
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            if auto_connect:
-                # Disable auto_connect on all other workspaces
-                cursor.execute("UPDATE projects SET auto_connect = 0")
-
-            # Set auto_connect for this workspace
-            cursor.execute(
-                "UPDATE projects SET auto_connect = ?, updated_at = ? WHERE id = ?",
-                (1 if auto_connect else 0, datetime.now().isoformat(), workspace_id)
-            )
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error setting workspace auto_connect: {e}")
-            return False
+        return self._project_repo.update(workspace)
 
     def delete_workspace(self, workspace_id: str) -> bool:
-        """Delete a workspace (cascade deletes junction table entries)"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("DELETE FROM projects WHERE id = ?", (workspace_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting workspace: {e}")
-            return False
+        return self._project_repo.delete(workspace_id)
 
     def touch_workspace(self, workspace_id: str) -> bool:
-        """Update last_used_at timestamp for a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
+        return self._project_repo.touch(workspace_id)
 
-            cursor.execute("""
-                UPDATE projects
-                SET last_used_at = ?
-                WHERE id = ?
-            """, (datetime.now().isoformat(), workspace_id))
+    def get_auto_connect_workspace(self) -> Optional[Project]:
+        return self._project_repo.get_auto_connect()
 
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error touching workspace: {e}")
-            return False
+    def set_workspace_auto_connect(self, workspace_id: str, auto_connect: bool) -> bool:
+        return self._project_repo.set_auto_connect(workspace_id, auto_connect)
 
     # ==================== Workspace-Database Relations ====================
 
     def add_database_to_workspace(self, workspace_id: str, database_id: str,
                                    database_name: str = None) -> bool:
-        """
-        Add a database to a workspace.
-
-        Args:
-            workspace_id: Workspace ID
-            database_id: Database connection (server) ID
-            database_name: Specific database name (None or '' = all databases on server)
-        """
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO project_databases
-                (project_id, database_id, database_name, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (workspace_id, database_id, database_name or '',
-                  datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding database to workspace: {e}")
-            return False
+        return self._project_repo.add_database(workspace_id, database_id, database_name)
 
     def remove_database_from_workspace(self, workspace_id: str, database_id: str,
                                         database_name: str = None) -> bool:
-        """
-        Remove a database from a workspace.
-
-        Args:
-            workspace_id: Workspace ID
-            database_id: Database connection (server) ID
-            database_name: Specific database name (None or '' = all databases on server)
-        """
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                DELETE FROM project_databases
-                WHERE project_id = ? AND database_id = ? AND database_name = ?
-            """, (workspace_id, database_id, database_name or ''))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing database from workspace: {e}")
-            return False
+        return self._project_repo.remove_database(workspace_id, database_id, database_name)
 
     def get_workspace_databases(self, workspace_id: str) -> List[DatabaseConnection]:
-        """Get all database connections (servers) in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT DISTINCT dc.* FROM database_connections dc
-            INNER JOIN project_databases pd ON dc.id = pd.database_id
-            WHERE pd.project_id = ?
-            ORDER BY dc.name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [DatabaseConnection(**dict(row)) for row in rows]
+        return self._project_repo.get_databases(workspace_id)
 
     def get_workspace_databases_with_context(self, workspace_id: str) -> List[WorkspaceDatabase]:
-        """
-        Get all databases in a workspace WITH their database_name context.
-
-        Returns WorkspaceDatabase objects that include:
-        - The DatabaseConnection object (server config)
-        - The database_name (empty string if whole server, specific name if single DB)
-
-        This is the preferred method for WorkspaceManager to get complete information.
-        """
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT dc.*, pd.database_name
-            FROM database_connections dc
-            INNER JOIN project_databases pd ON dc.id = pd.database_id
-            WHERE pd.project_id = ?
-            ORDER BY dc.name, pd.database_name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        result = []
-        for row in rows:
-            row_dict = dict(row)
-            database_name = row_dict.pop('database_name', '') or ''
-            connection = DatabaseConnection(**row_dict)
-            result.append(WorkspaceDatabase(connection=connection, database_name=database_name))
-
-        return result
+        return self._project_repo.get_databases_with_context(workspace_id)
 
     def get_workspace_database_entries(self, workspace_id: str) -> List[Tuple[str, str, str]]:
-        """
-        Get all database entries in a workspace with details.
-
-        Returns:
-            List of tuples: (database_id, database_name, created_at)
-            database_name = '' means all databases on that server
-        """
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT database_id, database_name, created_at FROM project_databases
-            WHERE project_id = ?
-            ORDER BY database_id, database_name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [(row[0], row[1], row[2]) for row in rows]
+        return self._project_repo.get_database_entries(workspace_id)
 
     def get_workspace_database_ids(self, workspace_id: str) -> List[str]:
-        """Get all database IDs in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT DISTINCT database_id FROM project_databases
-            WHERE project_id = ?
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._project_repo.get_database_ids(workspace_id)
 
     def get_database_workspaces(self, database_id: str, database_name: str = None) -> List[Project]:
-        """
-        Get all workspaces that contain a database.
-
-        Args:
-            database_id: Database connection (server) ID
-            database_name: Specific database name (None = check server-level only,
-                          '' = check server-level, or provide specific name)
-        """
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        if database_name is not None:
-            # Check for specific database_name (or '' for server-level)
-            cursor.execute("""
-                SELECT p.* FROM projects p
-                INNER JOIN project_databases pd ON p.id = pd.project_id
-                WHERE pd.database_id = ? AND pd.database_name = ?
-                ORDER BY p.name
-            """, (database_id, database_name))
-        else:
-            # Get all workspaces that have this server (any database_name)
-            cursor.execute("""
-                SELECT DISTINCT p.* FROM projects p
-                INNER JOIN project_databases pd ON p.id = pd.project_id
-                WHERE pd.database_id = ?
-                ORDER BY p.name
-            """, (database_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Project(**dict(row)) for row in rows]
+        return self._project_repo.get_database_workspaces(database_id, database_name)
 
     def is_database_in_workspace(self, workspace_id: str, database_id: str,
                                   database_name: str = None) -> bool:
-        """
-        Check if a database (server or specific db) is in a workspace.
-
-        Args:
-            workspace_id: Workspace ID
-            database_id: Database connection (server) ID
-            database_name: Specific database name (None or '' = server-level)
-        """
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT 1 FROM project_databases
-            WHERE project_id = ? AND database_id = ? AND database_name = ?
-            LIMIT 1
-        """, (workspace_id, database_id, database_name or ''))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        return row is not None
+        return self._project_repo.is_database_in_project(workspace_id, database_id, database_name)
 
     # ==================== Workspace-Query Relations ====================
 
     def add_query_to_workspace(self, workspace_id: str, query_id: str) -> bool:
-        """Add a query to a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO project_queries
-                (project_id, query_id, created_at)
-                VALUES (?, ?, ?)
-            """, (workspace_id, query_id, datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding query to workspace: {e}")
-            return False
+        return self._project_repo.add_query(workspace_id, query_id)
 
     def remove_query_from_workspace(self, workspace_id: str, query_id: str) -> bool:
-        """Remove a query from a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                DELETE FROM project_queries
-                WHERE project_id = ? AND query_id = ?
-            """, (workspace_id, query_id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing query from workspace: {e}")
-            return False
+        return self._project_repo.remove_query(workspace_id, query_id)
 
     def get_workspace_queries(self, workspace_id: str) -> List[SavedQuery]:
-        """Get all queries in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT sq.* FROM saved_queries sq
-            INNER JOIN project_queries pq ON sq.id = pq.query_id
-            WHERE pq.project_id = ?
-            ORDER BY sq.name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedQuery(**dict(row)) for row in rows]
+        return self._project_repo.get_queries(workspace_id)
 
     def get_workspace_query_ids(self, workspace_id: str) -> List[str]:
-        """Get all query IDs in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT query_id FROM project_queries
-            WHERE project_id = ?
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._project_repo.get_query_ids(workspace_id)
 
     def get_query_workspaces(self, query_id: str) -> List[Project]:
-        """Get all workspaces that contain a query"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
+        return self._project_repo.get_query_workspaces(query_id)
 
-        cursor.execute("""
-            SELECT p.* FROM projects p
-            INNER JOIN project_queries pq ON p.id = pq.project_id
-            WHERE pq.query_id = ?
-            ORDER BY p.name
-        """, (query_id,))
-        rows = cursor.fetchall()
+    # ==================== File Roots ====================
 
-        db_conn.close()
+    def get_all_file_roots(self) -> List[FileRoot]:
+        return self._file_root_repo.get_all_file_roots()
 
-        return [Project(**dict(row)) for row in rows]
+    def get_file_root(self, root_id: str) -> Optional[FileRoot]:
+        return self._file_root_repo.get_by_id(root_id)
+
+    def add_file_root(self, root: FileRoot) -> bool:
+        return self._file_root_repo.add(root)
+
+    def update_file_root(self, root: FileRoot) -> bool:
+        return self._file_root_repo.update(root)
+
+    def delete_file_root(self, root_id: str) -> bool:
+        return self._file_root_repo.delete(root_id)
+
+    def get_project_file_roots(self, project_id: str) -> List[FileRoot]:
+        return self._project_repo.get_file_roots(project_id)
+
+    def _save_file_root(self, file_root: FileRoot):
+        """Save or update a file root (used internally by rootfolder_manager)."""
+        self._file_root_repo.save(file_root)
+
+    def _delete_file_root(self, file_root_id: str):
+        """Delete a file root (used internally by rootfolder_manager)."""
+        self._file_root_repo.delete(file_root_id)
 
     # ==================== Workspace-FileRoot Relations ====================
 
     def add_file_root_to_workspace(self, workspace_id: str, file_root_id: str,
                                     subfolder_path: str = None) -> bool:
-        """Add a file root to a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO project_file_roots
-                (project_id, file_root_id, subfolder_path, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (workspace_id, file_root_id, subfolder_path or '',
-                  datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding file root to workspace: {e}")
-            return False
+        return self._project_repo.add_file_root(workspace_id, file_root_id, subfolder_path)
 
     def remove_file_root_from_workspace(self, workspace_id: str, file_root_id: str) -> bool:
-        """Remove a file root from a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                DELETE FROM project_file_roots
-                WHERE project_id = ? AND file_root_id = ?
-            """, (workspace_id, file_root_id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing file root from workspace: {e}")
-            return False
+        return self._project_repo.remove_file_root_all(workspace_id, file_root_id)
 
     def get_workspace_file_roots(self, workspace_id: str) -> List[FileRoot]:
-        """Get all file roots in a workspace (alias for get_project_file_roots)"""
-        return self.get_project_file_roots(workspace_id)
+        return self._project_repo.get_file_roots(workspace_id)
 
     def get_workspace_file_roots_with_context(self, workspace_id: str) -> List[WorkspaceFileRoot]:
-        """
-        Get all file roots in a workspace WITH their subfolder context.
-
-        Returns WorkspaceFileRoot objects that include:
-        - The FileRoot object
-        - The subfolder_path (empty string if root, relative path if subfolder)
-
-        This is the preferred method for WorkspaceManager to get complete information.
-        """
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT fr.*, pfr.subfolder_path
-            FROM file_roots fr
-            INNER JOIN project_file_roots pfr ON fr.id = pfr.file_root_id
-            WHERE pfr.project_id = ?
-            ORDER BY pfr.subfolder_path, fr.path
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        result = []
-        for row in rows:
-            row_dict = dict(row)
-            subfolder_path = row_dict.pop('subfolder_path', '') or ''
-            file_root = FileRoot(**row_dict)
-            result.append(WorkspaceFileRoot(file_root=file_root, subfolder_path=subfolder_path))
-
-        return result
+        return self._project_repo.get_file_roots_with_context(workspace_id)
 
     def get_workspace_file_root_ids(self, workspace_id: str) -> List[str]:
-        """Get all file root IDs in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT file_root_id FROM project_file_roots
-            WHERE project_id = ?
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._project_repo.get_file_root_ids(workspace_id)
 
     def get_file_root_workspaces(self, file_root_id: str, subfolder_path: str = None) -> List[Project]:
-        """Get all workspaces that contain a file root (optionally with specific subfolder)"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        if subfolder_path:
-            cursor.execute("""
-                SELECT p.* FROM projects p
-                INNER JOIN project_file_roots pfr ON p.id = pfr.project_id
-                WHERE pfr.file_root_id = ? AND pfr.subfolder_path = ?
-                ORDER BY p.name
-            """, (file_root_id, subfolder_path))
-        else:
-            cursor.execute("""
-                SELECT p.* FROM projects p
-                INNER JOIN project_file_roots pfr ON p.id = pfr.project_id
-                WHERE pfr.file_root_id = ?
-                ORDER BY p.name
-            """, (file_root_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Project(**dict(row)) for row in rows]
+        return self._project_repo.get_file_root_workspaces(file_root_id, subfolder_path)
 
     # ==================== Workspace-Job Relations ====================
 
     def add_job_to_workspace(self, workspace_id: str, job_id: str) -> bool:
-        """Add a job to a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO project_jobs
-                (project_id, job_id, created_at)
-                VALUES (?, ?, ?)
-            """, (workspace_id, job_id, datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding job to workspace: {e}")
-            return False
+        return self._project_repo.add_job(workspace_id, job_id)
 
     def remove_job_from_workspace(self, workspace_id: str, job_id: str) -> bool:
-        """Remove a job from a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
+        return self._project_repo.remove_job(workspace_id, job_id)
 
-            cursor.execute("""
-                DELETE FROM project_jobs
-                WHERE project_id = ? AND job_id = ?
-            """, (workspace_id, job_id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing job from workspace: {e}")
-            return False
-
-    def get_workspace_jobs(self, workspace_id: str) -> List:
-        """Get all jobs in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT j.* FROM jobs j
-            INNER JOIN project_jobs pj ON j.id = pj.job_id
-            WHERE pj.project_id = ?
-            ORDER BY j.name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Job(**dict(row)) for row in rows]
+    def get_workspace_jobs(self, workspace_id: str) -> List[Job]:
+        return self._project_repo.get_jobs(workspace_id)
 
     def get_workspace_job_ids(self, workspace_id: str) -> List[str]:
-        """Get all job IDs in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT job_id FROM project_jobs
-            WHERE project_id = ?
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._project_repo.get_job_ids(workspace_id)
 
     def get_job_workspaces(self, job_id: str) -> List[Project]:
-        """Get all workspaces that contain a job"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT p.* FROM projects p
-            INNER JOIN project_jobs pj ON p.id = pj.project_id
-            WHERE pj.job_id = ?
-            ORDER BY p.name
-        """, (job_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Project(**dict(row)) for row in rows]
+        return self._project_repo.get_job_workspaces(job_id)
 
     # ==================== Workspace-Script Relations ====================
 
     def add_script_to_workspace(self, workspace_id: str, script_id: str) -> bool:
-        """Add a script to a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO project_scripts
-                (project_id, script_id, created_at)
-                VALUES (?, ?, ?)
-            """, (workspace_id, script_id, datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding script to workspace: {e}")
-            return False
+        return self._project_repo.add_script(workspace_id, script_id)
 
     def remove_script_from_workspace(self, workspace_id: str, script_id: str) -> bool:
-        """Remove a script from a workspace"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                DELETE FROM project_scripts
-                WHERE project_id = ? AND script_id = ?
-            """, (workspace_id, script_id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing script from workspace: {e}")
-            return False
+        return self._project_repo.remove_script(workspace_id, script_id)
 
     def get_workspace_scripts(self, workspace_id: str) -> List[Script]:
-        """Get all scripts in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT s.* FROM scripts s
-            INNER JOIN project_scripts ps ON s.id = ps.script_id
-            WHERE ps.project_id = ?
-            ORDER BY s.script_type, s.name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Script(**dict(row)) for row in rows]
+        return self._project_repo.get_scripts(workspace_id)
 
     def get_workspace_script_ids(self, workspace_id: str) -> List[str]:
-        """Get all script IDs in a workspace"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT script_id FROM project_scripts
-            WHERE project_id = ?
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._project_repo.get_script_ids(workspace_id)
 
     def get_script_workspaces(self, script_id: str) -> List[Project]:
-        """Get all workspaces that contain a script"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT p.* FROM projects p
-            INNER JOIN project_scripts ps ON p.id = ps.project_id
-            WHERE ps.script_id = ?
-            ORDER BY p.name
-        """, (script_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Project(**dict(row)) for row in rows]
-
-    # ==================== File Roots ====================
-
-    def get_all_file_roots(self) -> List[FileRoot]:
-        """Get all file roots"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM file_roots ORDER BY path")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [FileRoot(**dict(row)) for row in rows]
-
-    def get_project_file_roots(self, project_id: str) -> List[FileRoot]:
-        """Get all file roots associated with a project"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT fr.* FROM file_roots fr
-            INNER JOIN project_file_roots pfr ON fr.id = pfr.file_root_id
-            WHERE pfr.project_id = ?
-            ORDER BY fr.path
-        """, (project_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [FileRoot(**dict(row)) for row in rows]
-
-    def _save_file_root(self, file_root: FileRoot):
-        """Save or update a file root"""
-        from datetime import datetime
-
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        # Set timestamps if not provided
-        now = datetime.now().isoformat()
-        created_at = file_root.created_at or now
-        updated_at = now
-
-        cursor.execute("""
-            INSERT OR REPLACE INTO file_roots (id, path, name, description, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (file_root.id, file_root.path, file_root.name or '', file_root.description or '', created_at, updated_at))
-
-        db_conn.commit()
-        db_conn.close()
-
-    def _delete_file_root(self, file_root_id: str):
-        """Delete a file root"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("DELETE FROM file_roots WHERE id = ?", (file_root_id,))
-
-        db_conn.commit()
-        db_conn.close()
+        return self._project_repo.get_script_workspaces(script_id)
 
     # ==================== FTP Roots ====================
 
     def get_all_ftp_roots(self) -> List[FTPRoot]:
-        """Get all FTP roots."""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM ftp_roots ORDER BY name")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        result = []
-        for row in rows:
-            row_dict = dict(row)
-            # Convert passive_mode from int to bool
-            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
-            result.append(FTPRoot(**row_dict))
-        return result
+        return self._ftp_root_repo.get_all()
 
     def get_ftp_root(self, ftp_root_id: str) -> Optional[FTPRoot]:
-        """Get an FTP root by ID."""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM ftp_roots WHERE id = ?", (ftp_root_id,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        if row:
-            row_dict = dict(row)
-            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
-            return FTPRoot(**row_dict)
-        return None
+        return self._ftp_root_repo.get_by_id(ftp_root_id)
 
     def save_ftp_root(self, ftp_root: FTPRoot) -> bool:
-        """Save (insert or update) an FTP root."""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            now = datetime.now().isoformat()
-            ftp_root.updated_at = now
-            if not ftp_root.created_at:
-                ftp_root.created_at = now
-
-            cursor.execute("""
-                INSERT OR REPLACE INTO ftp_roots
-                (id, name, protocol, host, port, initial_path, passive_mode, description, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                ftp_root.id,
-                ftp_root.name,
-                ftp_root.protocol,
-                ftp_root.host,
-                ftp_root.port,
-                ftp_root.initial_path,
-                1 if ftp_root.passive_mode else 0,
-                ftp_root.description or '',
-                ftp_root.created_at,
-                ftp_root.updated_at
-            ))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error saving FTP root: {e}")
-            return False
+        return self._ftp_root_repo.save(ftp_root)
 
     def delete_ftp_root(self, ftp_root_id: str) -> bool:
-        """Delete an FTP root."""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
+        return self._ftp_root_repo.delete(ftp_root_id)
 
-            cursor.execute("DELETE FROM ftp_roots WHERE id = ?", (ftp_root_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting FTP root: {e}")
-            return False
+    # ==================== Workspace-FTP Relations ====================
 
     def add_ftp_root_to_workspace(self, workspace_id: str, ftp_root_id: str,
                                    subfolder_path: str = None) -> bool:
-        """Add an FTP root to a workspace."""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            now = datetime.now().isoformat()
-            subfolder = subfolder_path or ''
-
-            cursor.execute("""
-                INSERT OR REPLACE INTO project_ftp_roots
-                (project_id, ftp_root_id, subfolder_path, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (workspace_id, ftp_root_id, subfolder, now))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding FTP root to workspace: {e}")
-            return False
+        return self._project_repo.add_ftp_root(workspace_id, ftp_root_id, subfolder_path)
 
     def remove_ftp_root_from_workspace(self, workspace_id: str, ftp_root_id: str) -> bool:
-        """Remove an FTP root from a workspace."""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                DELETE FROM project_ftp_roots
-                WHERE project_id = ? AND ftp_root_id = ?
-            """, (workspace_id, ftp_root_id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing FTP root from workspace: {e}")
-            return False
+        return self._project_repo.remove_ftp_root(workspace_id, ftp_root_id)
 
     def get_workspace_ftp_roots(self, workspace_id: str) -> List[FTPRoot]:
-        """Get all FTP roots in a workspace."""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT fr.* FROM ftp_roots fr
-            INNER JOIN project_ftp_roots pfr ON fr.id = pfr.ftp_root_id
-            WHERE pfr.project_id = ?
-            ORDER BY fr.name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        result = []
-        for row in rows:
-            row_dict = dict(row)
-            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
-            result.append(FTPRoot(**row_dict))
-        return result
+        return self._project_repo.get_ftp_roots(workspace_id)
 
     def get_workspace_ftp_roots_with_context(self, workspace_id: str) -> List[WorkspaceFTPRoot]:
-        """Get all FTP roots in a workspace with subfolder context."""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT fr.*, pfr.subfolder_path FROM ftp_roots fr
-            INNER JOIN project_ftp_roots pfr ON fr.id = pfr.ftp_root_id
-            WHERE pfr.project_id = ?
-            ORDER BY fr.name
-        """, (workspace_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        result = []
-        for row in rows:
-            row_dict = dict(row)
-            subfolder_path = row_dict.pop('subfolder_path', '')
-            row_dict['passive_mode'] = bool(row_dict.get('passive_mode', 1))
-            ftp_root = FTPRoot(**row_dict)
-            result.append(WorkspaceFTPRoot(ftp_root=ftp_root, subfolder_path=subfolder_path))
-        return result
+        return self._project_repo.get_ftp_roots_with_context(workspace_id)
 
     def get_ftp_root_workspaces(self, ftp_root_id: str, subfolder_path: str = None) -> List[Workspace]:
-        """Get all workspaces that contain an FTP root (optionally with specific subfolder)."""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        if subfolder_path:
-            cursor.execute("""
-                SELECT p.* FROM projects p
-                INNER JOIN project_ftp_roots pfr ON p.id = pfr.project_id
-                WHERE pfr.ftp_root_id = ? AND pfr.subfolder_path = ?
-                ORDER BY p.name
-            """, (ftp_root_id, subfolder_path))
-        else:
-            cursor.execute("""
-                SELECT p.* FROM projects p
-                INNER JOIN project_ftp_roots pfr ON p.id = pfr.project_id
-                WHERE pfr.ftp_root_id = ?
-                ORDER BY p.name
-            """, (ftp_root_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [Workspace(**dict(row)) for row in rows]
+        return self._project_repo.get_ftp_root_workspaces(ftp_root_id, subfolder_path)
 
     # ==================== User Preferences ====================
 
     def get_preference(self, key: str, default: str = None) -> Optional[str]:
-        """Get a user preference value by key"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT value FROM user_preferences WHERE key = ?", (key,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        if row:
-            return row[0]
-        return default
+        return self._prefs_repo.get(key, default)
 
     def set_preference(self, key: str, value: str) -> bool:
-        """Set a user preference value (insert or update)"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT INTO user_preferences (key, value, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
-            """, (key, value, datetime.now().isoformat(), value, datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error setting preference: {e}")
-            return False
+        return self._prefs_repo.set(key, value)
 
     def get_all_preferences(self) -> dict:
-        """Get all user preferences as a dictionary"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT key, value FROM user_preferences")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return {row[0]: row[1] for row in rows}
+        return self._prefs_repo.get_all()
 
     # ==================== Image Rootfolders ====================
 
     def get_all_image_rootfolders(self) -> List[ImageRootfolder]:
-        """Get all image rootfolders"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM image_rootfolders ORDER BY name")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [ImageRootfolder(**dict(row)) for row in rows]
+        return self._image_rootfolder_repo.get_all()
 
     def get_image_rootfolder(self, rootfolder_id: str) -> Optional[ImageRootfolder]:
-        """Get an image rootfolder by ID"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM image_rootfolders WHERE id = ?", (rootfolder_id,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        return ImageRootfolder(**dict(row)) if row else None
+        return self._image_rootfolder_repo.get_by_id(rootfolder_id)
 
     def add_image_rootfolder(self, rootfolder: ImageRootfolder) -> bool:
-        """Add a new image rootfolder"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT INTO image_rootfolders
-                (id, path, name, description, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (rootfolder.id, rootfolder.path, rootfolder.name,
-                  rootfolder.description, rootfolder.created_at, rootfolder.updated_at))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding image rootfolder: {e}")
-            return False
+        return self._image_rootfolder_repo.add(rootfolder)
 
     def update_image_rootfolder(self, rootfolder: ImageRootfolder) -> bool:
-        """Update an existing image rootfolder"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            rootfolder.updated_at = datetime.now().isoformat()
-
-            cursor.execute("""
-                UPDATE image_rootfolders
-                SET path = ?, name = ?, description = ?, updated_at = ?
-                WHERE id = ?
-            """, (rootfolder.path, rootfolder.name, rootfolder.description,
-                  rootfolder.updated_at, rootfolder.id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating image rootfolder: {e}")
-            return False
+        return self._image_rootfolder_repo.update(rootfolder)
 
     def delete_image_rootfolder(self, rootfolder_id: str) -> bool:
-        """Delete an image rootfolder (cascade deletes associated images)"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("DELETE FROM image_rootfolders WHERE id = ?", (rootfolder_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting image rootfolder: {e}")
-            return False
+        return self._image_rootfolder_repo.delete(rootfolder_id)
 
     # ==================== Saved Images ====================
 
     def get_all_saved_images(self) -> List[SavedImage]:
-        """Get all saved images"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM saved_images ORDER BY physical_path, name")
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedImage(**dict(row)) for row in rows]
+        return self._image_repo.get_all_images()
 
     def get_images_by_rootfolder(self, rootfolder_id: str) -> List[SavedImage]:
-        """Get all images in a rootfolder"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT * FROM saved_images
-            WHERE rootfolder_id = ?
-            ORDER BY physical_path, name
-        """, (rootfolder_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedImage(**dict(row)) for row in rows]
+        return self._image_repo.get_by_rootfolder(rootfolder_id)
 
     def get_images_by_physical_path(self, rootfolder_id: str, physical_path: str) -> List[SavedImage]:
-        """Get all images in a specific physical path within a rootfolder"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT * FROM saved_images
-            WHERE rootfolder_id = ? AND physical_path = ?
-            ORDER BY name
-        """, (rootfolder_id, physical_path))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedImage(**dict(row)) for row in rows]
+        return self._image_repo.get_by_physical_path(rootfolder_id, physical_path)
 
     def get_saved_image(self, image_id: str) -> Optional[SavedImage]:
-        """Get a saved image by ID"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM saved_images WHERE id = ?", (image_id,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        return SavedImage(**dict(row)) if row else None
+        return self._image_repo.get_by_id(image_id)
 
     def get_saved_image_by_filepath(self, filepath: str) -> Optional[SavedImage]:
-        """Get a saved image by filepath"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("SELECT * FROM saved_images WHERE filepath = ?", (filepath,))
-        row = cursor.fetchone()
-
-        db_conn.close()
-
-        return SavedImage(**dict(row)) if row else None
+        return self._image_repo.get_by_filepath(filepath)
 
     def add_saved_image(self, name: str, filepath: str, rootfolder_id: str = None,
                         physical_path: str = "", description: str = "") -> Optional[str]:
-        """
-        Add a new saved image.
-
-        Args:
-            name: Display name for the image
-            filepath: Absolute path to the image file
-            rootfolder_id: Optional FK to image_rootfolders
-            physical_path: Relative path within rootfolder (e.g., "Screenshots/2024")
-            description: Optional description
-
-        Returns:
-            Image ID if successful, None otherwise
-        """
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            image = SavedImage(
-                id=str(uuid.uuid4()),
-                name=name,
-                filepath=filepath,
-                rootfolder_id=rootfolder_id,
-                physical_path=physical_path,
-                description=description
-            )
-
-            cursor.execute("""
-                INSERT INTO saved_images
-                (id, name, filepath, rootfolder_id, physical_path, description, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (image.id, image.name, image.filepath, image.rootfolder_id,
-                  image.physical_path, image.description, image.created_at, image.updated_at))
-
-            db_conn.commit()
-            db_conn.close()
-            return image.id
-        except Exception as e:
-            logger.error(f"Error adding saved image: {e}")
-            return None
+        return self._image_repo.add_image(name, filepath, rootfolder_id, physical_path, description)
 
     def update_saved_image(self, image: SavedImage) -> bool:
-        """Update an existing saved image"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            image.updated_at = datetime.now().isoformat()
-
-            cursor.execute("""
-                UPDATE saved_images
-                SET name = ?, filepath = ?, rootfolder_id = ?, physical_path = ?,
-                    description = ?, updated_at = ?
-                WHERE id = ?
-            """, (image.name, image.filepath, image.rootfolder_id, image.physical_path,
-                  image.description, image.updated_at, image.id))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error updating saved image: {e}")
-            return False
+        return self._image_repo.update(image)
 
     def delete_saved_image(self, image_id: str) -> bool:
-        """Delete a saved image (cascade deletes categories and tags)"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("DELETE FROM saved_images WHERE id = ?", (image_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting saved image: {e}")
-            return False
+        return self._image_repo.delete(image_id)
 
     def delete_images_by_rootfolder(self, rootfolder_id: str) -> int:
-        """Delete all images in a rootfolder. Returns count of deleted images."""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("SELECT COUNT(*) FROM saved_images WHERE rootfolder_id = ?", (rootfolder_id,))
-            count = cursor.fetchone()[0]
-
-            cursor.execute("DELETE FROM saved_images WHERE rootfolder_id = ?", (rootfolder_id,))
-
-            db_conn.commit()
-            db_conn.close()
-            return count
-        except Exception as e:
-            logger.error(f"Error deleting images by rootfolder: {e}")
-            return 0
+        return self._image_repo.delete_by_rootfolder(rootfolder_id)
 
     # ==================== Image Categories ====================
 
     def get_image_categories(self, image_id: str) -> List[str]:
-        """Get all logical categories for an image"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT category_name FROM image_categories
-            WHERE image_id = ?
-            ORDER BY category_name
-        """, (image_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._image_repo.get_categories(image_id)
 
     def get_all_image_category_names(self) -> List[str]:
-        """Get all unique logical category names across all images"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT DISTINCT category_name FROM image_categories
-            ORDER BY category_name
-        """)
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._image_repo.get_all_category_names()
 
     def get_images_by_category(self, category_name: str) -> List[SavedImage]:
-        """Get all images in a logical category"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT si.* FROM saved_images si
-            INNER JOIN image_categories ic ON si.id = ic.image_id
-            WHERE ic.category_name = ?
-            ORDER BY si.name
-        """, (category_name,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedImage(**dict(row)) for row in rows]
+        return self._image_repo.get_by_category(category_name)
 
     def add_image_category(self, image_id: str, category_name: str) -> bool:
-        """Add a logical category to an image"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO image_categories (image_id, category_name, created_at)
-                VALUES (?, ?, ?)
-            """, (image_id, category_name, datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding image category: {e}")
-            return False
+        return self._image_repo.add_category(image_id, category_name)
 
     def remove_image_category(self, image_id: str, category_name: str) -> bool:
-        """Remove a logical category from an image"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                DELETE FROM image_categories
-                WHERE image_id = ? AND category_name = ?
-            """, (image_id, category_name))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing image category: {e}")
-            return False
+        return self._image_repo.remove_category(image_id, category_name)
 
     def set_image_categories(self, image_id: str, category_names: List[str]) -> bool:
-        """Set all logical categories for an image (replaces existing)"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            # Remove existing categories
-            cursor.execute("DELETE FROM image_categories WHERE image_id = ?", (image_id,))
-
-            # Add new categories
-            now = datetime.now().isoformat()
-            for cat_name in category_names:
-                if cat_name.strip():
-                    cursor.execute("""
-                        INSERT INTO image_categories (image_id, category_name, created_at)
-                        VALUES (?, ?, ?)
-                    """, (image_id, cat_name.strip(), now))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error setting image categories: {e}")
-            return False
+        return self._image_repo.set_categories(image_id, category_names)
 
     # ==================== Image Tags ====================
 
     def get_image_tags(self, image_id: str) -> List[str]:
-        """Get all tags for an image"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT tag_name FROM image_tags
-            WHERE image_id = ?
-            ORDER BY tag_name
-        """, (image_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._image_repo.get_tags(image_id)
 
     def get_all_image_tag_names(self) -> List[str]:
-        """Get all unique tag names across all images"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT DISTINCT tag_name FROM image_tags
-            ORDER BY tag_name
-        """)
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._image_repo.get_all_tag_names()
 
     def get_images_by_tag(self, tag_name: str) -> List[SavedImage]:
-        """Get all images with a specific tag"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT si.* FROM saved_images si
-            INNER JOIN image_tags it ON si.id = it.image_id
-            WHERE it.tag_name = ?
-            ORDER BY si.name
-        """, (tag_name,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedImage(**dict(row)) for row in rows]
+        return self._image_repo.get_by_tag(tag_name)
 
     def add_image_tag(self, image_id: str, tag_name: str) -> bool:
-        """Add a tag to an image"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                INSERT OR IGNORE INTO image_tags (image_id, tag_name, created_at)
-                VALUES (?, ?, ?)
-            """, (image_id, tag_name.strip().lower(), datetime.now().isoformat()))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding image tag: {e}")
-            return False
+        return self._image_repo.add_tag(image_id, tag_name)
 
     def remove_image_tag(self, image_id: str, tag_name: str) -> bool:
-        """Remove a tag from an image"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            cursor.execute("""
-                DELETE FROM image_tags
-                WHERE image_id = ? AND tag_name = ?
-            """, (image_id, tag_name))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing image tag: {e}")
-            return False
+        return self._image_repo.remove_tag(image_id, tag_name)
 
     def set_image_tags(self, image_id: str, tag_names: List[str]) -> bool:
-        """Set all tags for an image (replaces existing)"""
-        try:
-            db_conn = self._get_connection()
-            cursor = db_conn.cursor()
-
-            # Remove existing tags
-            cursor.execute("DELETE FROM image_tags WHERE image_id = ?", (image_id,))
-
-            # Add new tags (normalized to lowercase)
-            now = datetime.now().isoformat()
-            for tag in tag_names:
-                tag_clean = tag.strip().lower()
-                if tag_clean:
-                    cursor.execute("""
-                        INSERT INTO image_tags (image_id, tag_name, created_at)
-                        VALUES (?, ?, ?)
-                    """, (image_id, tag_clean, now))
-
-            db_conn.commit()
-            db_conn.close()
-            return True
-        except Exception as e:
-            logger.error(f"Error setting image tags: {e}")
-            return False
+        return self._image_repo.set_tags(image_id, tag_names)
 
     # ==================== Image Search ====================
 
     def search_images(self, query: str, search_name: bool = True,
                       search_categories: bool = True, search_tags: bool = True) -> List[SavedImage]:
-        """
-        Search images by name, categories, and/or tags.
-
-        Args:
-            query: Search query string
-            search_name: Include filename in search
-            search_categories: Include logical categories in search
-            search_tags: Include tags in search
-
-        Returns:
-            List of matching SavedImage objects (deduplicated)
-        """
-        if not query.strip():
-            return []
-
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        query_pattern = f"%{query.strip()}%"
-        image_ids = set()
-
-        # Search in name
-        if search_name:
-            cursor.execute("""
-                SELECT id FROM saved_images
-                WHERE name LIKE ? OR filepath LIKE ?
-            """, (query_pattern, query_pattern))
-            for row in cursor.fetchall():
-                image_ids.add(row[0])
-
-        # Search in categories
-        if search_categories:
-            cursor.execute("""
-                SELECT DISTINCT image_id FROM image_categories
-                WHERE category_name LIKE ?
-            """, (query_pattern,))
-            for row in cursor.fetchall():
-                image_ids.add(row[0])
-
-        # Search in tags
-        if search_tags:
-            cursor.execute("""
-                SELECT DISTINCT image_id FROM image_tags
-                WHERE tag_name LIKE ?
-            """, (query_pattern.lower(),))
-            for row in cursor.fetchall():
-                image_ids.add(row[0])
-
-        # Fetch full image objects
-        if not image_ids:
-            db_conn.close()
-            return []
-
-        placeholders = ",".join("?" * len(image_ids))
-        cursor.execute(f"""
-            SELECT * FROM saved_images
-            WHERE id IN ({placeholders})
-            ORDER BY name
-        """, list(image_ids))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [SavedImage(**dict(row)) for row in rows]
+        return self._image_repo.search(query, search_name, search_categories, search_tags)
 
     def get_image_physical_paths(self, rootfolder_id: str) -> List[str]:
-        """Get all unique physical paths within a rootfolder"""
-        db_conn = self._get_connection()
-        cursor = db_conn.cursor()
-
-        cursor.execute("""
-            SELECT DISTINCT physical_path FROM saved_images
-            WHERE rootfolder_id = ?
-            ORDER BY physical_path
-        """, (rootfolder_id,))
-        rows = cursor.fetchall()
-
-        db_conn.close()
-
-        return [row[0] for row in rows]
+        return self._image_repo.get_physical_paths(rootfolder_id)
 
 
 # Global configuration database instance

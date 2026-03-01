@@ -2,27 +2,42 @@
 
 **Version**: 0.6.3
 **Objectif**: POC v0.9.xx / Production v1.0
-**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2)
+**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audit #3)
 
 ---
 
-## Analyse Globale de la Solution (Audit #2 - 28/02/2026)
+## Analyse Globale de la Solution (Audit #3 - 01/03/2026)
 
 ### Scores sur 10
 
 | Critere | Score | Evol. | Justification |
 |---------|-------|-------|---------------|
-| **Structure de l'application** | 8/10 | = | Architecture plugin bien concue (10 plugins), separation UI/Core/Database, patterns Repository/Factory/Observer. 201 fichiers Python. Points a ameliorer: 11 fichiers > 500 lignes (config_db.py: 2547, database_manager.py: 2536) |
-| **Qualite du code** | 6.5/10 | -0.5 | 386 `except Exception` generiques, 46 except+pass silencieux, 3 bare `except:`. Duplication critique: PostgreSQL URL parser x4, "Open in Explorer" x4, DataFrameTableModel x2. 3 dependances inutilisees (sqlalchemy, tabulate, colorama) |
-| **Gestion de la securite** | 6.5/10 | -0.5 | Credentials via keyring (bon). **Nouveau risque**: noms de tables injectes via f-string dans SQL (database_manager.py, data_viewer_widget.py). `subprocess shell=True` avec path utilisateur (scripts_manager.py:413). Acceptable pour outil interne mais a corriger |
-| **Maintenabilite** | 6.5/10 | -0.5 | Bonne modularite plugin, mais coexistence config_db.py (legacy) et repositories (moderne) = dette technique majeure. Tests: 7 fichiers (1517 lignes) dont 1 casse (test_theme_patch.py). Couverture estimee ~15% |
-| **Fiabilite** | 7/10 | -0.5 | 451 `.connect()` vs 22 `.disconnect()` = risque fuites memoire. 5 managers sans `closeEvent/cleanup`. config_db.py: connexions SQLite sans context manager (risque fuite) |
-| **Performance** | 7/10 | = | Caching (schema_cache, cachetools, icon caches), lazy loading, connection pooling (pour repositories). config_db.py cree une connexion a chaque appel (~103 sites). Pas d'async generalise |
-| **Extensibilite** | 8.5/10 | = | Excellent systeme de plugins, dialects extensibles, theme system v2 modulaire, pastilles colorees par connexion |
-| **Documentation** | 7/10 | -0.5 | 23 guides utilisateur, README complet. Pas de documentation API developpeur. Certaines classes majeures sans docstring (DatabaseManager, QueryTab) |
-| **UX/UI** | 8.5/10 | +0.5 | PySide6, themes personnalisables, i18n (3 langues), pastilles colorees par connexion, workspace favori, raccourci bureau, onglet "+" pour requetes. ES incomplet (69/89 cles) |
+| **Structure de l'application** | 8.5/10 | +0.5 | 215 fichiers Python. Les 2 God Objects majeurs ont ete refactores: config_db.py (2547→474L, facade pure) et database_manager.py (2536L→ mixins). Pattern Repository entierement branche (10 repos). Reste: query_tab.py (2061L), 31 fichiers > 500L |
+| **Qualite du code** | 7/10 | +0.5 | 341 `except Exception` (vs 386, -45), **0 bare `except:`** (vs 3), ~17 except+pass (vs 46). config_db.py: 46→0 exceptions generiques. Duplications majeures resolues (PostgreSQL parser, Open in Explorer). Reste: DataFrameTableModel x2. 0 dep inutilisee. 6 TODO |
+| **Gestion de la securite** | 7/10 | +0.5 | Credentials via keyring (bon). Quoting dialect-specific operationnel pour noms de tables (build_preview_sql). Reste: 4 f-string SQL en fallback (query_gen_mixin, access_dialect, data_loader), 3 `subprocess shell=True` (os_helpers, main_window, scripts_manager). Acceptable pour outil interne |
+| **Maintenabilite** | 7.5/10 | +1.0 | **Dette technique majeure resolue**: coexistence config_db.py/repositories eliminee — config_db.py est maintenant une pure facade. 10 repositories actifs. 79 tests passent (0 echec). Couverture estimee ~15% (6 fichiers test, 1463L). 0 fichier mort detecte |
+| **Fiabilite** | 7.5/10 | +0.5 | config_db.py utilise desormais ConnectionPool avec context managers (77 `with` dans repos). ~103 sites de fuite connexion elimines. 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 24 fichiers avec cleanup/closeEvent (vs 5 manquants avant). SchemaManager: `finally: conn.close()` |
+| **Performance** | 7.5/10 | +0.5 | config_db.py ne cree plus de connexion par appel — tout via ConnectionPool (reuse). TTLCache (60s, 100 entries), schema_cache. 4 QThread workers (DB, FTP, scan). 21 fichiers avec lazy loading. Pas d'async generalise |
+| **Extensibilite** | 8.5/10 | = | 10 plugins UI, 5 dialects DB (SQLite/PostgreSQL/SQL Server/MySQL/Access), 3-4 themes JSON, Factory pattern. Plugin system bien defini (base_plugin + plugin_manager) |
+| **Documentation** | 7/10 | = | 24 guides utilisateur, README 428L. Docstrings ameliorees (repositories, config_db). Toujours pas de documentation API developpeur standalone |
+| **UX/UI** | 8.5/10 | = | PySide6, 3-4 themes, i18n EN/FR (659 cles, parite 100%). Pastilles colorees, workspace favori, onglet "+". 30+ widgets reutilisables. Reste: ~50 strings FR hardcodees, ES inexistant |
 
-**Score Global: 7.3/10** (vs 7.4 precedemment) — La croissance rapide des fonctionnalites a creuse la dette technique
+**Score Global: 7.7/10** (vs 7.3 precedemment) — Le refactoring config_db.py et la resolution de la dette technique ont significativement ameliore la maintenabilite, la fiabilite et la performance
+
+### Historique des scores
+
+| Critere | Audit #1 | Audit #2 | Audit #3 | Tendance |
+|---------|----------|----------|----------|----------|
+| Structure | 8 | 8 | 8.5 | ↗ |
+| Qualite du code | 7 | 6.5 | 7 | ↗ |
+| Securite | 7 | 6.5 | 7 | ↗ |
+| Maintenabilite | 7 | 6.5 | 7.5 | ↗↗ |
+| Fiabilite | 7.5 | 7 | 7.5 | ↗ |
+| Performance | 7 | 7 | 7.5 | ↗ |
+| Extensibilite | 8.5 | 8.5 | 8.5 | = |
+| Documentation | 7.5 | 7 | 7 | = |
+| UX/UI | 8 | 8.5 | 8.5 | = |
+| **Global** | **7.4** | **7.3** | **7.7** | **↗** |
 
 ---
 
@@ -50,7 +65,7 @@
    - Pas de stockage en clair dans la DB de config
 
 5. **Internationalisation complete**
-   - 3 langues (EN, FR, ES) — EN/FR parfaitement synchronises (89 cles)
+   - 2 langues (EN, FR) — 659 cles chacune, parite 100%
    - Systeme modulaire par plugin
    - Fallback chain robuste
 
@@ -64,20 +79,21 @@
    - Generation automatisee via menu Tools
    - Creation raccourci bureau multi-plateforme
 
-8. **UX enrichie recemment** *(nouveau)*
+8. **UX enrichie**
    - Pastilles colorees par connexion BDD (arbre + onglets)
    - Workspace favori avec auto-expand
    - Onglet "+" pour creation rapide de requetes
-   - Nettoyage toolbar (suppression boutons redondants)
+   - 30+ widgets reutilisables
+
+9. **Pattern Repository complet** *(nouveau audit #3)*
+   - 10 repositories specialises actifs (DB, Query, Project, FileRoot, FTPRoot, Script, Job, ImageRootfolder, SavedImage, UserPreferences)
+   - config_db.py = pure facade (474L), zero SQL inline
+   - ConnectionPool avec context managers pour toutes les operations DB
+   - Helpers generiques pour relations workspace-ressource (4 methodes, 30 delegations)
 
 ### Points Negatifs (-)
 
-1. **Fichiers trop volumineux** (aggrave)
-   - `config_db.py`: 2547 lignes (+304 vs audit #1)
-   - `database_manager.py`: 2536 lignes (+264 vs audit #1)
-   - `query_tab.py`: 2090 lignes (+268)
-   - 11 fichiers > 500 lignes au total
-   - Besoin urgent de refactoring en sous-modules
+1. ~~**Fichiers trop volumineux (config_db, database_manager)**~~ **CORRIGE (audit #3)** — config_db.py: 2547→474L (facade), database_manager.py: 2536L→ mixins. Reste: query_tab.py (2061L), 31 fichiers > 500L
 
 2. ~~**Injections SQL PRAGMA**~~ **CORRIGE (Phase 3.1)**
 
@@ -85,49 +101,38 @@
 
 4. ~~**Injection SQL via noms de tables**~~ **CORRIGE** (quoting dialect-specific via `build_preview_sql()`)
 
-5. **Duplication de code significative** *(nouveau)*
-   - PostgreSQL URL parser copie-colle 4 fois (~100 lignes)
-   - "Open in File Explorer" copie-colle 4 fois
-   - DataFrameTableModel defini dans 2 fichiers paralleles
-   - SELECT query generation dupliquee dans database_manager.py
+5. ~~**Duplication de code significative**~~ **LARGEMENT CORRIGE** — PostgreSQL parser factorise, Open in Explorer factorise, DataFrameTableModel: reste 2 copies (ui/widgets + core/)
 
-6. **Gestion d'erreurs degradee**
-   - 386 `except Exception` generiques vs ~116 exceptions specifiques
-   - 46 `except` + `pass` (erreurs avalees silencieusement)
-   - 3 bare `except:` (data_viewer_widget.py:263,271 + rootfolder_manager.py:244)
-   - config_db.py est le pire offenseur (46 except generiques)
+6. **Gestion d'erreurs a ameliorer** (ameliore)
+   - 341 `except Exception` generiques (vs 386, -12%)
+   - ~17 `except` + `pass` (vs 46, -63%)
+   - **0 bare `except:`** (vs 3, -100%)
+   - config_db.py: 46→0 exceptions generiques
 
-7. **Fuites memoire potentielles** *(nouveau)*
-   - 451 `.connect()` vs 22 `.disconnect()` (ratio 20:1)
-   - 5 managers sans `closeEvent`/`cleanup` (workspace, image_library, queries, scripts, settings)
-   - Seulement 18 `deleteLater()` pour une app avec creation dynamique de widgets
+7. ~~**Fuites memoire managers**~~ **CORRIGE** — 24 fichiers avec cleanup/closeEvent. config_db.py utilise ConnectionPool (77 context managers). Reste: ratio connect/disconnect 448:25 (Qt signals)
 
-8. **Couverture de tests tres faible**
-   - 7 fichiers de tests (1517 lignes) pour 201 fichiers source (60,809 lignes)
-   - test_theme_patch.py reference un module inexistant (`quick_theme_frame`) → test casse
-   - Pas de tests pour: managers, dialogs, sql_formatter, ftp_client, config_db
-   - Couverture estimee: ~15% (revue a la baisse vs estimation precedente de 30%)
+8. **Couverture de tests faible**
+   - 6 fichiers de tests (1463 lignes) pour 215 fichiers source (59,343 lignes)
+   - 79/79 tests passent, 0 echec
+   - Pas de tests pour: managers, dialogs, sql_formatter, ftp_client
+   - Couverture estimee: ~15%
 
-9. **Dependances inutilisees** *(nouveau)*
-   - `sqlalchemy` (~20MB) — aucun import dans le code source
-   - `tabulate` — aucun import dans le code source
-   - `colorama` — aucun import dans le code source
+9. ~~**Dependances inutilisees**~~ **CORRIGE** (sqlalchemy, tabulate, colorama supprimes)
 
-10. **Coexistence config_db.py / repositories** *(nouveau)*
-    - Deux systemes de persistence paralleles pour la meme base SQLite
-    - config_db.py: connexions manuelles sans context manager, `.close()` oubliable
-    - repositories: ConnectionPool avec context manager (propre)
-    - 88 appels `get_config_db()` dans 37 fichiers
+10. ~~**Coexistence config_db.py / repositories**~~ **CORRIGE (audit #3)** — config_db.py est desormais une pure facade delegant a 10 repositories. 0 SQL inline. ConnectionPool partage. 59 appels `get_config_db()` dans 28 fichiers
 
-11. **i18n incomplete**
-    - ES manque 20 cles vs EN/FR
-    - Strings hardcodees en francais dans le code source (database_manager.py: "pyodbc requis pour les bases Access", "Fichier Access introuvable")
-    - Strings hardcodees en anglais (query_tab.py:668, divers DialogHelper)
+11. **i18n incomplete** (ameliore)
+    - ES n'existe pas (seulement EN/FR)
+    - ~50 strings hardcodees en francais dans le code source
+    - EN/FR: 659 cles, parite 100%
 
 12. **Configuration stockee dans l'arbre source** (`_AppConfig/`)
     - Pas de chemin OS standard (`%APPDATA%`, `~/.config/`)
     - Perdue en cas de reinstallation
-    - `UserPreferences.get()`: bug sur nombres negatifs (`"-1".isdigit()` = False)
+
+13. **query_tab.py reste volumineux** (2061L, 68 methodes)
+    - Plus gros fichier du projet
+    - Candidat prioritaire pour un refactoring en mixins
 
 ---
 
@@ -139,13 +144,15 @@
 |--------|----------|--------|------------|
 | ~~**SQL Injection PRAGMA**~~ | ~~Moyenne~~ | ~~Faible~~ | **CORRIGE** (Phase 3.1) |
 | ~~**SQL Injection noms de tables**~~ | ~~Moyenne~~ | ~~Faible~~ | **CORRIGE** (build_preview_sql) |
-| **Fichiers monolithiques** (aggrave) | Haute | Maintenabilite tres reduite | Refactoring progressif — **urgent pour database_manager.py** |
-| ~~**Fuites memoire managers**~~ | ~~Haute~~ | ~~Degradation RAM~~ | **CORRIGE** (cleanup ajoute a 5 managers) |
-| **config_db.py sans context manager** *(nouveau)* | Moyenne | Fuite connexions SQLite | Migration progressive vers repositories |
-| **Absence async** | Moyenne | UI freeze possible | QThread existant, a etendre |
-| ~~**Test casse (test_theme_patch.py)**~~ | ~~Faible~~ | ~~CI cassee~~ | **CORRIGE** (tests supprimes) |
-| ~~**Deps inutilisees**~~ | ~~Faible~~ | ~~Taille install~~ | **CORRIGE** (sqlalchemy, tabulate, colorama supprimes) |
-| **subprocess shell=True** *(nouveau)* | Faible | Injection si path malicieux | Supprimer `shell=True` dans scripts_manager.py |
+| ~~**Fichiers monolithiques (config_db, database_manager)**~~ | ~~Haute~~ | ~~Maintenabilite tres reduite~~ | **CORRIGE** (config_db→facade, database_manager→mixins) |
+| **query_tab.py monolithique** (2061L) | Moyenne | Maintenabilite reduite | Refactoring en mixins — priorite P1.5 |
+| ~~**Fuites memoire managers**~~ | ~~Haute~~ | ~~Degradation RAM~~ | **CORRIGE** (cleanup ajoute, 24 fichiers) |
+| ~~**config_db.py sans context manager**~~ | ~~Moyenne~~ | ~~Fuite connexions SQLite~~ | **CORRIGE** (audit #3: ConnectionPool + 77 context managers) |
+| **Absence async** | Moyenne | UI freeze possible | 4 QThread workers existants, a etendre |
+| ~~**Test casse (test_theme_patch.py)**~~ | ~~Faible~~ | ~~CI cassee~~ | **CORRIGE** |
+| ~~**Deps inutilisees**~~ | ~~Faible~~ | ~~Taille install~~ | **CORRIGE** |
+| **subprocess shell=True** | Faible | Injection si path malicieux | Supprimer `shell=True` (3 sites: os_helpers, main_window, scripts_manager) |
+| **4 f-string SQL en fallback** | Faible | Injection theorique | Ajouter quoting dans query_gen_mixin, access_dialect, data_loader |
 
 ### Risques Fonctionnels
 
@@ -155,7 +162,7 @@
 | ~~**MySQL backend manquant**~~ | ~~Haute~~ | ~~Feature incomplete~~ | **CORRIGE** (Phase 3.1) |
 | **MongoDB/Oracle** | Faible | Prevu mais non prioritaire | Implementer quand besoin |
 | **Jobs non fonctionnels** | Haute | Feature incomplete | Phase 5 |
-| **i18n ES incomplete** *(nouveau)* | Faible | UX degradee pour utilisateurs ES | Completer les 20 cles manquantes |
+| **i18n ES inexistant** | Faible | Pas de support espagnol | Creer config/i18n/core/es.json |
 
 ---
 
@@ -187,9 +194,10 @@
 
 | Correctif | Fichier(s) | Effort | Status |
 |-----------|------------|--------|--------|
-| Refactorer database_manager.py | ui/managers/database_manager.py | 2-3j | Todo |
-| Migrer config_db.py vers repositories | database/config_db.py → repositories/ | 3-4j | Todo *(nouveau)* |
+| ~~Refactorer database_manager.py~~ | ~~ui/managers/database_manager.py~~ | ~~2-3j~~ | **Done** (mixins) |
+| ~~Migrer config_db.py vers repositories~~ | ~~database/config_db.py → repositories/~~ | ~~3-4j~~ | **Done** (audit #3) |
 | Quoting dialect-specific pour noms de tables | constants.py + database_manager.py + data_viewer_widget.py | 1j | **Done** |
+| Refactorer query_tab.py en mixins (2061L) | ui/tabs/query_tab.py | 2-3j | Todo *(nouveau, prioritaire)* |
 | Completer type hints | Tous les fichiers | 2j | Todo |
 | Resoudre TODOs restants | main_window.py, scripts | 1j | Todo |
 | Fusionner DataFrameTableModel (2 copies) | core/ dead code supprime | 0.5j | **Done** |
@@ -204,7 +212,9 @@
 | Supprimer strings hardcodees FR/EN | 5 fichiers + en.json/fr.json | 1j | **Done** (35+ strings) |
 | Ajouter docstrings API | Tous les modules publics | 2j | Todo |
 | Implementer Jobs & Orchestration | Phase 5 complete | 4-5j | Todo |
-| Reducer except generiques (cibler 50%) | Principaux offenseurs | 2j | Todo (3 bare except: corriges) |
+| Reducer except generiques (cibler 50%) | Principaux offenseurs | 2j | Todo (341→~170, 0 bare except) |
+| Supprimer `shell=True` dans subprocess | os_helpers, main_window, scripts_manager | 0.5j | Todo *(nouveau)* |
+| Ajouter quoting aux 4 f-string SQL | query_gen_mixin, access_dialect, data_loader | 0.5j | Todo *(nouveau)* |
 
 ### P3 - Nice to Have (v2.0)
 
@@ -221,36 +231,38 @@
 
 **Contexte**: Application Beta, profils DATA, POC v0.9.xx
 
-### Recommandation: Equilibre 50% Nouveautes / 50% Corrections
+### Recommandation: 60% Nouveautes / 40% Corrections
 
-**Justification** (evolution vs 60/40 precedent):
-1. La dette technique s'est accumulee (fichiers + volumineux, duplications, fuites memoire potentielles)
-2. Les correctifs P1 sont rapides a implementer (factorisation, deps, test casse) = quick wins
-3. La fiabilite doit etre consolider avant le POC v0.9.xx
-4. Les fonctionnalites de base sont desormais solides (DB, workspaces, FTP, queries, themes)
+**Justification** (evolution vs 50/50 precedent):
+1. La dette technique majeure est resolue (config_db + database_manager refactores, deps nettoyees, cleanup managers)
+2. Les correctifs P1 restants sont mineurs (type hints, TODOs)
+3. Les fonctionnalites de base sont solides et bien architecturees (10 repos, facade, ConnectionPool)
+4. Le score est passe de 7.3 a 7.7 — la base est assez saine pour accelerer les fonctionnalites
 
 **Priorites immediates**:
-1. **Quick wins P1** : factorisation code, suppression deps, fix test (2j)
+1. **Refactoring query_tab.py** en mixins (2061L, dernier gros fichier) — P1.5
 2. **Phase 3** : Execution des Scripts (nouveaute critique) - **REPORTE, en reflexion**
-3. **Cleanup managers** : ajouter cleanup/disconnect aux 5 managers (1j)
+3. **Reducer except generiques** de 341 a ~170 (-50%) — P2
 
-**Fonctionnalites livrees depuis (Dec 2025 - Fev 2026)**:
+**Fonctionnalites livrees depuis (Dec 2025 - Mars 2026)**:
 - Navigation FTP dans les workspaces (ftproot_plugin)
 - Fallback pytds pour SQL Server (quand pyodbc indisponible)
 - Package offline avec generation automatisee (menu Tools)
 - Ameliorations saved queries (execution, edit/update)
 - Formatage SQL dans l'editeur de requetes
 - Connexions DB en thread separe (pas de freeze UI)
-- Pastilles colorees par connexion BDD (arbre + onglets) *(nouveau)*
-- Workspace favori avec auto-expand *(nouveau)*
-- Onglet "+" pour creation rapide de requetes *(nouveau)*
-- Creation raccourci bureau (Windows/macOS/Linux) *(nouveau)*
-- Nettoyage toolbar et tab Info workspace *(nouveau)*
+- Pastilles colorees par connexion BDD (arbre + onglets)
+- Workspace favori avec auto-expand
+- Onglet "+" pour creation rapide de requetes
+- Creation raccourci bureau (Windows/macOS/Linux)
+- Nettoyage toolbar et tab Info workspace
+- **Refactoring config_db.py** : facade pure (2547→474L, -81%) *(audit #3)*
+- **10 repositories actifs** avec ConnectionPool et context managers *(audit #3)*
 
 **Reporter a v1.0**:
-- Refactoring database_manager.py et config_db.py
 - Couverture tests 40%
 - Documentation API
+- Operations async generalisees
 
 ---
 
@@ -408,8 +420,8 @@
 
 | Tache | Status | Priorite |
 |-------|--------|----------|
-| Refactorer DatabaseManager (~2536 lignes) | Todo | P1 |
-| Migrer config_db.py vers repositories | Todo *(nouveau)* | P1 |
+| ~~Refactorer DatabaseManager (~2536 lignes)~~ | **Done** (mixins) | P1 |
+| ~~Migrer config_db.py vers repositories~~ | **Done** (facade, audit #3) | P1 |
 | Creer constants.py | **Done** | P1 |
 | Factoriser PostgreSQL URL parser (x4) | **Done** | P1 |
 | Factoriser "Open in Explorer" (x4) | **Done** | P1 |
@@ -425,7 +437,10 @@
 | Fixer test_theme_patch.py | **Done** | P1 |
 | Supprimer code deprecie (I18n) | **Done** | P2 |
 | Quoting SQL noms de tables | **Done** | P2 |
-| Reducer except generiques | Todo *(nouveau)* | P2 |
+| Reducer except generiques | Todo | P2 |
+| Refactorer query_tab.py en mixins | Todo *(nouveau)* | P1.5 |
+| Supprimer `shell=True` subprocess | Todo *(nouveau)* | P2 |
+| Quoting 4 f-string SQL restantes | Todo *(nouveau)* | P2 |
 
 ---
 
@@ -433,22 +448,24 @@
 
 | Metrique | Valeur | Evolution |
 |----------|--------|-----------|
-| Fichiers Python | 201 | +1 |
-| Lignes de code (src/) | 60,809 | +809 |
-| Fichiers de tests | 7 | = |
-| Lignes de tests | 1,517 | = |
-| Tests en echec | 0 (79 passed) | *(corrige)* |
+| Fichiers Python | 215 | +14 |
+| Lignes de code (src/) | 59,343 | -1,466 |
+| Fichiers de tests | 6 | -1 |
+| Lignes de tests | 1,463 | -54 |
+| Tests en echec | 0 (79 passed) | = |
 | Plugins | 10 | = |
 | Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) | = |
-| Langues i18n | 2 (EN: 89 cles, FR: 89 cles) | *(ES n'existait pas)* |
+| Langues i18n | 2 (EN: 659 cles, FR: 659 cles) | +570 cles/langue |
 | Themes | 4 | = |
-| Guides documentation | 23 | = |
-| Commits depuis Dec 2025 | 133 | +14 |
-| `except Exception` generiques | 386 | *(nouveau metrique)* |
-| `.connect()` sans `.disconnect()` | 429 | *(nouveau metrique)* |
-| Fichiers > 500 lignes | 11 | *(nouveau metrique)* |
+| Guides documentation | 24 | +1 |
+| Commits depuis Dec 2025 | ~140 | +7 |
+| `except Exception` generiques | 341 | -45 (-12%) |
+| `.connect()` / `.disconnect()` | 448 / 25 | ratio 18:1 (Qt signals) |
+| Fichiers > 500 lignes | 31 | +20 (croissance code) |
+| Repositories actifs | 10 | *(nouveau)* |
+| ConnectionPool context managers | 77 | *(nouveau)* |
 
-*Statistiques mises a jour: 28 Fevrier 2026*
+*Statistiques mises a jour: 01 Mars 2026 (audit #3)*
 
 ---
 
@@ -484,6 +501,13 @@ Fevrier 2026
 |-- Phase 3.4 (pastilles colorees, workspace favori, onglet "+")
 |-- Raccourci bureau, nettoyage UI
 |-- Audit #2 complet
+|-- v0.6.3
+|
+Mars 2026
+|-- Refactoring config_db.py → facade (2547→474L)
+|-- 10 repositories actifs, ConnectionPool branche
+|-- FTPRootRepository cree, ProjectRepository complete
+|-- Audit #3 complet (7.3→7.7/10)
 |-- v0.6.3 (actuel)
 ```
 
@@ -491,14 +515,14 @@ Fevrier 2026
 
 ```
 Q1 2026 (en cours)
-|-- Quick wins Phase 7 (factorisation, deps, cleanup managers)
+|-- Refactoring query_tab.py en mixins (2061L)
 |-- Phase 4 (Theming Icons)
 |-- v0.7.0
 |
 Q2 2026
 |-- Phase 3 (Execution Scripts) - si modele defini
-|-- Phase 7 suite (refactoring database_manager.py)
-|-- Migration config_db.py → repositories
+|-- Couverture tests 25%
+|-- Reducer except generiques (-50%)
 |-- v0.8.0 - v0.9.0 POC Release
 |
 S2 2026
@@ -518,9 +542,9 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec 133 commits en 3 mois, portant le projet de v0.2.0 a v0.6.3.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.3.
 
-**Score global: 7.3/10** (leger recul vs 7.4) — La croissance rapide des fonctionnalites (+5 features majeures en fevrier) a creuse la dette technique. Les fichiers monolithiques continuent de grossir, la duplication de code s'accumule, et les metriques de fiabilite (connect/disconnect, cleanup, tests) revelent des fragilites structurelles.
+**Score global: 7.7/10** (+0.4 vs audit #2) — Le refactoring config_db.py (2547→474L) et la resolution de la dette technique majeure (coexistence config_db/repos, fuites connexion, duplications) ont significativement ameliore la maintenabilite (+1.0), la fiabilite (+0.5) et la performance (+0.5). La base est desormais saine pour accelerer les fonctionnalites.
 
 **Bilan des corrections realisees**:
 - ~~MySQL backend (dialect + loader + factories)~~ Done
@@ -528,23 +552,24 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 - ~~Aide contextuelle + fenetre detachable~~ Done
 - ~~Coherence visuelle des fenetres~~ Done
 - Navigation FTP, pytds fallback, package offline Done
-- Pastilles colorees, workspace favori, onglet "+", raccourci bureau Done *(nouveau)*
+- Pastilles colorees, workspace favori, onglet "+", raccourci bureau Done
+- **config_db.py refactore en facade** (2547→474L, 10 repos, 0 SQL inline) Done *(audit #3)*
+- **database_manager.py refactore en mixins** Done
 
 **Actions immediates recommandees** (2-3 jours):
-1. Supprimer deps inutilisees: sqlalchemy, tabulate, colorama (10min)
-2. Factoriser PostgreSQL URL parser dans utils/ (2h)
-3. Factoriser "Open in Explorer" dans utils/ (1h)
-4. Fixer ou supprimer test_theme_patch.py (15min)
-5. Ajouter cleanup/disconnect aux 5 managers (1j)
+1. Refactorer query_tab.py en mixins (2061L, dernier God Object)
+2. Reducer `except Exception` generiques de 341 a ~170
+3. Supprimer `shell=True` dans 3 subprocess (os_helpers, main_window, scripts_manager)
+4. Ajouter quoting aux 4 f-string SQL restantes
 
 **Prochaine etape majeure**: Phase 3 (Execution des Scripts) — quand le modele d'execution sera defini. C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 
 **A ne PAS faire maintenant**:
-- Refactoring massif config_db.py (attendre v1.0, prevoir 3-4j)
 - MongoDB/Oracle (pas de base de test, pas de besoin immediat)
-- Tests exhaustifs (incrementer progressivement, viser 40% pour v1.0)
+- Tests exhaustifs (incrementer progressivement, viser 25% pour Q2, 40% pour v1.0)
+- Operations async generalisees (4 QThread workers suffisent pour l'instant)
 
-Le ratio **50% nouveautes / 50% corrections** est desormais recommande pour consolider la base avant le POC.
+Le ratio **60% nouveautes / 40% corrections** est desormais recommande — la base technique est assez saine pour prioriser les fonctionnalites.
 
 ---
 
@@ -627,4 +652,4 @@ Le ratio **50% nouveautes / 50% corrections** est desormais recommande pour cons
 
 ---
 
-*Derniere mise a jour: 2026-02-28*
+*Derniere mise a jour: 2026-03-01*

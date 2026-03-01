@@ -172,6 +172,35 @@ class SchemaManager:
                 )
             """)
 
+            # FTP Roots table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ftp_roots (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    protocol TEXT NOT NULL CHECK(protocol IN ('ftp', 'ftps', 'sftp')),
+                    host TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    initial_path TEXT DEFAULT '/',
+                    passive_mode INTEGER DEFAULT 1,
+                    description TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+            # Project-FTPRoot junction table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS project_ftp_roots (
+                    project_id TEXT NOT NULL,
+                    ftp_root_id TEXT NOT NULL,
+                    subfolder_path TEXT DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (project_id, ftp_root_id, subfolder_path),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY (ftp_root_id) REFERENCES ftp_roots(id) ON DELETE CASCADE
+                )
+            """)
+
             # Project-Job junction table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS project_jobs (
@@ -181,6 +210,18 @@ class SchemaManager:
                     PRIMARY KEY (project_id, job_id),
                     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
                     FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Project-Script junction table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS project_scripts (
+                    project_id TEXT NOT NULL,
+                    script_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (project_id, script_id),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
                 )
             """)
 
