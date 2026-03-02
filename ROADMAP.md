@@ -13,7 +13,7 @@
 | Critere | Score | Evol. | Justification |
 |---------|-------|-------|---------------|
 | **Structure de l'application** | 9/10 | +0.5 | 222 fichiers Python. Les 3 God Objects majeurs TOUS refactores: config_db.py (2547→474L, facade), database_manager.py (2536→209L, mixins), query_tab.py (2061→417L, 6 mixins). 10 repos. 29 fichiers > 500L. 6 God Objects >1000L restants (managers non-critiques) |
-| **Qualite du code** | 7/10 | = | 341 `except Exception`, **0 bare `except:`**, ~17 except+pass. Duplications majeures resolues. 0 dep inutilisee. 6 TODO |
+| **Qualite du code** | 8/10 | +1.0 | 172 `except Exception` (vs 341, -50%), **0 bare `except:`**, ~17 except+pass. Duplications majeures resolues. 0 dep inutilisee. 6 TODO |
 | **Gestion de la securite** | 8/10 | +1.0 | Credentials via keyring (bon). Quoting dialect-specific operationnel pour noms de tables (build_preview_sql). **0 `shell=True`** (3 sites corriges). **0 f-string SQL non protegee** — query_gen_mixin parametrise (? placeholders), base dialect quote_identifier escape, data_loader _quote_id helper. Tous les identifiants SQL sanitises |
 | **Maintenabilite** | 8/10 | +0.5 | **3 architectures facade+mixins completes**: config_db.py (10 repos), database_manager.py (8 mixins), query_tab.py (6 mixins). 28 fichiers mixin/repo. 0 God Object critique restant. 79 tests passent. Couverture ~15% |
 | **Fiabilite** | 7.5/10 | = | ConnectionPool avec context managers (77 `with` dans repos). ~103 sites de fuite connexion elimines. 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 24 fichiers avec cleanup/closeEvent |
@@ -22,14 +22,14 @@
 | **Documentation** | 7/10 | = | 24 guides utilisateur, README 428L. Docstrings ameliorees (repositories, config_db). Toujours pas de documentation API developpeur standalone |
 | **UX/UI** | 8.5/10 | = | PySide6, 3-4 themes, i18n EN/FR (659 cles, parite 100%). Pastilles colorees, workspace favori, onglet "+". 30+ widgets reutilisables. Reste: ~50 strings FR hardcodees, ES inexistant |
 
-**Score Global: 7.8/10** (vs 7.7 precedemment) — Le refactoring query_tab.py complete la trilogie des God Objects refactores, ameliorant Structure et Maintenabilite
+**Score Global: 7.9/10** (vs 7.8 precedemment) — Reduction de 50% des except generiques (341→172), ameliorant significativement la Qualite du code
 
 ### Historique des scores
 
 | Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Tendance |
 |---------|----------|----------|----------|----------|----------|
 | Structure | 8 | 8 | 8.5 | 9 | ↗↗ |
-| Qualite du code | 7 | 6.5 | 7 | 7 | = |
+| Qualite du code | 7 | 6.5 | 7 | 8 | ↗↗ |
 | Securite | 7 | 6.5 | 7 | 8 | ↗↗ |
 | Maintenabilite | 7 | 6.5 | 7.5 | 8 | ↗↗ |
 | Fiabilite | 7.5 | 7 | 7.5 | 7.5 | = |
@@ -37,7 +37,7 @@
 | Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | = |
 | Documentation | 7.5 | 7 | 7 | 7 | = |
 | UX/UI | 8 | 8.5 | 8.5 | 8.5 | = |
-| **Global** | **7.4** | **7.3** | **7.7** | **7.8** | **↗** |
+| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **↗** |
 
 ---
 
@@ -104,7 +104,7 @@
 5. ~~**Duplication de code significative**~~ **LARGEMENT CORRIGE** — PostgreSQL parser factorise, Open in Explorer factorise, DataFrameTableModel: reste 2 copies (ui/widgets + core/)
 
 6. **Gestion d'erreurs a ameliorer** (ameliore)
-   - 341 `except Exception` generiques (vs 386, -12%)
+   - ~~341 `except Exception` generiques~~ **172** (vs 341, -50%) — 169 convertis en exceptions specifiques (sqlite3.Error, ftplib.all_errors, OSError, ValueError, KeyError, json.JSONDecodeError, etc.)
    - ~17 `except` + `pass` (vs 46, -63%)
    - **0 bare `except:`** (vs 3, -100%)
    - config_db.py: 46→0 exceptions generiques
@@ -211,7 +211,7 @@
 | Supprimer strings hardcodees FR/EN | 5 fichiers + en.json/fr.json | 1j | **Done** (35+ strings) |
 | Ajouter docstrings API | Tous les modules publics | 2j | Todo |
 | Implementer Jobs & Orchestration | Phase 5 complete | 4-5j | Todo |
-| Reducer except generiques (cibler 50%) | Principaux offenseurs | 2j | Todo (341→~170, 0 bare except) |
+| ~~Reducer except generiques (cibler 50%)~~ | ~~51 fichiers~~ | ~~2j~~ | **Done** (341→172, -50%) |
 | ~~Supprimer `shell=True` dans subprocess~~ | ~~os_helpers, main_window, scripts_manager~~ | ~~0.5j~~ | **Done** |
 | ~~Parametrer SQL query_gen_mixin~~ | ~~query_gen_mixin, connection_mixin~~ | ~~0.5j~~ | **Done** |
 | ~~Ajouter quoting SQL access_dialect, data_loader~~ | ~~access_dialect, data_loader, base dialect~~ | ~~0.5j~~ | **Done** |
@@ -241,7 +241,7 @@
 
 **Priorites immediates**:
 1. ~~**Refactoring query_tab.py**~~ **Done** (audit #4)
-2. **Reducer except generiques** de 341 a ~170 (-50%) — P2
+2. ~~**Reducer except generiques** de 341 a ~170 (-50%)~~ **Done** (341→172)
 3. ~~**Supprimer `shell=True`**~~ **Done**
 4. ~~**Parametrer/quoting SQL**~~ **Done** (query_gen_mixin, access_dialect, data_loader, base dialect)
 
@@ -461,7 +461,7 @@
 | Themes | 4 | = |
 | Guides documentation | 24 | +1 |
 | Commits depuis Dec 2025 | ~140 | +7 |
-| `except Exception` generiques | 341 | -45 (-12%) |
+| `except Exception` generiques | 172 | -169 (-50%) |
 | `.connect()` / `.disconnect()` | 448 / 25 | ratio 18:1 (Qt signals) |
 | Fichiers > 500 lignes | 29 | -2 |
 | Repositories actifs | 10 | *(nouveau)* |
@@ -564,7 +564,7 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 
 **Actions immediates recommandees** (2-3 jours):
 1. ~~Refactorer query_tab.py en mixins~~ **Done**
-2. Reducer `except Exception` generiques de 341 a ~170
+2. ~~Reducer `except Exception` generiques de 341 a ~170~~ **Done** (341→172, -50%)
 3. ~~Supprimer `shell=True` dans 3 subprocess~~ **Done**
 4. ~~Parametrer/quoting SQL~~ **Done** (query_gen_mixin, access_dialect, data_loader)
 
