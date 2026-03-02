@@ -5,6 +5,7 @@ CRUD Mixin - Create, Read, Update, Delete operations for database connections.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import traceback
 from typing import TYPE_CHECKING
 
@@ -112,7 +113,7 @@ class DatabaseCrudMixin:
                 # Refresh tree to show updated connection
                 self._refresh_schema()
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error opening connection dialog: {e}")
             logger.error(traceback.format_exc())
             DialogHelper.error("Error opening connection dialog", parent=self, details=str(e))
@@ -175,6 +176,6 @@ class DatabaseCrudMixin:
             self._set_status_message(f"Connection '{db_conn.name}' deleted")
             logger.info(f"Deleted connection: {db_conn.name} ({db_conn.id})")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error deleting connection: {e}")
             DialogHelper.error("Error deleting connection", parent=self, details=str(e))

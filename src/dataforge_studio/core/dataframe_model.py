@@ -263,7 +263,7 @@ class DataFrameTableModel(QAbstractTableModel):
             elif col_type == 'datetime':
                 try:
                     return value.strftime("%Y-%m-%d %H:%M")
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     return str(value)
 
         return str(value)
@@ -326,7 +326,7 @@ class DataFrameTableModel(QAbstractTableModel):
                 ascending=ascending,
                 na_position='last'
             ).reset_index(drop=True)
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError) as e:
             logger.warning(f"Sort failed: {e}")
 
         self.layoutChanged.emit()

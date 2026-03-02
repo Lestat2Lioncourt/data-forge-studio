@@ -72,7 +72,7 @@ def _check_host_socket(host: str, timeout: int, port: int = None) -> Tuple[bool,
             return False, f"Cannot resolve hostname: {host}"
         except socket.timeout:
             continue
-        except Exception:
+        except OSError:
             continue
 
     return False, f"Host {host} is not reachable on common ports"

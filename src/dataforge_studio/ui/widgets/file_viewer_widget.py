@@ -173,7 +173,7 @@ class FileViewerWidget(QWidget):
 
             self.file_loaded.emit(file_path)
 
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.error(f"Error loading file: {e}")
             DialogHelper.error("Error loading file", details=str(e))
 
@@ -219,7 +219,7 @@ class FileViewerWidget(QWidget):
             self.details_form_builder.set_value("separator", "-")
             self.details_form_builder.set_value("delimiter", "-")
 
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.error(f"Error showing file details: {e}")
 
     def show_folder_details(self, name: str, path: str, modified: str = "-"):
@@ -375,7 +375,7 @@ class FileViewerWidget(QWidget):
             self.content_viewer.set_columns(headers)
             self.content_viewer.set_data(rows)
 
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
             logger.error(f"Error displaying JSON (legacy): {e}")
             DialogHelper.error("Error displaying JSON", details=str(e))
 
@@ -388,7 +388,7 @@ class FileViewerWidget(QWidget):
             formatted_json = json.dumps(data, indent=2, ensure_ascii=False)
             self.text_viewer.setPlainText(formatted_json)
 
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Error displaying raw JSON: {e}")
             DialogHelper.error("Error displaying raw JSON", details=str(e))
 

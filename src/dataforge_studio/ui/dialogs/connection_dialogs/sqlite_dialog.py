@@ -70,7 +70,7 @@ class SQLiteConnectionDialog(FileBasedConnectionDialog):
 
             return (True, f"SQLite version: {version}\nTables: {table_count}")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             error_msg = format_connection_error(e, db_type="sqlite", include_original=False)
             return (False, error_msg)
 

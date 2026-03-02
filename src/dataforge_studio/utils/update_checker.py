@@ -21,7 +21,7 @@ def get_app_version() -> str:
     try:
         from importlib.metadata import version
         return version("data-forge-studio")
-    except Exception:
+    except ImportError:
         pass
 
     # Second try: pyproject.toml (works in development)
@@ -65,7 +65,7 @@ class UpdateChecker:
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.debug(f"Error loading update config: {e}")
             return {}
 
@@ -75,7 +75,7 @@ class UpdateChecker:
             self.config_dir.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)
-        except Exception as e:
+        except OSError as e:
             logger.debug(f"Error saving update config: {e}")
 
     def should_check(self) -> bool:
@@ -99,7 +99,7 @@ class UpdateChecker:
             if now - dismissed_date < timedelta(hours=24):
                 return False
 
-        except Exception:
+        except (ValueError, KeyError):
             pass
 
         return True
@@ -141,10 +141,7 @@ class UpdateChecker:
             else:
                 return None
 
-        except urllib.error.URLError as e:
-            logger.debug(f"Update check network error: {e}")
-            return None
-        except Exception as e:
+        except (urllib.error.URLError, OSError, ValueError) as e:
             logger.debug(f"Update check error: {e}")
             return None
 
@@ -169,7 +166,7 @@ class UpdateChecker:
 
             return latest_parts > current_parts
 
-        except Exception:
+        except (ValueError, TypeError):
             return False
 
 

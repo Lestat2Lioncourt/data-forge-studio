@@ -65,7 +65,7 @@ class SQLiteSchemaLoader(SchemaLoader):
                 table_node.children = columns
                 tables.append(table_node)
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error loading SQLite tables: {e}")
 
         return tables
@@ -89,13 +89,13 @@ class SQLiteSchemaLoader(SchemaLoader):
                     cursor.execute(f"PRAGMA table_info([{safe_name}])")
                     columns = cursor.fetchall()
                     column_count = len(columns)
-                except Exception:
+                except sqlite3.Error:
                     column_count = 0
 
                 view_node = self._create_view_node(view_name, column_count=column_count)
                 views.append(view_node)
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error loading SQLite views: {e}")
 
         return views
@@ -117,7 +117,7 @@ class SQLiteSchemaLoader(SchemaLoader):
                 column_node = self._create_column_node(col_name, col_type, table_name)
                 columns.append(column_node)
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error loading columns for {table_name}: {e}")
 
         return columns

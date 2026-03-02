@@ -6,6 +6,11 @@ from typing import List, Any
 
 from .base import SchemaLoader, SchemaNode, SchemaNodeType
 
+try:
+    from pyodbc import Error as DbError
+except ImportError:
+    DbError = Exception  # type: ignore[misc,assignment]
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -75,7 +80,7 @@ class AccessSchemaLoader(SchemaLoader):
                 table_node.children = columns
                 tables.append(table_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading Access tables: {e}")
 
         return tables
@@ -97,7 +102,7 @@ class AccessSchemaLoader(SchemaLoader):
                 view_node = self._create_view_node(view_name)
                 views.append(view_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading Access queries: {e}")
 
         return views
@@ -124,7 +129,7 @@ class AccessSchemaLoader(SchemaLoader):
                 column_node = self._create_column_node(col_name, type_display, table_name)
                 columns.append(column_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading columns for {table_name}: {e}")
 
         return columns

@@ -353,7 +353,7 @@ class DynamicParameterForm(QWidget):
                 date = QDate.fromString(value, Qt.DateFormat.ISODate)
                 if date.isValid():
                     widget.setDate(date)
-            except Exception:
+            except ValueError:
                 widget.setDate(QDate.currentDate())
         else:
             widget.setDate(QDate.currentDate())
@@ -370,7 +370,7 @@ class DynamicParameterForm(QWidget):
                 dt = QDateTime.fromString(value, Qt.DateFormat.ISODate)
                 if dt.isValid():
                     widget.setDateTime(dt)
-            except Exception:
+            except ValueError:
                 widget.setDateTime(QDateTime.currentDateTime())
         else:
             widget.setDateTime(QDateTime.currentDateTime())

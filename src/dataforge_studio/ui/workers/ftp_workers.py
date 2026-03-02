@@ -6,6 +6,7 @@ These workers run FTP operations in background threads to keep the UI responsive
 
 from typing import Optional, List, Callable
 from pathlib import Path
+import ftplib
 import logging
 
 from PySide6.QtCore import QThread, Signal
@@ -117,7 +118,7 @@ class FTPListDirectoryWorker(QThread):
             files = self.client.list_directory(self.remote_path)
             self.directory_loaded.emit(self.remote_path, files)
 
-        except Exception as e:
+        except (ftplib.all_errors, OSError) as e:
             logger.error(f"Error listing directory {self.remote_path}: {e}")
             self.error.emit(f"Erreur de lecture du dossier: {str(e)}")
 
@@ -183,7 +184,7 @@ class FTPTransferWorker(QThread):
             else:
                 self.completed.emit(success, self.local_path)
 
-        except Exception as e:
+        except (ftplib.all_errors, OSError) as e:
             logger.error(f"Transfer error: {e}")
             self.error.emit(f"Erreur de transfert: {str(e)}")
 
@@ -215,7 +216,7 @@ class FTPDeleteWorker(QThread):
 
             self.completed.emit(success, self.remote_path)
 
-        except Exception as e:
+        except (ftplib.all_errors, OSError) as e:
             logger.error(f"Delete error: {e}")
             self.error.emit(f"Erreur de suppression: {str(e)}")
 
@@ -242,6 +243,6 @@ class FTPCreateDirectoryWorker(QThread):
             success = self.client.create_directory(self.remote_path)
             self.completed.emit(success, self.remote_path)
 
-        except Exception as e:
+        except (ftplib.all_errors, OSError) as e:
             logger.error(f"Create directory error: {e}")
             self.error.emit(f"Erreur de creation: {str(e)}")

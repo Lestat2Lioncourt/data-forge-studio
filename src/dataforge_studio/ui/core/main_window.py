@@ -512,7 +512,7 @@ class DataForgeMainWindow:
                 try:
                     shell = win32com.client.Dispatch("WScript.Shell")
                     desktop = Path(shell.SpecialFolders("Desktop"))
-                except Exception:
+                except (OSError, AttributeError):
                     desktop = Path.home() / "Desktop"
                     if not desktop.exists():
                         desktop = Path.home() / "Bureau"
@@ -546,7 +546,7 @@ class DataForgeMainWindow:
 
             except ImportError:
                 DialogHelper.error(tr("shortcut_pywin32_required"), parent=self.window)
-            except Exception as e:
+            except OSError as e:
                 DialogHelper.error(f"{tr('shortcut_error')}\n{e}", parent=self.window)
 
         elif sys.platform == "darwin":
@@ -558,7 +558,7 @@ class DataForgeMainWindow:
                 command_file.write_text(f'#!/bin/bash\ncd "{project_root}"\n"{venv_python}" "{run_script}"\n')
                 command_file.chmod(0o755)
                 DialogHelper.info(tr("shortcut_created"), parent=self.window)
-            except Exception as e:
+            except OSError as e:
                 DialogHelper.error(f"{tr('shortcut_error')}\n{e}", parent=self.window)
 
         else:
@@ -576,7 +576,7 @@ class DataForgeMainWindow:
                 )
                 desktop_file.chmod(0o755)
                 DialogHelper.info(tr("shortcut_created"), parent=self.window)
-            except Exception as e:
+            except OSError as e:
                 DialogHelper.error(f"{tr('shortcut_error')}\n{e}", parent=self.window)
 
     def _generate_offline_package(self):
@@ -782,11 +782,12 @@ class DataForgeMainWindow:
         """
         try:
             from ...database.config_db import get_config_db
+            import sqlite3
             config_db = get_config_db()
             workspace = config_db.get_auto_connect_workspace()
             if workspace:
                 return "workspaces"
-        except Exception:
+        except sqlite3.Error:
             # Migration may not have run yet, or column doesn't exist
             pass
         return "database"

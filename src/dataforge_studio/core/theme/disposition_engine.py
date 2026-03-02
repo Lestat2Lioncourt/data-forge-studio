@@ -79,7 +79,7 @@ class DispositionEngine:
                 color = self._resolve_vector(vector)
                 if color:
                     result[ui_property] = color
-            except Exception as e:
+            except (KeyError, ValueError) as e:
                 logger.warning(f"Failed to resolve vector '{vector}' for '{ui_property}': {e}")
                 # Use fallback color
                 result[ui_property] = "#ff00ff"  # Magenta for debugging

@@ -6,6 +6,11 @@ from typing import Any, List
 
 from .base import SchemaLoader, SchemaNode, SchemaNodeType
 
+try:
+    from psycopg2 import Error as DbError
+except ImportError:
+    DbError = Exception  # type: ignore[misc,assignment]
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -88,7 +93,7 @@ class PostgreSQLSchemaLoader(SchemaLoader):
                 table_node.children = columns
                 tables.append(table_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading PostgreSQL tables: {e}")
 
         return tables
@@ -120,7 +125,7 @@ class PostgreSQLSchemaLoader(SchemaLoader):
                     columns_by_table[table_key] = []
                 columns_by_table[table_key].append(column_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error bulk loading columns: {e}")
 
         return columns_by_table
@@ -148,7 +153,7 @@ class PostgreSQLSchemaLoader(SchemaLoader):
                 )
                 views.append(view_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading PostgreSQL views: {e}")
 
         return views
@@ -198,7 +203,7 @@ class PostgreSQLSchemaLoader(SchemaLoader):
                 )
                 procedures.append(proc_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading PostgreSQL functions: {e}")
 
         return procedures
@@ -236,7 +241,7 @@ class PostgreSQLSchemaLoader(SchemaLoader):
                 column_node = self._create_column_node(col_name, type_display, full_table)
                 columns.append(column_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading columns for {table_name}: {e}")
 
         return columns
@@ -254,7 +259,7 @@ class PostgreSQLSchemaLoader(SchemaLoader):
                 ORDER BY datname
             """)
             databases = [row[0] for row in cursor.fetchall()]
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error listing databases: {e}")
 
         return databases

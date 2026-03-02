@@ -5,6 +5,11 @@ Credential Manager - Secure storage for database credentials using system keyrin
 import keyring
 import logging
 
+try:
+    from keyring.errors import KeyringError
+except ImportError:
+    KeyringError = Exception  # type: ignore[misc,assignment]
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +50,7 @@ class CredentialManager:
             )
             logger.info(f"Credentials saved securely for connection {connection_id}")
             return True
-        except Exception as e:
+        except KeyringError as e:
             logger.error(f"Failed to save credentials: {e}")
             return False
 
@@ -70,7 +75,7 @@ class CredentialManager:
                 f"db:{connection_id}:password"
             )
             return (username or "", password or "")
-        except Exception as e:
+        except KeyringError as e:
             logger.error(f"Failed to retrieve credentials: {e}")
             return ("", "")
 
@@ -104,7 +109,7 @@ class CredentialManager:
 
             logger.info(f"Credentials deleted for connection {connection_id}")
             return True
-        except Exception as e:
+        except KeyringError as e:
             logger.error(f"Failed to delete credentials: {e}")
             return False
 
@@ -125,6 +130,6 @@ class CredentialManager:
                 f"db:{connection_id}:username"
             )
             return username is not None
-        except Exception as e:
+        except KeyringError as e:
             logger.error(f"Failed to check credentials: {e}")
             return False

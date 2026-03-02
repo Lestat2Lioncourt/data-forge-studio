@@ -8,6 +8,7 @@ Supports:
 """
 
 from typing import Optional
+import ftplib
 import uuid
 
 from PySide6.QtWidgets import (
@@ -64,7 +65,7 @@ class FTPTestWorker(QThread):
                         f"Serveur: {self.host}:{self.port}\n"
                         f"Fichiers/dossiers trouves: {len(files)}"
                     )
-                except Exception as e:
+                except (ftplib.all_errors, OSError) as e:
                     client.disconnect()
                     self.success.emit(
                         f"Connexion reussie!\n"
@@ -74,7 +75,7 @@ class FTPTestWorker(QThread):
             else:
                 self.error.emit("Echec de la connexion - verifiez vos identifiants")
 
-        except Exception as e:
+        except (ftplib.all_errors, OSError) as e:
             self.error.emit(f"Erreur de connexion:\n{str(e)}")
 
 

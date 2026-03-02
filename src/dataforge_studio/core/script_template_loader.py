@@ -44,7 +44,7 @@ class ScriptTemplate:
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 return f.read()
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.error(f"Error reading script file {self.file_path}: {e}")
             return None
 
@@ -89,7 +89,7 @@ class ScriptTemplateLoader:
                 if template:
                     self._cache[template.id] = template
                     logger.debug(f"Loaded script template: {template.id}")
-            except Exception as e:
+            except (OSError, yaml.YAMLError) as e:
                 logger.error(f"Error loading template {yaml_file}: {e}")
 
         self._loaded = True

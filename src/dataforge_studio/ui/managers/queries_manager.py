@@ -24,6 +24,7 @@ from ...database.config_db import get_config_db, SavedQuery
 from ...utils.image_loader import get_icon
 
 import logging
+import sqlite3
 logger = logging.getLogger(__name__)
 
 
@@ -289,7 +290,7 @@ class QueriesManager(HierarchicalManagerView):
                 else:
                     DialogHelper.error("Failed to update query.", parent=self)
 
-            except Exception as e:
+            except sqlite3.Error as e:
                 logger.error(f"Error updating query: {e}")
                 DialogHelper.error(f"Error: {e}", parent=self)
 
@@ -311,7 +312,7 @@ class QueriesManager(HierarchicalManagerView):
                 config_db.delete_query(self._current_item.id)
                 self.refresh()
                 DialogHelper.info(tr("query_deleted"), tr("delete_query_title"), self)
-            except Exception as e:
+            except sqlite3.Error as e:
                 DialogHelper.error(str(e), tr("error"), self)
 
     def _execute_query(self):

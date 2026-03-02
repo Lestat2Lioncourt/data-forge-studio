@@ -62,7 +62,7 @@ def format_sql(sql_text: str, style: str = "compact") -> str:
             return '\nGO\n\n'.join(formatted_batches) + '\nGO\n'
         return formatted_batches[0] if formatted_batches else sql_text
 
-    except Exception as e:
+    except ValueError as e:
         logger.error(f"SQL formatting error: {e}")
         raise
 

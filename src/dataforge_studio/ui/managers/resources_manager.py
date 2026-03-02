@@ -27,6 +27,7 @@ from ...utils.image_loader import get_icon, get_database_icon, get_database_icon
 from ...constants import QUERY_PREVIEW_LIMIT
 
 import logging
+import sqlite3
 logger = logging.getLogger(__name__)
 
 
@@ -467,7 +468,7 @@ class ResourcesManager(BaseManagerView):
 
             self._update_category_counts()
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error loading resources: {e}")
 
     def _add_category(self, key: str, label: str):
@@ -628,7 +629,7 @@ class ResourcesManager(BaseManagerView):
 
             logger.info(f"Queries refreshed: {len(queries)} queries in {len(queries_by_category)} categories")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error refreshing queries: {e}")
 
     def _update_item_count(self, item: QTreeWidgetItem):
@@ -1523,7 +1524,7 @@ class ResourcesManager(BaseManagerView):
 
             logger.info(f"Images refreshed: {total_images} images in {len(category_names)} categories")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error refreshing images: {e}")
 
     def _open_image_library_manager(self):
@@ -1640,7 +1641,7 @@ class ResourcesManager(BaseManagerView):
                     parent=self
                 )
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error updating saved query: {e}")
             DialogHelper.error(
                 tr("query_error_update", error=str(e)),

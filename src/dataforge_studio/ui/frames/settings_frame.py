@@ -5,6 +5,7 @@ Language and Theme have the same pattern: dropdown + editor + actions
 
 import json
 import logging
+import sqlite3
 from pathlib import Path
 from typing import List, Optional, Any, Dict
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QComboBox,
@@ -1001,7 +1002,7 @@ class SettingsFrame(BaseManagerView):
             from PySide6.QtCore import QTimer
             QTimer.singleShot(2000, lambda: self.theme_status.setText(""))
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Error saving palette: {e}")
             from ..widgets.dialog_helper import DialogHelper
             DialogHelper.error(f"Erreur de sauvegarde: {e}", parent=self)
@@ -1221,7 +1222,7 @@ class SettingsFrame(BaseManagerView):
             self.lang_status.setText(tr("settings_saved"))
             from PySide6.QtCore import QTimer
             QTimer.singleShot(3000, lambda: self.lang_status.setText(""))
-        except Exception as e:
+        except sqlite3.Error as e:
             DialogHelper.error(f"Erreur: {e}", parent=self)
 
     # === THEME METHODS ===
@@ -1527,7 +1528,7 @@ class SettingsFrame(BaseManagerView):
             self.theme_status.setText(tr("settings_theme_saved"))
             from PySide6.QtCore import QTimer
             QTimer.singleShot(3000, lambda: self.theme_status.setText(""))
-        except Exception as e:
+        except sqlite3.Error as e:
             DialogHelper.error(f"Erreur: {e}", parent=self)
 
     def _apply_theme(self):

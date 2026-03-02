@@ -12,6 +12,11 @@ from typing import List, Any, Tuple
 
 from .base import SchemaLoader, SchemaNode, SchemaNodeType
 
+try:
+    from pyodbc import Error as DbError
+except ImportError:
+    DbError = Exception  # type: ignore[misc,assignment]
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -45,7 +50,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                 "SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name"
             )
             return [row[0] for row in cursor.fetchall()]
-        except Exception:
+        except DbError:
             # Fallback: get current database name
             try:
                 cursor2 = self.connection.cursor()
@@ -53,7 +58,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                 row = cursor2.fetchone()
                 if row:
                     return [row[0]]
-            except Exception:
+            except DbError:
                 pass
             return []
 
@@ -160,7 +165,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                 table_node.children = columns
                 tables.append(table_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading tables from {database_name}: {e}")
 
         return tables
@@ -193,7 +198,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                         WHERE v.name = '{view_name}' AND s.name = '{schema_name}'
                     """)
                     column_count = cursor.fetchone()[0]
-                except Exception:
+                except DbError:
                     column_count = 0
 
                 view_node = self._create_view_node(
@@ -202,7 +207,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                 view_node.metadata["db_name"] = database_name
                 views.append(view_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading views from {database_name}: {e}")
 
         return views
@@ -229,7 +234,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                 proc_node.metadata["db_name"] = database_name
                 procedures.append(proc_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.warning(f"Could not load procedures from {database_name}: {e}")
 
         return procedures
@@ -271,7 +276,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                 )
                 functions.append(func_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.warning(f"Could not load functions from {database_name}: {e}")
 
         return functions
@@ -310,7 +315,7 @@ class SQLServerSchemaLoader(SchemaLoader):
                 )
                 columns.append(column_node)
 
-        except Exception as e:
+        except DbError as e:
             logger.error(f"Error loading columns for {schema_name}.{table_name}: {e}")
 
         return columns

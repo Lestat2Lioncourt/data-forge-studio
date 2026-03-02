@@ -79,7 +79,7 @@ class ThemeBridge(BaseThemeManager):
                         palette = Palette.from_dict(palette_id, data)
                         self._palettes[palette_id] = palette
                         logger.debug(f"Loaded palette '{palette_id}'")
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Failed to load palette '{palette_id}': {e}")
 
     def _load_dispositions(self):
@@ -102,7 +102,7 @@ class ThemeBridge(BaseThemeManager):
                     disposition = Disposition.from_dict(disposition_id, data)
                     self._dispositions[disposition_id] = disposition
                     logger.debug(f"Loaded disposition '{disposition_id}'")
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Failed to load disposition '{disposition_id}': {e}")
 
     def _load_themes_v2(self):
@@ -126,7 +126,7 @@ class ThemeBridge(BaseThemeManager):
                         theme = Theme.from_dict(theme_id, data)
                         self._themes_v2[theme_id] = theme
                         logger.debug(f"Loaded v2 theme '{theme_id}'")
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Failed to load v2 theme '{theme_id}': {e}")
 
     def _load_custom_themes(self):
@@ -158,7 +158,7 @@ class ThemeBridge(BaseThemeManager):
                     # Custom themes override built-in themes
                     self.themes[theme_id] = theme_data
                     logger.debug(f"Loaded legacy theme '{theme_id}' from {theme_file}")
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Failed to load legacy theme '{theme_id}': {e}")
 
     def _expand_patch_theme(self, patch_data: Dict) -> Dict:
@@ -446,7 +446,7 @@ class ThemeBridge(BaseThemeManager):
                     self._palettes[palette_id] = palette
                     self._colors_cache.clear()  # Clear all cache when palette changes
                     logger.debug(f"Reloaded palette: {palette_id}")
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Failed to reload palette '{palette_id}': {e}")
 
     def _normalize_legacy_colors(self, colors: Dict[str, str]) -> Dict[str, str]:

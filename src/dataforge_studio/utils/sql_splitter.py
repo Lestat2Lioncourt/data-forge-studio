@@ -132,7 +132,7 @@ def _is_select_statement(stmt_text: str) -> bool:
     # Normalize: remove comments and extra whitespace
     try:
         cleaned = sqlparse.format(stmt_text, strip_comments=True).strip().upper()
-    except Exception:
+    except ValueError:
         cleaned = stmt_text.strip().upper()
 
     if not cleaned:

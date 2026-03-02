@@ -595,7 +595,7 @@ class SchemaManager:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_rootfolder ON saved_images(rootfolder_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_physical_path ON saved_images(physical_path)")
             conn.commit()
-        except Exception:
+        except sqlite3.Error:
             pass  # Indexes may already exist or columns don't exist yet
 
 

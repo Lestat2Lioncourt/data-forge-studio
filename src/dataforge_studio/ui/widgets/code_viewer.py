@@ -438,7 +438,7 @@ class PygmentsHighlighter(QSyntaxHighlighter):
             # Setup token styles
             self._setup_styles()
 
-        except Exception as e:
+        except (ImportError, ValueError) as e:
             logger.warning(f"Could not setup Pygments lexer for {self.language}: {e}")
             self._lexer = None
 
@@ -564,7 +564,7 @@ def get_highlighter(document: QTextDocument, language: str) -> Optional[QSyntaxH
         try:
             from ...utils.sql_highlighter import SQLHighlighter
             return SQLHighlighter(document)
-        except Exception:
+        except (ImportError, ValueError):
             pass
 
     # Try Pygments for other languages
@@ -653,7 +653,7 @@ class CodeViewerWidget(QWidget):
 
             bg_color = colors.get("editor_bg", "#1e1e1e")
             fg_color = colors.get("editor_fg", "#d4d4d4")
-        except Exception:
+        except (AttributeError, KeyError):
             bg_color = "#1e1e1e"
             fg_color = "#d4d4d4"
 

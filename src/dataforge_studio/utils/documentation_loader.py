@@ -77,7 +77,7 @@ class DocumentationLoader:
             self._loaded = True
             logger.debug(f"Loaded {len(self._entries_by_id)} documentation entries from manifest")
 
-        except Exception as e:
+        except (OSError, yaml.YAMLError) as e:
             logger.error(f"Error loading documentation manifest: {e}")
             self._load_fallback()
 
@@ -150,7 +150,7 @@ class DocumentationLoader:
                 path=path,
                 category=category
             )
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.error(f"Error creating entry for {path}: {e}")
             return None
 
@@ -164,7 +164,7 @@ class DocumentationLoader:
                         return line[2:].strip()
             # Fallback: use filename
             return path.stem.replace("_", " ").title()
-        except Exception:
+        except (OSError, UnicodeDecodeError):
             return path.stem.replace("_", " ").title()
 
     def get_categories(self) -> List[DocCategory]:
@@ -215,7 +215,7 @@ class DocumentationLoader:
             try:
                 with open(entry.path, "r", encoding="utf-8") as f:
                     entry.content = f.read()
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 logger.error(f"Error reading {entry.path}: {e}")
                 return None
 

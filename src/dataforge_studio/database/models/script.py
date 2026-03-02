@@ -131,5 +131,5 @@ class Script:
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 return f.read()
-        except Exception:
+        except OSError:
             return None

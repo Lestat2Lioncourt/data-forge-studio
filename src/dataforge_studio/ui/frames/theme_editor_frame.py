@@ -487,7 +487,7 @@ class ThemeEditorFrame(QWidget):
                         data = json.load(f)
                         self._current_palette = dict(data.get("palette", {}))
                         self._current_theme_name = data.get("name", theme_key)
-                except Exception as e:
+                except (OSError, json.JSONDecodeError) as e:
                     DialogHelper.error(f"Erreur de chargement: {e}", parent=self)
                     return
             else:
@@ -548,7 +548,7 @@ class ThemeEditorFrame(QWidget):
 
             DialogHelper.info(f"Theme sauvegarde!\n\nFichier: {theme_path.name}", parent=self)
 
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             DialogHelper.error(f"Erreur de sauvegarde: {e}", parent=self)
 
     def _apply_theme(self):
@@ -617,7 +617,7 @@ class ThemeEditorFrame(QWidget):
                         theme_id = theme_file.stem
                         theme_name = data.get("name", theme_id)
                         custom_themes[theme_id] = f"{theme_name} (perso)"
-                except Exception:
+                except (OSError, json.JSONDecodeError):
                     pass
 
         return custom_themes

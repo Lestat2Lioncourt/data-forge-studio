@@ -84,5 +84,5 @@ class FileRootRepository(BaseRepository[FileRoot]):
                 """, (file_root.id, file_root.path, file_root.name or '',
                       file_root.description or '', created_at, updated_at))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False

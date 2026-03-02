@@ -107,7 +107,7 @@ class JobRepository(BaseRepository[Job]):
                     WHERE id = ?
                 """, (1 if enabled else 0, datetime.now().isoformat(), job_id))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def update_last_run(self, job_id: str) -> bool:
@@ -120,5 +120,5 @@ class JobRepository(BaseRepository[Job]):
                     WHERE id = ?
                 """, (datetime.now().isoformat(), datetime.now().isoformat(), job_id))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False

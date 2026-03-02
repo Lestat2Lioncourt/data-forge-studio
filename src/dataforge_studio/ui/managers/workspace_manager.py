@@ -34,6 +34,7 @@ from ...utils.workspace_export import (
 from ...constants import QUERY_PREVIEW_LIMIT
 
 import logging
+import sqlite3
 import uuid
 logger = logging.getLogger(__name__)
 
@@ -1250,7 +1251,7 @@ class WorkspaceManager(QWidget):
                         grandparent.removeChild(direct_parent)
             logger.info(f"Removed {item_type} {resource_id} from workspace {workspace_id}")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error removing resource: {e}")
             DialogHelper.error("Error removing resource", details=str(e))
 
@@ -1349,7 +1350,7 @@ class WorkspaceManager(QWidget):
             self.config_db.delete_workspace(workspace_id)
             self._refresh()
             DialogHelper.info("Workspace deleted")
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error deleting workspace: {e}")
             DialogHelper.error("Error deleting workspace", details=str(e))
 
@@ -1422,7 +1423,7 @@ class WorkspaceManager(QWidget):
             summary = get_export_summary(export_data)
             DialogHelper.info(f"Export successful!\n\n{summary}\n\nFile: {filepath}")
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Export failed: {e}")
             DialogHelper.error(f"Export failed: {str(e)}")
 

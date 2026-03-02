@@ -114,7 +114,7 @@ class BaseRepository(ABC, Generic[T]):
                 cursor = conn.cursor()
                 cursor.execute(self._get_insert_sql(), self._model_to_insert_tuple(model))
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error adding {self.table_name} record: {e}")
             return False
 
@@ -133,7 +133,7 @@ class BaseRepository(ABC, Generic[T]):
                 cursor = conn.cursor()
                 cursor.execute(self._get_update_sql(), self._model_to_update_tuple(model))
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error updating {self.table_name} record: {e}")
             return False
 
@@ -152,7 +152,7 @@ class BaseRepository(ABC, Generic[T]):
                 cursor = conn.cursor()
                 cursor.execute(f"DELETE FROM {self.table_name} WHERE id = ?", (id,))
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error deleting {self.table_name} record: {e}")
             return False
 

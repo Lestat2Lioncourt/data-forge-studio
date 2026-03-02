@@ -6,8 +6,9 @@ Uses ObjectViewerWidget for unified file display.
 
 from typing import Optional
 from pathlib import Path
-import uuid
 import logging
+import sqlite3
+import uuid
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
@@ -399,7 +400,7 @@ class RootFolderManager(QWidget):
             self._refresh()
             DialogHelper.info(f"RootFolder added: {folder_path}")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error adding RootFolder: {e}")
             DialogHelper.error("Error adding RootFolder", details=str(e))
 
@@ -428,7 +429,7 @@ class RootFolderManager(QWidget):
                 self._refresh()
                 DialogHelper.info("RootFolder updated successfully")
 
-            except Exception as e:
+            except sqlite3.Error as e:
                 logger.error(f"Error updating RootFolder: {e}")
                 DialogHelper.error("Error updating RootFolder", details=str(e))
 
@@ -457,7 +458,7 @@ class RootFolderManager(QWidget):
             self._refresh()
             DialogHelper.info("RootFolder removed")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error removing RootFolder: {e}")
             DialogHelper.error("Error removing RootFolder", details=str(e))
 

@@ -26,6 +26,7 @@ from ...utils.image_loader import get_icon
 from ..dialogs.job_dialog import JobDialog
 
 import logging
+import sqlite3
 logger = logging.getLogger(__name__)
 
 
@@ -257,7 +258,7 @@ class JobsManager(HierarchicalManagerView):
                 config_db.delete_job(self._current_item.id)
                 self.refresh()
                 DialogHelper.info(tr("job_deleted"), tr("delete_job_title"), self)
-            except Exception as e:
+            except sqlite3.Error as e:
                 DialogHelper.error(str(e), tr("error"), self)
 
     def _run_job(self):
@@ -366,7 +367,7 @@ class JobsManager(HierarchicalManagerView):
                 config_db.delete_job(job.id)
                 self.refresh()
                 DialogHelper.info(tr("job_deleted"), tr("delete_job_title"), self)
-            except Exception as e:
+            except sqlite3.Error as e:
                 DialogHelper.error(str(e), tr("error"), self)
 
     def get_job_context_actions(self, job: Job, parent, target_viewer=None) -> list:

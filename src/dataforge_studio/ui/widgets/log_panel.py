@@ -236,7 +236,7 @@ class LogPanel(QWidget):
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(self.get_text())
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error saving log to file: {e}")
 
     def apply_theme_style(self, stylesheet: str):

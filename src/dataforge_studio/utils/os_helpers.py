@@ -20,7 +20,7 @@ def reveal_in_explorer(file_path: Path) -> None:
             subprocess.run(["open", "-R", str(file_path)])
         else:
             subprocess.run(["xdg-open", str(file_path.parent)])
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error opening file location: {e}")
 
 
@@ -33,7 +33,7 @@ def open_in_explorer(path: Path) -> None:
             subprocess.run(["open", str(path)])
         else:
             subprocess.run(["xdg-open", str(path)])
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error opening location: {e}")
 
 
@@ -46,5 +46,5 @@ def open_file_with_default_app(file_path: Path) -> None:
             subprocess.run(["open", str(file_path)])
         else:
             subprocess.run(["xdg-open", str(file_path)])
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error opening file: {e}")

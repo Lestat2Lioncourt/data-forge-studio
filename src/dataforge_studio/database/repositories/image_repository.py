@@ -142,7 +142,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                 cursor.execute(self._get_insert_sql(), self._model_to_insert_tuple(image))
 
             return image.id
-        except Exception:
+        except sqlite3.Error:
             return None
 
     def delete_by_rootfolder(self, rootfolder_id: str) -> int:
@@ -164,7 +164,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                 )
 
             return count
-        except Exception:
+        except sqlite3.Error:
             return 0
 
     def get_physical_paths(self, rootfolder_id: str) -> List[str]:
@@ -227,7 +227,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                     VALUES (?, ?, ?)
                 """, (image_id, category_name, datetime.now().isoformat()))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def remove_category(self, image_id: str, category_name: str) -> bool:
@@ -240,7 +240,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                     WHERE image_id = ? AND category_name = ?
                 """, (image_id, category_name))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def set_categories(self, image_id: str, category_names: List[str]) -> bool:
@@ -261,7 +261,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                             VALUES (?, ?, ?)
                         """, (image_id, cat_name.strip(), now))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     # ==================== Tags ====================
@@ -312,7 +312,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                     VALUES (?, ?, ?)
                 """, (image_id, tag_name.strip().lower(), datetime.now().isoformat()))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def remove_tag(self, image_id: str, tag_name: str) -> bool:
@@ -325,7 +325,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                     WHERE image_id = ? AND tag_name = ?
                 """, (image_id, tag_name))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def set_tags(self, image_id: str, tag_names: List[str]) -> bool:
@@ -347,7 +347,7 @@ class SavedImageRepository(BaseRepository[SavedImage]):
                             VALUES (?, ?, ?)
                         """, (image_id, tag_clean, now))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     # ==================== Search ====================

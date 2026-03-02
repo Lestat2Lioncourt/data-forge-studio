@@ -64,7 +64,7 @@ class DatabaseConnectionMixin:
             for i, db_conn in enumerate(db_connections):
                 self._add_connection_node(db_conn, index=i)
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error loading connections: {e}")
 
     def _ensure_connection_color(self, db_conn: DatabaseConnection, index: int = 0):
@@ -74,7 +74,7 @@ class DatabaseConnectionMixin:
             try:
                 config_db = get_config_db()
                 config_db.save_database_connection(db_conn)
-            except Exception as e:
+            except sqlite3.Error as e:
                 logger.warning(f"Could not persist auto-color for {db_conn.name}: {e}")
 
     def _add_connection_node(self, db_conn: DatabaseConnection, index: int = 0):

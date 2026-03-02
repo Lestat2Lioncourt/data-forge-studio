@@ -583,7 +583,7 @@ class ImageLibraryManager(QWidget):
                     filesize_str = f"{size_bytes / 1024:.1f} KB"
                 else:
                     filesize_str = f"{size_bytes / (1024 * 1024):.2f} MB"
-            except Exception:
+            except OSError:
                 filesize_str = "-"
 
             # Format/encoding
@@ -606,7 +606,7 @@ class ImageLibraryManager(QWidget):
             try:
                 mtime = filepath.stat().st_mtime
                 modified_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
+            except OSError:
                 modified_str = "-"
 
         # Update basic details

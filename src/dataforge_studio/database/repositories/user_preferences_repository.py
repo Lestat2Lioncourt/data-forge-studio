@@ -63,7 +63,7 @@ class UserPreferencesRepository:
                 """, (key, value, datetime.now().isoformat(),
                       value, datetime.now().isoformat()))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def delete(self, key: str) -> bool:
@@ -81,7 +81,7 @@ class UserPreferencesRepository:
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM user_preferences WHERE key = ?", (key,))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def get_all(self) -> Dict[str, str]:

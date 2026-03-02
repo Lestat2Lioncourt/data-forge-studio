@@ -94,7 +94,7 @@ class QueryToolbarMixin:
             formatted = format_sql(query_text, style)
             self.sql_editor.setPlainText(formatted)
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"SQL formatting error: {e}")
             DialogHelper.error("Formatting failed", parent=self, details=str(e))
 

@@ -136,7 +136,7 @@ class FileContentHandler:
 
             return True
 
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.error(f"Error loading file {file_path}: {e}")
             self.file_text_viewer.setPlainText(f"Erreur lors du chargement: {str(e)}")
             self.file_viewer_stack.setCurrentIndex(1)  # Text viewer
@@ -525,5 +525,5 @@ class FileContentHandler:
                     self._form_builder.set_value("encoding", "-")
                     self._form_builder.set_value("separator", "-")
                     self._form_builder.set_value("delimiter", "-")
-                except Exception as e:
+                except (OSError, UnicodeDecodeError) as e:
                     logger.error(f"Error getting file info: {e}")

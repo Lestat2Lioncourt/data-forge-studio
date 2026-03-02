@@ -17,6 +17,7 @@ Features:
 - Chunked loading for very large datasets
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -142,7 +143,7 @@ def _detect_csv_separator(file_path: Path, encoding: str = 'utf-8') -> str:
         max_sep = max(counts, key=counts.get)
         if counts[max_sep] > 0:
             return max_sep
-    except Exception:
+    except (ValueError, TypeError, UnicodeDecodeError):
         pass
 
     return ','  # Default to comma
@@ -163,7 +164,7 @@ def _count_csv_rows(file_path: Path, encoding: str = 'utf-8') -> int:
         with open(file_path, 'r', encoding=encoding) as f:
             # Count lines and subtract 1 for header
             return sum(1 for _ in f) - 1
-    except Exception:
+    except (ValueError, TypeError, UnicodeDecodeError):
         return -1  # Unknown
 
 
@@ -243,7 +244,7 @@ def csv_to_dataframe(
 
         logger.info(f"Loaded CSV: {path.name} ({result.row_count} rows, {result.column_count} cols)")
 
-    except Exception as e:
+    except (ValueError, UnicodeDecodeError, OSError) as e:
         result.error = e
         result.warning_level = LoadWarningLevel.ERROR
         result.warning_message = f"Failed to load CSV: {str(e)}"
@@ -367,7 +368,7 @@ def json_to_dataframe(
                 # Fallback: try json_normalize for nested objects, or single record
                 try:
                     df = pd.json_normalize(data)
-                except Exception:
+                except (ValueError, TypeError, UnicodeDecodeError):
                     df = pd.DataFrame([data])
         else:
             raise ValueError(f"Unsupported JSON structure: {type(data)}")
@@ -378,7 +379,7 @@ def json_to_dataframe(
 
         logger.info(f"Loaded JSON: {path.name} ({result.row_count} rows, {result.column_count} cols)")
 
-    except Exception as e:
+    except (ValueError, json.JSONDecodeError, OSError) as e:
         result.error = e
         result.warning_level = LoadWarningLevel.ERROR
         result.warning_message = f"Failed to load JSON: {str(e)}"
@@ -465,7 +466,7 @@ def excel_to_dataframe(
 
         logger.info(f"Loaded Excel: {path.name} ({result.row_count} rows, {result.column_count} cols)")
 
-    except Exception as e:
+    except (ValueError, OSError, ImportError) as e:
         result.error = e
         result.warning_level = LoadWarningLevel.ERROR
         result.warning_message = f"Failed to load Excel: {str(e)}"
@@ -590,7 +591,7 @@ def dataframe_from_records(
         result.column_count = len(df.columns)
         result.source_info['source'] = 'records'
 
-    except Exception as e:
+    except (ValueError, TypeError, UnicodeDecodeError) as e:
         result.error = e
         result.warning_level = LoadWarningLevel.ERROR
         result.warning_message = f"Failed to create DataFrame: {str(e)}"

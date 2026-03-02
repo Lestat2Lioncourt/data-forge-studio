@@ -71,5 +71,5 @@ class FTPRootRepository(BaseRepository[FTPRoot]):
                     ftp_root.created_at, ftp_root.updated_at
                 ))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False

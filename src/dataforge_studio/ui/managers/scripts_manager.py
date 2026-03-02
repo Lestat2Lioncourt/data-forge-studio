@@ -31,6 +31,7 @@ from ...core.script_template_loader import get_template_loader
 from ..dialogs.script_dialog import ScriptDialog
 
 import logging
+import sqlite3
 logger = logging.getLogger(__name__)
 
 
@@ -382,7 +383,7 @@ class ScriptsManager(HierarchicalManagerView):
                 config_db.delete_script(self._current_item.id)
                 self.refresh()
                 DialogHelper.info(tr("script_deleted"), tr("delete_script_title"), self)
-            except Exception as e:
+            except sqlite3.Error as e:
                 DialogHelper.error(str(e), tr("error"), self)
 
     def _open_in_external_editor(self, script: Script):
@@ -503,7 +504,7 @@ class ScriptsManager(HierarchicalManagerView):
                 config_db.delete_script(script.id)
                 self.refresh()
                 DialogHelper.info(tr("script_deleted"), tr("delete_script_title"), self)
-            except Exception as e:
+            except sqlite3.Error as e:
                 DialogHelper.error(str(e), tr("error"), self)
 
     def get_script_context_actions(self, script: Script, parent, target_viewer=None) -> list:

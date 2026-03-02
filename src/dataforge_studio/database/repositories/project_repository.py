@@ -92,7 +92,7 @@ class ProjectRepository(BaseRepository[Project]):
                     WHERE id = ?
                 """, (datetime.now().isoformat(), project_id))
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     # Workspace aliases
@@ -142,7 +142,7 @@ class ProjectRepository(BaseRepository[Project]):
                     (1 if auto_connect else 0, datetime.now().isoformat(), project_id)
                 )
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     # ==================== Generic Relation Helpers ====================
@@ -161,7 +161,7 @@ class ProjectRepository(BaseRepository[Project]):
                     (project_id, resource_id, *extra_vals, datetime.now().isoformat())
                 )
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def _remove_relation(self, junction_table: str, resource_col: str,
@@ -176,7 +176,7 @@ class ProjectRepository(BaseRepository[Project]):
                     (project_id, resource_id, *extra_vals)
                 )
             return True
-        except Exception:
+        except sqlite3.Error:
             return False
 
     def _get_resource_ids(self, junction_table: str, resource_col: str,

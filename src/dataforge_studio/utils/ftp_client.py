@@ -236,7 +236,7 @@ class FTPClient(BaseFTPClient):
             self._connected = True
             logger.info(f"FTP connected to {host}:{port}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"FTP connection failed: {e}")
             self._connected = False
             return False
@@ -311,7 +311,7 @@ class FTPClient(BaseFTPClient):
                     # Not a directory, try to get size
                     try:
                         size = self._ftp.size(file_path) or 0
-                    except Exception:
+                    except ftplib.all_errors:
                         size = 0
 
                 result.append(RemoteFile(
@@ -321,7 +321,7 @@ class FTPClient(BaseFTPClient):
                     size=size
                 ))
 
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error listing directory {path}: {e}")
 
         return result
@@ -350,7 +350,7 @@ class FTPClient(BaseFTPClient):
 
             logger.info(f"Downloaded {remote_path} to {local_path}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error downloading {remote_path}: {e}")
             return False
 
@@ -380,7 +380,7 @@ class FTPClient(BaseFTPClient):
 
             logger.info(f"Uploaded {local_path} to {remote_path}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error uploading to {remote_path}: {e}")
             return False
 
@@ -391,7 +391,7 @@ class FTPClient(BaseFTPClient):
             self._ftp.delete(remote_path)
             logger.info(f"Deleted file {remote_path}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error deleting {remote_path}: {e}")
             return False
 
@@ -402,7 +402,7 @@ class FTPClient(BaseFTPClient):
             self._ftp.rmd(remote_path)
             logger.info(f"Deleted directory {remote_path}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error deleting directory {remote_path}: {e}")
             return False
 
@@ -413,7 +413,7 @@ class FTPClient(BaseFTPClient):
             self._ftp.mkd(remote_path)
             logger.info(f"Created directory {remote_path}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error creating directory {remote_path}: {e}")
             return False
 
@@ -424,7 +424,7 @@ class FTPClient(BaseFTPClient):
             self._ftp.rename(old_path, new_path)
             logger.info(f"Renamed {old_path} to {new_path}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error renaming {old_path}: {e}")
             return False
 
@@ -433,7 +433,7 @@ class FTPClient(BaseFTPClient):
             return "/"
         try:
             return self._ftp.pwd()
-        except Exception:
+        except ftplib.all_errors:
             return "/"
 
     def file_exists(self, remote_path: str) -> bool:
@@ -442,7 +442,7 @@ class FTPClient(BaseFTPClient):
         try:
             self._ftp.size(remote_path)
             return True
-        except Exception:
+        except ftplib.all_errors:
             return False
 
     def get_file_size(self, remote_path: str) -> int:
@@ -450,7 +450,7 @@ class FTPClient(BaseFTPClient):
             return -1
         try:
             return self._ftp.size(remote_path) or 0
-        except Exception:
+        except ftplib.all_errors:
             return -1
 
 
@@ -467,7 +467,7 @@ class FTPSClient(FTPClient):
             self._connected = True
             logger.info(f"FTPS connected to {host}:{port}")
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"FTPS connection failed: {e}")
             self._connected = False
             return False
@@ -493,7 +493,7 @@ class SFTPClient(BaseFTPClient):
             self._connected = True
             logger.info(f"SFTP connected to {host}:{port}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"SFTP connection failed: {e}")
             self._connected = False
             return False
@@ -542,7 +542,7 @@ class SFTPClient(BaseFTPClient):
                     modified=modified,
                     permissions=self._format_permissions(attr.st_mode) if attr.st_mode else ""
                 ))
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error listing directory {path}: {e}")
 
         return result
@@ -582,7 +582,7 @@ class SFTPClient(BaseFTPClient):
 
             logger.info(f"Downloaded {remote_path} to {local_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error downloading {remote_path}: {e}")
             return False
 
@@ -610,7 +610,7 @@ class SFTPClient(BaseFTPClient):
 
             logger.info(f"Uploaded {local_path} to {remote_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error uploading to {remote_path}: {e}")
             return False
 
@@ -621,7 +621,7 @@ class SFTPClient(BaseFTPClient):
             self._sftp.remove(remote_path)
             logger.info(f"Deleted file {remote_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error deleting {remote_path}: {e}")
             return False
 
@@ -632,7 +632,7 @@ class SFTPClient(BaseFTPClient):
             self._sftp.rmdir(remote_path)
             logger.info(f"Deleted directory {remote_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error deleting directory {remote_path}: {e}")
             return False
 
@@ -643,7 +643,7 @@ class SFTPClient(BaseFTPClient):
             self._sftp.mkdir(remote_path)
             logger.info(f"Created directory {remote_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error creating directory {remote_path}: {e}")
             return False
 
@@ -654,7 +654,7 @@ class SFTPClient(BaseFTPClient):
             self._sftp.rename(old_path, new_path)
             logger.info(f"Renamed {old_path} to {new_path}")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error renaming {old_path}: {e}")
             return False
 
@@ -663,7 +663,7 @@ class SFTPClient(BaseFTPClient):
             return "/"
         try:
             return self._sftp.getcwd() or "/"
-        except Exception:
+        except OSError:
             return "/"
 
     def file_exists(self, remote_path: str) -> bool:
@@ -680,7 +680,7 @@ class SFTPClient(BaseFTPClient):
             return -1
         try:
             return self._sftp.stat(remote_path).st_size or 0
-        except Exception:
+        except OSError:
             return -1
 
 

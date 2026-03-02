@@ -6,8 +6,10 @@ Uses ObjectViewerWidget for unified file display.
 
 from typing import Optional, Dict
 from pathlib import Path
-import tempfile
+import ftplib
 import logging
+import sqlite3
+import tempfile
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
@@ -280,7 +282,7 @@ class FTPRootManager(QWidget):
             # Use tree_helpers for populating the tree
             populate_tree_with_remote_files(target_item, files, ftp_root_id)
             return True
-        except Exception as e:
+        except ftplib.all_errors as e:
             logger.error(f"Error loading FTP folder {remote_path}: {e}")
             return False
 
@@ -588,7 +590,7 @@ class FTPRootManager(QWidget):
         if ftp_root_id in self._connections:
             try:
                 self._connections[ftp_root_id].disconnect()
-            except Exception as e:
+            except ftplib.all_errors as e:
                 logger.warning(f"Error disconnecting: {e}")
             del self._connections[ftp_root_id]
             self._load_ftp_roots()  # Refresh tree
@@ -1007,7 +1009,7 @@ class FTPRootManager(QWidget):
             self._refresh()
             DialogHelper.info("Connexion FTP supprimee.", parent=self)
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Error removing FTP root: {e}")
             DialogHelper.error("Erreur lors de la suppression", details=str(e), parent=self)
 

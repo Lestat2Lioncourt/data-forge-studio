@@ -37,6 +37,6 @@ def read_file_content(file_path: Path) -> Optional[str]:
             logger.warning(f"Could not decode file {file_path} with common encodings")
             return None
 
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error reading file {file_path}: {e}")
         return None

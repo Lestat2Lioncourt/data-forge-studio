@@ -29,7 +29,7 @@ def _detect_backend() -> str:
         if drivers:
             return "pyodbc"
         logger.info("pyodbc available but no SQL Server ODBC driver found")
-    except Exception:
+    except ImportError:
         logger.info("pyodbc not available")
 
     # 2. Try pytds
