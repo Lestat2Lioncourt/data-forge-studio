@@ -81,7 +81,7 @@ class ImageLoader:
             Path to the image file, or None if not found
         """
         # Add .png extension if not present
-        if not image_name.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+        if not image_name.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg')):
             image_name = f"{image_name}.png"
 
         # Try themed icon first
@@ -128,6 +128,23 @@ class ImageLoader:
         image_path = self.get_image_path(image_name)
         if not image_path:
             return None
+
+        # SVG: render at exact size via QSvgRenderer (crisp, no scaling artifacts)
+        if str(image_path).endswith('.svg'):
+            from PySide6.QtSvg import QSvgRenderer
+            renderer = QSvgRenderer(str(image_path))
+            if not renderer.isValid():
+                logger.warning(f"Invalid SVG file: {image_path}")
+                return None
+            w = width or renderer.defaultSize().width()
+            h = height or renderer.defaultSize().height()
+            pixmap = QPixmap(w, h)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            renderer.render(painter)
+            painter.end()
+            self._images_cache[cache_key] = pixmap
+            return pixmap
 
         pixmap = QPixmap(str(image_path))
 

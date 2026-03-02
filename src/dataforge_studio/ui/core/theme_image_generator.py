@@ -1,10 +1,10 @@
 """
-Theme Image Generator - Dynamic PNG generation for theme-colored UI elements
+Theme Image Generator - Dynamic image generation for theme-colored UI elements
 
 Generates images at runtime with theme-specific colors:
 - Dropdown arrows for combo boxes
 - Tree branch lines and expand/collapse arrows
-- Themed icons (recolored from black base icons)
+- Themed icons (SVG recolored by text replacement, PNG recolored by PIL)
 """
 
 import logging
@@ -224,6 +224,76 @@ def recolor_icon(icon_name: str, target_color: str, theme_variant: str) -> Optio
         return None
 
 
+def recolor_svg_icon(icon_name: str, target_color: str, theme_variant: str) -> Optional[str]:
+    """
+    Recolor a base SVG icon by replacing fill="#000000" with target color.
+
+    No PIL dependency — pure text replacement.
+
+    Args:
+        icon_name: Name of the SVG file (e.g., "database.svg")
+        target_color: Hex color string (e.g., "#E0E0E0")
+        theme_variant: "light" or "dark"
+
+    Returns:
+        Path to the recolored SVG, or None if failed
+    """
+    base_path = ICONS_PATH / "base" / icon_name
+    if not base_path.exists():
+        return None
+
+    output_dir = ICONS_PATH / theme_variant
+    output_path = output_dir / icon_name
+
+    # Check folder-level color cache
+    color_cache_file = output_dir / "_color.txt"
+    cached_color = None
+    if color_cache_file.exists():
+        try:
+            cached_color = color_cache_file.read_text().strip()
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    color_changed = cached_color != target_color
+
+    if output_path.exists() and not color_changed:
+        return str(output_path)
+
+    try:
+        svg_content = base_path.read_text(encoding='utf-8')
+        recolored = svg_content.replace('fill="#000000"', f'fill="{target_color}"')
+        recolored = recolored.replace("fill='#000000'", f"fill='{target_color}'")
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(recolored, encoding='utf-8')
+
+        if color_changed:
+            try:
+                color_cache_file.write_text(target_color)
+            except OSError:
+                pass
+
+        logger.debug(f"Recolored SVG icon: {icon_name} -> {target_color}")
+        return str(output_path)
+
+    except (OSError, UnicodeDecodeError) as e:
+        logger.error(f"Failed to recolor SVG icon {icon_name}: {e}")
+        return None
+
+
+def _generate_other_variant(icon_name: str, is_dark_theme: bool, recolor_func) -> None:
+    """Generate the opposite theme variant if its color is known."""
+    other_variant = "light" if is_dark_theme else "dark"
+    other_color_file = ICONS_PATH / other_variant / "_color.txt"
+    if other_color_file.exists():
+        try:
+            other_color = other_color_file.read_text().strip()
+            if other_color:
+                recolor_func(icon_name, other_color, other_variant)
+        except (OSError, UnicodeDecodeError):
+            pass
+
+
 def get_themed_icon_path(icon_name: str, is_dark_theme: bool, icon_color: str) -> Optional[str]:
     """
     Get path to themed icon, generating if necessary.
@@ -238,32 +308,29 @@ def get_themed_icon_path(icon_name: str, is_dark_theme: bool, icon_color: str) -
     Returns:
         Path to the icon file (themed, generated, or fallback)
     """
-    # Ensure .png extension for lookup
-    lookup_name = icon_name if icon_name.endswith('.png') else f"{icon_name}.png"
-
+    base_name = Path(icon_name).stem
     theme_variant = "dark" if is_dark_theme else "light"
 
-    # Check if base icon exists for theming
-    base_path = ICONS_PATH / "base" / lookup_name
-    if base_path.exists():
-        # Try to get/generate themed version
-        themed_path = recolor_icon(icon_name, icon_color, theme_variant)
+    # 1. Try SVG first (preferred — no PIL dependency, scalable)
+    svg_base = ICONS_PATH / "base" / f"{base_name}.svg"
+    if svg_base.exists():
+        themed_path = recolor_svg_icon(f"{base_name}.svg", icon_color, theme_variant)
         if themed_path:
-            # Also generate the opposite variant if its color is known
-            other_variant = "light" if is_dark_theme else "dark"
-            other_color_file = ICONS_PATH / other_variant / "_color.txt"
-            if other_color_file.exists():
-                try:
-                    other_color = other_color_file.read_text().strip()
-                    if other_color:
-                        recolor_icon(icon_name, other_color, other_variant)
-                except (OSError, UnicodeDecodeError):
-                    pass
+            _generate_other_variant(f"{base_name}.svg", is_dark_theme, recolor_svg_icon)
             return themed_path
 
-    # Fallback to legacy images folder
-    legacy_path = ASSETS_PATH / lookup_name
-    if legacy_path.exists():
-        return str(legacy_path)
+    # 2. Fallback PNG in base/ (transition period)
+    png_base = ICONS_PATH / "base" / f"{base_name}.png"
+    if png_base.exists():
+        themed_path = recolor_icon(f"{base_name}.png", icon_color, theme_variant)
+        if themed_path:
+            _generate_other_variant(f"{base_name}.png", is_dark_theme, recolor_icon)
+            return themed_path
+
+    # 3. Fallback legacy images/
+    for ext in ('.svg', '.png'):
+        legacy_path = ASSETS_PATH / f"{base_name}{ext}"
+        if legacy_path.exists():
+            return str(legacy_path)
 
     return None
