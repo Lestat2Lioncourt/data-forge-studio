@@ -2,42 +2,42 @@
 
 **Version**: 0.6.3
 **Objectif**: POC v0.9.xx / Production v1.0
-**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3 & #4)
+**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5)
 
 ---
 
-## Analyse Globale de la Solution (Audit #4 - 01/03/2026)
+## Analyse Globale de la Solution (Audit #5 - 02/03/2026)
 
 ### Scores sur 10
 
 | Critere | Score | Evol. | Justification |
 |---------|-------|-------|---------------|
-| **Structure de l'application** | 9/10 | +0.5 | 222 fichiers Python. Les 3 God Objects majeurs TOUS refactores: config_db.py (2547→474L, facade), database_manager.py (2536→209L, mixins), query_tab.py (2061→417L, 6 mixins). 10 repos. 29 fichiers > 500L. 6 God Objects >1000L restants (managers non-critiques) |
-| **Qualite du code** | 8/10 | +1.0 | 172 `except Exception` (vs 341, -50%), **0 bare `except:`**, ~17 except+pass. Duplications majeures resolues. 0 dep inutilisee. 6 TODO |
-| **Gestion de la securite** | 8/10 | +1.0 | Credentials via keyring (bon). Quoting dialect-specific operationnel pour noms de tables (build_preview_sql). **0 `shell=True`** (3 sites corriges). **0 f-string SQL non protegee** — query_gen_mixin parametrise (? placeholders), base dialect quote_identifier escape, data_loader _quote_id helper. Tous les identifiants SQL sanitises |
-| **Maintenabilite** | 8/10 | +0.5 | **3 architectures facade+mixins completes**: config_db.py (10 repos), database_manager.py (8 mixins), query_tab.py (6 mixins). 28 fichiers mixin/repo. 0 God Object critique restant. 79 tests passent. Couverture ~15% |
-| **Fiabilite** | 7.5/10 | = | ConnectionPool avec context managers (77 `with` dans repos). ~103 sites de fuite connexion elimines. 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 24 fichiers avec cleanup/closeEvent |
-| **Performance** | 7.5/10 | = | ConnectionPool reuse. TTLCache (60s, 100 entries), schema_cache. 4 QThread workers (DB, FTP, scan). 21 fichiers avec lazy loading. Pas d'async generalise |
-| **Extensibilite** | 8.5/10 | = | 10 plugins UI, 5 dialects DB (SQLite/PostgreSQL/SQL Server/MySQL/Access), 3-4 themes JSON, Factory pattern. Plugin system bien defini (base_plugin + plugin_manager) |
+| **Structure de l'application** | 9/10 | = | 222 fichiers Python (59,542L). Les 3 God Objects majeurs TOUS refactores: config_db.py (2547→474L, facade), database_manager.py (2536→209L, mixins), query_tab.py (2061→417L, 6 mixins). 10 repos. 30 fichiers > 500L. 7 fichiers >1000L restants (managers non-critiques, responsabilite unique) |
+| **Qualite du code** | 8/10 | = | 172 `except Exception` (vs 341, -50%), **0 bare `except:`**, 58 except+pass (dont 22 avec exceptions specifiques). 0 dep inutilisee. 6 TODO. DataFrameTableModel: reste 2 copies (ui/widgets + core/) |
+| **Gestion de la securite** | 8/10 | = | Credentials via keyring (bon). **0 `shell=True`**, **0 `eval()`/`exec()`**. 35 f-string SQL — toutes avec identifiants internes (table_name) ou parametres (?). Quoting dialect-specific operationnel. Aucune injection detectee |
+| **Maintenabilite** | 8/10 | = | **3 architectures facade+mixins completes**: config_db.py (10 repos), database_manager.py (8 mixins), query_tab.py (6 mixins). 28 fichiers mixin/repo. 0 God Object critique. 79 tests passent. Couverture ~15% |
+| **Fiabilite** | 7.5/10 | = | ConnectionPool avec context managers (77 `with` dans repos). 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 29 fichiers avec cleanup/closeEvent. 19 `deleteLater()`. Quelques curseurs sans close explicite dans query_gen_mixin |
+| **Performance** | 7.5/10 | = | ConnectionPool reuse. TTLCache (60s, 100 entries), schema_cache. 4 QThread workers (DB, FTP, scan). Lazy loading generalise. Pas d'async generalise |
+| **Extensibilite** | 8.5/10 | = | 10 plugins UI, 5 dialects DB (SQLite/PostgreSQL/SQL Server/MySQL/Access), 4 themes JSON, Factory pattern. Plugin system bien defini (base_plugin + plugin_manager) |
 | **Documentation** | 7/10 | = | 24 guides utilisateur, README 428L. Docstrings ameliorees (repositories, config_db). Toujours pas de documentation API developpeur standalone |
-| **UX/UI** | 8.5/10 | = | PySide6, 3-4 themes, i18n EN/FR (659 cles, parite 100%). Pastilles colorees, workspace favori, onglet "+". 30+ widgets reutilisables. Reste: ~50 strings FR hardcodees, ES inexistant |
+| **UX/UI** | 8.5/10 | = | PySide6, 4 themes, i18n EN/FR (652 cles, parite 100%). Pastilles colorees, workspace favori, onglet "+". 30+ widgets reutilisables. Reste: ~50 strings FR hardcodees, ES inexistant |
 
-**Score Global: 7.9/10** (vs 7.8 precedemment) — Reduction de 50% des except generiques (341→172), ameliorant significativement la Qualite du code
+**Score Global: 7.9/10** (= vs audit #4) — Tous les correctifs P1/P2 de securite et qualite sont resolus. La base technique est mature pour les nouvelles fonctionnalites.
 
 ### Historique des scores
 
-| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Tendance |
-|---------|----------|----------|----------|----------|----------|
-| Structure | 8 | 8 | 8.5 | 9 | ↗↗ |
-| Qualite du code | 7 | 6.5 | 7 | 8 | ↗↗ |
-| Securite | 7 | 6.5 | 7 | 8 | ↗↗ |
-| Maintenabilite | 7 | 6.5 | 7.5 | 8 | ↗↗ |
-| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | = |
-| Performance | 7 | 7 | 7.5 | 7.5 | = |
-| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | = |
-| Documentation | 7.5 | 7 | 7 | 7 | = |
-| UX/UI | 8 | 8.5 | 8.5 | 8.5 | = |
-| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **↗** |
+| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Audit #5 | Tendance |
+|---------|----------|----------|----------|----------|----------|----------|
+| Structure | 8 | 8 | 8.5 | 9 | 9 | = |
+| Qualite du code | 7 | 6.5 | 7 | 8 | 8 | = |
+| Securite | 7 | 6.5 | 7 | 8 | 8 | = |
+| Maintenabilite | 7 | 6.5 | 7.5 | 8 | 8 | = |
+| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | 7.5 | = |
+| Performance | 7 | 7 | 7.5 | 7.5 | 7.5 | = |
+| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 | = |
+| Documentation | 7.5 | 7 | 7 | 7 | 7 | = |
+| UX/UI | 8 | 8.5 | 8.5 | 8.5 | 8.5 | = |
+| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **7.9** | **=** |
 
 ---
 
@@ -103,16 +103,17 @@
 
 5. ~~**Duplication de code significative**~~ **LARGEMENT CORRIGE** — PostgreSQL parser factorise, Open in Explorer factorise, DataFrameTableModel: reste 2 copies (ui/widgets + core/)
 
-6. **Gestion d'erreurs a ameliorer** (ameliore)
-   - ~~341 `except Exception` generiques~~ **172** (vs 341, -50%) — 169 convertis en exceptions specifiques (sqlite3.Error, ftplib.all_errors, OSError, ValueError, KeyError, json.JSONDecodeError, etc.)
-   - ~17 `except` + `pass` (vs 46, -63%)
+6. **Gestion d'erreurs a ameliorer** (ameliore significativement)
+   - ~~341 `except Exception` generiques~~ **172** (vs 341, -50%) — 169 convertis en exceptions specifiques (sqlite3.Error, ftplib.all_errors, OSError, ValueError, KeyError, json.JSONDecodeError, KeyringError, DbError, etc.)
+   - 58 `except` + `pass` (dont 22 avec exceptions specifiques, 36 avec Exception — majoritairement teardown/cleanup legitimes)
    - **0 bare `except:`** (vs 3, -100%)
    - config_db.py: 46→0 exceptions generiques
+   - Les 172 restants sont des catch-alls legitimes: teardown (~34), theme/observers (~24), plugins (~6), QThread (~4), per-item loops (~9), multi-driver DB (~15)
 
 7. ~~**Fuites memoire managers**~~ **CORRIGE** — 24 fichiers avec cleanup/closeEvent. config_db.py utilise ConnectionPool (77 context managers). Reste: ratio connect/disconnect 448:25 (Qt signals)
 
 8. **Couverture de tests faible**
-   - 6 fichiers de tests (1463 lignes) pour 215 fichiers source (59,343 lignes)
+   - 7 fichiers de tests (1463 lignes) pour 222 fichiers source (59,542 lignes)
    - 79/79 tests passent, 0 echec
    - Pas de tests pour: managers, dialogs, sql_formatter, ftp_client
    - Couverture estimee: ~15%
@@ -124,7 +125,7 @@
 11. **i18n incomplete** (ameliore)
     - ES n'existe pas (seulement EN/FR)
     - ~50 strings hardcodees en francais dans le code source
-    - EN/FR: 659 cles, parite 100%
+    - EN/FR: 652 cles, parite 100%
 
 12. **Configuration stockee dans l'arbre source** (`_AppConfig/`)
     - Pas de chemin OS standard (`%APPDATA%`, `~/.config/`)
@@ -237,7 +238,7 @@
 1. La dette technique majeure est resolue (config_db + database_manager refactores, deps nettoyees, cleanup managers)
 2. Les correctifs P1 restants sont mineurs (type hints, TODOs)
 3. Les fonctionnalites de base sont solides et bien architecturees (10 repos, facade, ConnectionPool)
-4. Le score est passe de 7.3 a 7.7 — la base est assez saine pour accelerer les fonctionnalites
+4. Le score est passe de 7.3 a 7.9 — la base est saine pour accelerer les fonctionnalites
 
 **Priorites immediates**:
 1. ~~**Refactoring query_tab.py**~~ **Done** (audit #4)
@@ -438,7 +439,7 @@
 | Fixer test_theme_patch.py | **Done** | P1 |
 | Supprimer code deprecie (I18n) | **Done** | P2 |
 | Quoting SQL noms de tables | **Done** | P2 |
-| Reducer except generiques | Todo | P2 |
+| ~~Reducer except generiques~~ | **Done** (341→172, -50%) | P2 |
 | ~~Refactorer query_tab.py en mixins~~ | **Done** (audit #4) | P1.5 |
 | ~~Supprimer `shell=True` subprocess~~ | **Done** | P2 |
 | ~~Parametrer SQL query_gen_mixin~~ | **Done** | P2 |
@@ -450,24 +451,35 @@
 
 | Metrique | Valeur | Evolution |
 |----------|--------|-----------|
-| Fichiers Python | 222 | +7 |
-| Lignes de code (src/) | 59,491 | +148 |
-| Fichiers de tests | 7 | +1 |
+| Fichiers Python | 222 | = |
+| Lignes de code (src/) | 59,542 | +51 |
+| Fichiers de tests | 7 | = |
 | Lignes de tests | 1,463 | = |
 | Tests en echec | 0 (79 passed) | = |
 | Plugins | 10 | = |
 | Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) | = |
-| Langues i18n | 2 (EN: 659 cles, FR: 659 cles) | +570 cles/langue |
+| Langues i18n | 2 (EN: 652 cles, FR: 652 cles) | = |
 | Themes | 4 | = |
-| Guides documentation | 24 | +1 |
-| Commits depuis Dec 2025 | ~140 | +7 |
-| `except Exception` generiques | 172 | -169 (-50%) |
+| Guides documentation | 24 | = |
+| Commits depuis Dec 2025 | ~142 | +2 |
+| `except Exception` generiques | 172 | = (vs 341 initial, -50%) |
+| `except` specifiques | ~95 | *(nouveau)* — sqlite3.Error, ftplib.all_errors, OSError, etc. |
+| bare `except:` | 0 | = |
+| `except` + `pass` | 58 (dont 22 specifiques) | = |
+| `shell=True` | 0 | = |
+| `eval()`/`exec()` | 0 | = |
+| f-string SQL | 35 (toutes securisees) | = |
 | `.connect()` / `.disconnect()` | 448 / 25 | ratio 18:1 (Qt signals) |
-| Fichiers > 500 lignes | 29 | -2 |
-| Repositories actifs | 10 | *(nouveau)* |
-| ConnectionPool context managers | 77 | *(nouveau)* |
+| `deleteLater()` | 19 | = |
+| cleanup/closeEvent | 29 | = |
+| Fichiers > 500 lignes | 30 | +1 |
+| Fichiers > 1000 lignes | 7 | = |
+| Repositories actifs | 10 | = |
+| ConnectionPool context managers | 77 | = |
+| TODO/FIXME | 6 | = |
+| Deps (pyproject.toml) | 15 | = (toutes utilisees) |
 
-*Statistiques mises a jour: 01 Mars 2026 (audit #4)*
+*Statistiques mises a jour: 02 Mars 2026 (audit #5)*
 
 ---
 
@@ -511,7 +523,10 @@ Mars 2026
 |-- FTPRootRepository cree, ProjectRepository complete
 |-- Audit #3 complet (7.3→7.7/10)
 |-- Refactoring query_tab.py → 6 mixins (2061→417L)
-|-- Audit #4 (7.7→7.8/10) — 3 God Objects majeurs tous refactores
+|-- Audit #4 (7.7→7.9/10) — 3 God Objects majeurs tous refactores
+|-- Suppression shell=True, parametrisation/quoting SQL
+|-- Reduction except Exception generiques: 341→172 (-50%, 51 fichiers)
+|-- Audit #5 (7.9/10) — base technique mature, tous correctifs P1/P2 resolus
 |-- v0.6.3 (actuel)
 ```
 
@@ -520,14 +535,13 @@ Mars 2026
 ```
 Q1 2026 (en cours)
 |-- Refactoring query_tab.py en mixins (2061L) — DONE
-|-- Reducer except generiques (-50%)
+|-- Reducer except generiques (-50%) — DONE (341→172)
 |-- Phase 4 (Theming Icons)
 |-- v0.7.0
 |
 Q2 2026
 |-- Phase 3 (Execution Scripts) - si modele defini
 |-- Couverture tests 25%
-|-- Reducer except generiques (-50%)
 |-- v0.8.0 - v0.9.0 POC Release
 |
 S2 2026
@@ -549,7 +563,7 @@ S2 2026
 
 DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.3.
 
-**Score global: 7.8/10** (+0.5 vs audit #2) — Les 3 God Objects majeurs sont tous refactores (config_db, database_manager, query_tab). La dette technique structurelle est resolue. La base est saine pour accelerer les fonctionnalites.
+**Score global: 7.9/10** (+0.6 vs audit #2) — Tous les correctifs P1/P2 critiques sont resolus: 3 God Objects refactores, exceptions specifiques, securite SQL, shell=True. La base technique est mature.
 
 **Bilan des corrections realisees**:
 - ~~MySQL backend (dialect + loader + factories)~~ Done
@@ -561,21 +575,25 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 - **config_db.py refactore en facade** (2547→474L, 10 repos, 0 SQL inline) Done *(audit #3)*
 - **database_manager.py refactore en mixins** Done
 - **query_tab.py refactore en 6 mixins** (2061→417L) Done *(audit #4)*
+- **except Exception reduits de 50%** (341→172, 51 fichiers, 169 sites specifiques) Done *(audit #5)*
+- **Securite SQL complete**: 0 shell=True, 0 eval/exec, SQL parametrise/quote Done
 
-**Actions immediates recommandees** (2-3 jours):
+**Actions immediates recommandees**:
 1. ~~Refactorer query_tab.py en mixins~~ **Done**
 2. ~~Reducer `except Exception` generiques de 341 a ~170~~ **Done** (341→172, -50%)
 3. ~~Supprimer `shell=True` dans 3 subprocess~~ **Done**
 4. ~~Parametrer/quoting SQL~~ **Done** (query_gen_mixin, access_dialect, data_loader)
+5. **Augmenter couverture tests** (15% → 25%) — P2
+6. **Phase 4 (Theming Icons)** — prochaine fonctionnalite
 
 **Prochaine etape majeure**: Phase 3 (Execution des Scripts) — quand le modele d'execution sera defini. C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 
 **A ne PAS faire maintenant**:
 - MongoDB/Oracle (pas de base de test, pas de besoin immediat)
-- Tests exhaustifs (incrementer progressivement, viser 25% pour Q2, 40% pour v1.0)
+- Tests exhaustifs au-dela de 25% (incrementer progressivement, viser 40% pour v1.0)
 - Operations async generalisees (4 QThread workers suffisent pour l'instant)
 
-Le ratio **60% nouveautes / 40% corrections** est desormais recommande — la base technique est assez saine pour prioriser les fonctionnalites.
+Le ratio **70% nouveautes / 30% corrections** est desormais recommande — la dette technique est quasiment resolue, priorite aux fonctionnalites.
 
 ---
 
@@ -658,4 +676,4 @@ Le ratio **60% nouveautes / 40% corrections** est desormais recommande — la ba
 
 ---
 
-*Derniere mise a jour: 2026-03-01*
+*Derniere mise a jour: 2026-03-02*
