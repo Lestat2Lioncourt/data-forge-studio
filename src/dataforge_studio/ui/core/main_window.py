@@ -946,8 +946,7 @@ if errorlevel 1 goto :failed
 echo.
 echo Update complete! Press any key to close.
 pause
-del "%~f0"
-exit /b 0
+(del "%~f0") & exit /b 0
 
 :failed
 echo.
@@ -962,7 +961,7 @@ echo.
 echo ============================================
 echo.
 pause
-del "%~f0"
+(del "%~f0") & exit /b 1
 '''
             bat_path.write_text(bat_content, encoding='utf-8')
             subprocess.Popen(['cmd', '/c', str(bat_path)], creationflags=subprocess.CREATE_NEW_CONSOLE)
