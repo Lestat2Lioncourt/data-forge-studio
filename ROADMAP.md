@@ -211,7 +211,7 @@
 | Creer i18n ES | config/i18n/core/es.json | 2h | Todo *(corrige: ES n'existait pas)* |
 | Supprimer strings hardcodees FR/EN | 5 fichiers + en.json/fr.json | 1j | **Done** (35+ strings) |
 | Ajouter docstrings API | Tous les modules publics | 2j | Todo |
-| Implementer Jobs & Orchestration | Phase 5 complete | 4-5j | Todo |
+| Implementer Scripts & Jobs | Phase 3 + Phase 5 | 4-5j | **Specifie** |
 | ~~Reducer except generiques (cibler 50%)~~ | ~~51 fichiers~~ | ~~2j~~ | **Done** (341→172, -50%) |
 | ~~Supprimer `shell=True` dans subprocess~~ | ~~os_helpers, main_window, scripts_manager~~ | ~~0.5j~~ | **Done** |
 | ~~Parametrer SQL query_gen_mixin~~ | ~~query_gen_mixin, connection_mixin~~ | ~~0.5j~~ | **Done** |
@@ -298,19 +298,82 @@
 
 ---
 
-### Phase 3: Execution des Scripts (REPORTE - En reflexion)
+### Phase 3: Scripts & Jobs (Specification definie - En attente)
 
-*Note: Le modele final d'execution est encore en cours de reflexion. Cette phase sera reprise ulterieurement.*
+#### Modele de donnees
+
+**Cycle de vie d'un script** :
+
+```
+Pseudo-script → Declare → Valide → Job
+     |               |          |        |
+  Fichier seul   + Manifest  + Test OK  + Params figes
+  Non executable  Params types Eligible   Planifiable
+```
+
+- **Pseudo-script** : fichier present mais sans manifest. Visible dans l'explorateur, non executable comme job.
+- **Script declare** : manifest cree (via template ou manuellement). Parametres types definis, mais pas encore valide.
+- **Script valide** : une execution standalone reussie avec des parametres de test, confirmee par l'utilisateur. Hash SHA-256 du fichier enregistre. Si le script est modifie (hash different), le statut repasse a "declare" — revalidation necessaire.
+- **Job** : script valide + parametres figes + eventuellement planification.
+
+#### Manifest
+
+Chaque script executable doit avoir un manifest (YAML ou JSON) qui declare :
+
+| Champ | Description | Obligatoire |
+|-------|-------------|-------------|
+| `name` | Nom du script | Oui |
+| `description` | Description fonctionnelle | Oui |
+| `interpreter` | Interpreteur (`python`, `pwsh`, `cscript`, etc.) | Oui |
+| `os_compatible` | OS supportes (`windows`, `linux`, `macos`) | Oui |
+| `parameters` | Liste de parametres types | Non |
+
+**Types de parametres supportes** : `string`, `int`, `float`, `bool`, `path`, `connection`, `query`
+
+Chaque parametre : `name`, `type`, `label`, `required`, `default`, `description`
+
+#### Scripts embarques vs utilisateur
+
+| | Scripts embarques | Scripts utilisateur |
+|---|---|---|
+| Provenance | Livres avec l'app | Crees par l'utilisateur |
+| Emplacement | Dans la solution | Dossier utilisateur |
+| Langages | Python | Python, PowerShell, VBScript |
+| Maintenance | Versionnes avec l'app | Responsabilite utilisateur |
+| Validation | Pre-valides | Validation obligatoire |
+
+#### Import / Export de scripts
+
+- **Export** : archive (zip) contenant le script + son manifest
+- **Import** : l'app depose les fichiers au bon endroit. Le script arrive en statut "declare" — l'utilisateur doit le valider sur son environnement.
+- **Ce qui ne voyage PAS** : hash de validation (propre a chaque environnement), parametres figes des jobs (connexions, chemins — specifiques a chaque poste)
+- **Securite** : aucune sandbox, aucune analyse statique. L'utilisateur est responsable de ce qu'il execute. Un script personnel est par definition personnel ; s'il est transmis a un tiers, c'est la responsabilite du destinataire de verifier et valider.
+
+#### Templates
+
+Des squelettes prets a l'emploi par langage pour faciliter la creation :
+- "Script Python avec connexion DB"
+- "PowerShell d'export CSV"
+- etc.
+
+Les templates imposent la structure et facilitent la declaration des parametres.
+
+#### Taches d'implementation
 
 | Tache | Status | Priorite |
 |-------|--------|----------|
-| Formulaire dynamique depuis YAML | Todo | - |
-| Widgets par type (RootFolderSelector, etc.) | Todo | - |
-| Bouton "Run" fonctionnel | Todo | - |
-| Resolution parametres | Todo | - |
-| Logs temps reel dans onglet "Log" | Todo | - |
-| Gestion erreurs et affichage | Todo | - |
-| Mode dry-run | Todo | - |
+| Format manifest (YAML/JSON) + schema | Todo | P0 |
+| Formulaire dynamique depuis manifest | Todo | P0 |
+| Widgets par type (connection selector, file picker, etc.) | Todo | P0 |
+| Detection interpreteur disponible sur l'OS | Todo | P1 |
+| Execution standalone (validation) | Todo | P0 |
+| Hash SHA-256 + detection modification | Todo | P0 |
+| Cycle de vie (pseudo → declare → valide) | Todo | P0 |
+| Bouton "Run" fonctionnel | Todo | P0 |
+| Logs temps reel dans onglet "Log" | Todo | P1 |
+| Gestion erreurs et code retour | Todo | P1 |
+| Templates de scripts (Python, PowerShell) | Todo | P1 |
+| Import / Export archives | Todo | P2 |
 
 ---
 
@@ -380,28 +443,36 @@
 
 ---
 
-### Phase 4: Theming & App Icons (Post-POC)
+### Phase 4: Theming & App Icons (En cours)
 
 | Tache | Status | Effort |
 |-------|--------|--------|
-| icon_generator.py (recoloration PNG) | Todo | 3h |
-| Modifier image_loader.py (cache) | Todo | 2h |
-| Etendre format theme (icon_color_*) | Todo | 1h |
-| Convertir icones en monochromes | Todo | 4h |
-| Support SVG (optionnel) | Todo | 3h |
+| icon_generator.py (recoloration PNG) | **Done** | 3h |
+| Modifier image_loader.py (cache + QSvgRenderer) | **Done** | 2h |
+| Convertir icones en monochromes SVG (37 icones) | **Done** (v0.6.5) | 4h |
+| Support SVG (recoloration texte, rendu Qt) | **Done** (v0.6.5) | 3h |
+| Etendre format theme (icon_color par contexte) | Todo | 1h |
+| Taille d'icones variable par contexte | Todo | 1h |
 
 ---
 
 ### Phase 5: Jobs & Orchestration (v1.0)
 
-| Tache | Status |
-|-------|--------|
-| Lier Job a Script + parametres | Todo |
-| Execution manuelle de Job | Todo |
-| Historique des executions | Todo |
-| Statut execution (pending, running, etc.) | Todo |
-| Chainage de Jobs (workflow) | Todo |
-| Planification cron-like | Todo |
+*Prerequis : Phase 3 (Scripts) terminee — un Job est une configuration d'execution d'un script valide.*
+
+**Job = Script valide + Parametres figes + Planification (optionnelle)**
+
+L'utilisateur cree un job via l'UI en selectionnant un script valide et en remplissant les parametres types (avec des widgets adaptes : selecteur de connexion, file picker, etc.). Le job ne peut etre cree que si le script est au statut "valide".
+
+| Tache | Status | Priorite |
+|-------|--------|----------|
+| Creation de Job depuis script valide | Todo | P0 |
+| UI parametres figes (widgets types) | Todo | P0 |
+| Execution manuelle de Job | Todo | P0 |
+| Historique des executions (date, code retour, logs) | Todo | P1 |
+| Statut execution (pending, running, success, error) | Todo | P1 |
+| Planification cron-like | Todo | P2 |
+| Chainage de Jobs (workflow) | Todo | P3 |
 
 ---
 
@@ -536,11 +607,12 @@ Mars 2026
 Q1 2026 (en cours)
 |-- Refactoring query_tab.py en mixins (2061L) — DONE
 |-- Reducer except generiques (-50%) — DONE (341→172)
-|-- Phase 4 (Theming Icons)
+|-- Phase 4 (Migration SVG) — DONE (v0.6.5)
+|-- Phase 4 (icon_color par contexte) — En reflexion
 |-- v0.7.0
 |
 Q2 2026
-|-- Phase 3 (Execution Scripts) - si modele defini
+|-- Phase 3 (Scripts & Jobs) — specification definie
 |-- Couverture tests 25%
 |-- v0.8.0 - v0.9.0 POC Release
 |
@@ -583,10 +655,11 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 2. ~~Reducer `except Exception` generiques de 341 a ~170~~ **Done** (341→172, -50%)
 3. ~~Supprimer `shell=True` dans 3 subprocess~~ **Done**
 4. ~~Parametrer/quoting SQL~~ **Done** (query_gen_mixin, access_dialect, data_loader)
-5. **Augmenter couverture tests** (15% → 25%) — P2
-6. **Phase 4 (Theming Icons)** — prochaine fonctionnalite
+5. ~~**Phase 4 (Theming Icons)**~~ **En cours** — Migration SVG done (v0.6.5), reste icon_color par contexte
+6. **Phase 3 (Scripts & Jobs)** — specification definie, implementation a planifier
+7. **Augmenter couverture tests** (15% → 25%) — P2
 
-**Prochaine etape majeure**: Phase 3 (Execution des Scripts) — quand le modele d'execution sera defini. C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
+**Prochaine etape majeure**: Phase 3 (Scripts & Jobs) — le modele est maintenant defini (cycle de vie pseudo→declare→valide→job, manifest type, hash SHA-256, import/export). C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 
 **A ne PAS faire maintenant**:
 - MongoDB/Oracle (pas de base de test, pas de besoin immediat)
