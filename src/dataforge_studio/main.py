@@ -27,7 +27,7 @@ def main():
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("DataForge Studio")
-    app.setApplicationVersion("0.6.3")
+    app.setApplicationVersion("0.6.4")
     app.setOrganizationName("DataForge")
 
     # Set application icon (for taskbar and desktop shortcut)
@@ -43,7 +43,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = 'dataforge.studio.v063'
+            myappid = 'dataforge.studio.v064'
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

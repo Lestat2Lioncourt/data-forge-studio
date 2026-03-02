@@ -1,6 +1,6 @@
 [project]
 name = "data-forge-studio"
-version = "0.6.3"
+version = "0.6.4"
 description = "Multi-Datasource management tool with modern PySide6 interface"
 readme = "README.md"
 requires-python = ">=3.10"
