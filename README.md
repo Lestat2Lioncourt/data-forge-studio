@@ -372,6 +372,32 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📜 Changelog
 
+### v0.6.5 (2026-03-03) - SVG Icon Migration
+- Migrate icon system from PNG to SVG (37 icons, scalable, no PIL dependency)
+- SVG recoloring via text replacement, QSvgRenderer rendering
+- Database-specific logos in connection selector dialog
+- Fix self-deleting update batch file error
+
+### v0.6.4 (2026-03-02) - Code Quality & Refactoring
+- Refactor config_db.py as pure facade delegating to 10 repositories
+- Split query_tab.py into 6 mixin modules (2061→417 lines)
+- Replace 169 generic `except Exception` with specific exception types
+- Remove `shell=True` from subprocess calls, parameterize SQL queries
+- Sanitize SQL identifiers in access_dialect, data_loader and base dialect
+- Audit #5: score 7.9/10, all P1/P2 fixes resolved
+
+### v0.6.3 (2026-03-01) - Database Manager Refactoring
+- Split database_manager.py into mixin modules + fix PostgreSQL quoting
+- Redesign About dialog and standardize close button icon
+- Always show update notification in status bar on startup
+
+### v0.6.2 (2026-02-28) - Editable Tabs & Update Improvements
+- Add EditableTabWidget for renamable query tabs
+- Fix update-on-quit mechanism, use git reset in update script
+- Eliminate query tab duplication between managers
+- Use icon_color instead of toolbarbtn_fg for themed icons
+- Auto-create _AppConfig directories on first launch
+
 ### v0.6.1 (2026-02-26) - SQL Formatter Enhancement
 - Ultimate-style formatting for UPDATE/SET with leading commas
 - Multiline CASE WHEN with operator alignment (IS NOT NULL, =, etc.)
