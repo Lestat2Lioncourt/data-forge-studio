@@ -749,4 +749,16 @@ Le ratio **70% nouveautes / 30% corrections** est desormais recommande — la de
 
 ---
 
-*Derniere mise a jour: 2026-03-02*
+## Backlog (Idees non priorisees)
+
+*Idees a explorer, sans engagement ni planning. A remonter dans les phases quand le besoin se confirme.*
+
+| Idee | Description | Complexite estimee | Notes |
+|------|-------------|-------------------|-------|
+| **Dialect DAX / Power BI** | Connexion aux datasets Power BI via endpoint XMLA, requetes DAX, exploration des tables/mesures | Moyenne-Haute | Necessite licence Power BI Pro/Premium + lib XMLA Python (pyadomd). Meme modele qu'un dialect SQL classique : connexion → schema → requetes → resultats tabulaires. Cible : profils DATA travaillant sur les deux mondes (SQL + Power BI) |
+| **Support Oracle** | Nouveau dialect + loader Oracle | Moyenne | Pas de base de test disponible actuellement |
+| **Support MongoDB** | Nouveau dialect + loader MongoDB (NoSQL) | Moyenne | Pas de base de test disponible actuellement |
+
+---
+
+*Derniere mise a jour: 2026-03-03*
