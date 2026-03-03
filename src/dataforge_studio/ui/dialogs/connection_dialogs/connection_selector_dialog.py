@@ -25,7 +25,7 @@ DATABASE_TYPES = [
         "id": "sqlserver",
         "name": "SQL Server",
         "description": "Microsoft SQL Server",
-        "icon": "database",
+        "icon": "sqlserver.png",
         "dialog_class": "SQLServerConnectionDialog",
         "enabled": True
     },
@@ -33,7 +33,7 @@ DATABASE_TYPES = [
         "id": "sqlite",
         "name": "SQLite",
         "description": "SQLite local database",
-        "icon": "database",
+        "icon": "sqlite.png",
         "dialog_class": "SQLiteConnectionDialog",
         "enabled": True
     },
@@ -41,7 +41,7 @@ DATABASE_TYPES = [
         "id": "mysql",
         "name": "MySQL",
         "description": "MySQL / MariaDB",
-        "icon": "database",
+        "icon": "mysql-mariadb.png",
         "dialog_class": "MySQLConnectionDialog",
         "enabled": True
     },
@@ -49,7 +49,7 @@ DATABASE_TYPES = [
         "id": "postgresql",
         "name": "PostgreSQL",
         "description": "PostgreSQL",
-        "icon": "database",
+        "icon": "postgres.png",
         "dialog_class": "PostgreSQLConnectionDialog",
         "enabled": True
     },
@@ -57,7 +57,7 @@ DATABASE_TYPES = [
         "id": "access",
         "name": "Access",
         "description": "Microsoft Access",
-        "icon": "database",
+        "icon": "Access.png",
         "dialog_class": "AccessConnectionDialog",
         "enabled": True
     },
@@ -65,7 +65,7 @@ DATABASE_TYPES = [
         "id": "oracle",
         "name": "Oracle",
         "description": "Oracle Database",
-        "icon": "database",
+        "icon": "Oracle.png",
         "dialog_class": "OracleConnectionDialog",
         "enabled": False  # TODO: Implement
     },
@@ -73,7 +73,7 @@ DATABASE_TYPES = [
         "id": "mongodb",
         "name": "MongoDB",
         "description": "MongoDB NoSQL",
-        "icon": "database",
+        "icon": "mongodb.png",
         "dialog_class": "MongoDBConnectionDialog",
         "enabled": False  # TODO: Implement
     }
@@ -105,23 +105,17 @@ class DatabaseTypeCard(QFrame):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Icon
-        icon = get_icon(self._db_type.get("icon", "database"), size=32)
+        icon = get_icon(self._db_type.get("icon", "database"), size=48)
         icon_label = QLabel()
         if icon and not icon.isNull():
-            icon_label.setPixmap(icon.pixmap(32, 32))
+            icon_label.setPixmap(icon.pixmap(48, 48))
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(icon_label)
-
-        # Name
-        name_label = QLabel(self._db_type["name"])
-        name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        name_label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        layout.addWidget(name_label)
 
         # Description
         desc_label = QLabel(self._db_type.get("description", ""))
         desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc_label.setStyleSheet("font-size: 10px; color: gray;")
+        desc_label.setStyleSheet("font-size: 11px;")
         desc_label.setWordWrap(True)
         layout.addWidget(desc_label)
 
