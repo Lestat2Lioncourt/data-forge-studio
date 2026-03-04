@@ -756,6 +756,7 @@ Le ratio **70% nouveautes / 30% corrections** est desormais recommande — la de
 | Idee | Description | Complexite estimee | Notes |
 |------|-------------|-------------------|-------|
 | **Dialect DAX / Power BI** | Connexion aux datasets Power BI via endpoint XMLA, requetes DAX, exploration des tables/mesures | Moyenne-Haute | Necessite licence Power BI Pro/Premium + lib XMLA Python (pyadomd). Meme modele qu'un dialect SQL classique : connexion → schema → requetes → resultats tabulaires. Cible : profils DATA travaillant sur les deux mondes (SQL + Power BI) |
+| **Dependances entre scripts** | Champ `dependencies` dans le manifest pour referencer d'autres scripts. Cas d'usage principal : un script de logging embarque, reutilisable par tous les scripts metier, configure par projet (serveur de logs, table, projet). Au deploiement, DataForge embarque les dependances avec la configuration du projet cible | Moyenne | Compatible avec le logging centralise existant (SSIS, scripts SQL). Le script de logging serait un script embarque valide, livre avec DataForge |
 | **Support Oracle** | Nouveau dialect + loader Oracle | Moyenne | Pas de base de test disponible actuellement |
 | **Support MongoDB** | Nouveau dialect + loader MongoDB (NoSQL) | Moyenne | Pas de base de test disponible actuellement |
 
