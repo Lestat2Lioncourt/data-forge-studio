@@ -75,6 +75,8 @@ class QueryTab(
     close_requested = Signal()
     # Signal emitted when a query is saved to saved queries
     query_saved = Signal()
+    # Signal emitted when tab requests to be detached into its own window
+    detach_requested = Signal(object)  # emits self
 
     def cleanup(self):
         """Stop background tasks and cleanup resources"""
@@ -294,6 +296,25 @@ class QueryTab(
 
         toolbar.addStretch()
 
+        # === Detach button ===
+        self.detach_btn = QPushButton()
+        detach_icon_path = self._get_themed_icon("external")
+        if detach_icon_path:
+            self.detach_btn.setIcon(QIcon(str(detach_icon_path)))
+        else:
+            self.detach_btn.setText("\u29C9")
+        self.detach_btn.setToolTip(tr("query_detach_tooltip"))
+        self.detach_btn.clicked.connect(self._on_detach_requested)
+        self.detach_btn.setFixedSize(40, 40)
+        toolbar.addWidget(self.detach_btn)
+
+        # === Split orientation toggle button ===
+        self.split_toggle_btn = QPushButton()
+        self.split_toggle_btn.setToolTip(tr("query_toggle_split"))
+        self.split_toggle_btn.clicked.connect(self._toggle_split_orientation)
+        self.split_toggle_btn.setFixedSize(40, 40)
+        toolbar.addWidget(self.split_toggle_btn)
+
         # === Save button (standalone) ===
         self.save_query_btn = QPushButton("\U0001f4be")
         self.save_query_btn.setToolTip(tr("query_save_to_queries"))
@@ -304,8 +325,13 @@ class QueryTab(
 
         layout.addLayout(toolbar)
 
-        # Splitter for SQL editor (top) and results (bottom)
-        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        # Splitter for SQL editor and results
+        # Restore saved orientation preference
+        prefs = UserPreferences.instance()
+        saved_orientation = prefs.get("query_tab_split_orientation", "horizontal")
+        orientation = Qt.Orientation.Horizontal if saved_orientation == "vertical" else Qt.Orientation.Vertical
+        self.splitter = QSplitter(orientation)
+        self._update_split_icon()
 
         # SQL Editor
         self.sql_editor = QTextEdit()
@@ -415,3 +441,36 @@ class QueryTab(
             return get_themed_icon_path(icon_name, is_dark, icon_color)
         except Exception:
             return None
+
+    def _toggle_split_orientation(self):
+        """Toggle splitter between horizontal (stacked) and vertical (side-by-side)."""
+        if self.splitter.orientation() == Qt.Orientation.Vertical:
+            self.splitter.setOrientation(Qt.Orientation.Horizontal)
+            pref_value = "vertical"
+        else:
+            self.splitter.setOrientation(Qt.Orientation.Vertical)
+            pref_value = "horizontal"
+
+        self._update_split_icon()
+
+        try:
+            prefs = UserPreferences.instance()
+            prefs.set("query_tab_split_orientation", pref_value)
+        except Exception:
+            pass
+
+    def _update_split_icon(self):
+        """Update split toggle button icon based on current orientation."""
+        if self.splitter.orientation() == Qt.Orientation.Vertical:
+            icon_name = "split_vertical"
+        else:
+            icon_name = "split_horizontal"
+        icon_path = self._get_themed_icon(icon_name)
+        if icon_path:
+            self.split_toggle_btn.setIcon(QIcon(str(icon_path)))
+        else:
+            self.split_toggle_btn.setText("\u2B1C")
+
+    def _on_detach_requested(self):
+        """Request detachment from tab widget into its own window."""
+        self.detach_requested.emit(self)

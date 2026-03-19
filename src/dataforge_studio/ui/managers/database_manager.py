@@ -80,6 +80,7 @@ class DatabaseManager(
         self._current_item = None
         self._pending_workers: Dict[str, DatabaseConnectionWorker] = {}  # Track active connection workers
         self._workspace_manager: Optional["WorkspaceManager"] = None
+        self._detached_windows: Dict[int, object] = {}  # Track detached query windows
 
         self._setup_ui()
         self._load_all_connections()

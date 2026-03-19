@@ -374,6 +374,8 @@
     "query_toolbar_execute": "Exécuter",
     "query_toolbar_format": "Format",
     "query_toolbar_export": "Export",
+    "query_toggle_split": "Basculer la disposition (empile / cote a cote)",
+    "query_detach_tooltip": "Detacher la requete dans une fenetre separee",
     "query_export_language": "Langage",
     "query_btn_run": "▶",
     "query_btn_format": "{ }",

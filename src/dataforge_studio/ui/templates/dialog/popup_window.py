@@ -29,7 +29,8 @@ Usage:
 
 from typing import Optional
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QPoint, QRect
+from PySide6.QtGui import QCursor
 
 from ..window.title_bar import TitleBar
 
@@ -95,6 +96,10 @@ class PopupWindow(QMainWindow):
         self._show_maximize = show_maximize
         self._is_maximized = False
         self._normal_geometry = None
+        self._resize_edge = None  # Edge being dragged for resize
+        self._resize_start_pos = None
+        self._resize_start_geo = None
+        self._resize_margin = 6  # Pixels from edge to trigger resize
 
         # Window setup
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
@@ -105,6 +110,7 @@ class PopupWindow(QMainWindow):
             self.setFixedSize(width, height)
         else:
             self.setMinimumSize(400, 300)
+            self.setMouseTracking(True)
 
         # Central widget
         central = QWidget()
@@ -237,6 +243,88 @@ class PopupWindow(QMainWindow):
 
         self.closed.emit()
         super().closeEvent(event)
+
+    def _get_resize_edge(self, pos: QPoint) -> Optional[str]:
+        """Determine which edge the mouse is near for resizing."""
+        rect = self.rect()
+        m = self._resize_margin
+        edges = []
+        if pos.y() <= m:
+            edges.append("top")
+        if pos.y() >= rect.height() - m:
+            edges.append("bottom")
+        if pos.x() <= m:
+            edges.append("left")
+        if pos.x() >= rect.width() - m:
+            edges.append("right")
+        return "-".join(edges) if edges else None
+
+    def _update_cursor_for_edge(self, edge: Optional[str]):
+        """Set the appropriate resize cursor for the given edge."""
+        cursor_map = {
+            "left": Qt.CursorShape.SizeHorCursor,
+            "right": Qt.CursorShape.SizeHorCursor,
+            "top": Qt.CursorShape.SizeVerCursor,
+            "bottom": Qt.CursorShape.SizeVerCursor,
+            "top-left": Qt.CursorShape.SizeFDiagCursor,
+            "bottom-right": Qt.CursorShape.SizeFDiagCursor,
+            "top-right": Qt.CursorShape.SizeBDiagCursor,
+            "bottom-left": Qt.CursorShape.SizeBDiagCursor,
+        }
+        if edge and edge in cursor_map:
+            self.setCursor(cursor_map[edge])
+        else:
+            self.unsetCursor()
+
+    def mousePressEvent(self, event):
+        """Start resize if clicking on an edge."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            edge = self._get_resize_edge(event.pos())
+            if edge:
+                self._resize_edge = edge
+                self._resize_start_pos = event.globalPosition().toPoint()
+                self._resize_start_geo = self.geometry()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Handle resize dragging or update cursor."""
+        if self._resize_edge and self._resize_start_pos:
+            delta = event.globalPosition().toPoint() - self._resize_start_pos
+            geo = QRect(self._resize_start_geo)
+            min_w = self.minimumWidth()
+            min_h = self.minimumHeight()
+
+            if "right" in self._resize_edge:
+                geo.setWidth(max(min_w, self._resize_start_geo.width() + delta.x()))
+            if "bottom" in self._resize_edge:
+                geo.setHeight(max(min_h, self._resize_start_geo.height() + delta.y()))
+            if "left" in self._resize_edge:
+                new_w = self._resize_start_geo.width() - delta.x()
+                if new_w >= min_w:
+                    geo.setLeft(self._resize_start_geo.left() + delta.x())
+            if "top" in self._resize_edge:
+                new_h = self._resize_start_geo.height() - delta.y()
+                if new_h >= min_h:
+                    geo.setTop(self._resize_start_geo.top() + delta.y())
+
+            self.setGeometry(geo)
+            return
+
+        # Update cursor shape when hovering near edges
+        edge = self._get_resize_edge(event.pos())
+        self._update_cursor_for_edge(edge)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """End resize."""
+        if self._resize_edge:
+            self._resize_edge = None
+            self._resize_start_pos = None
+            self._resize_start_geo = None
+            self._update_cursor_for_edge(self._get_resize_edge(event.pos()))
+            return
+        super().mouseReleaseEvent(event)
 
     def center_on_screen(self):
         """Center the window on the primary screen."""

@@ -5,13 +5,15 @@ Tab Mixin - Query tab management for DatabaseManager.
 from __future__ import annotations
 
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Dict, TYPE_CHECKING
 
-from PySide6.QtWidgets import QTabWidget
+from PySide6.QtWidgets import QTabWidget, QVBoxLayout
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 
 from ..query_tab import QueryTab
 from ...widgets.dialog_helper import DialogHelper
+from ...templates.dialog.popup_window import PopupWindow
 from ...core.i18n_bridge import tr
 from ....database.config_db import get_config_db, DatabaseConnection
 from ....utils.image_loader import create_color_dot_icon
@@ -20,6 +22,56 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+class QueryWindow(PopupWindow):
+    """Detachable window for a single QueryTab."""
+
+    def __init__(self, query_tab: QueryTab, on_close_callback=None, parent=None):
+        tab_name = query_tab.tab_name or "Query"
+        super().__init__(
+            title=f"DataForge Studio - {tab_name}",
+            parent=parent,
+            width=900,
+            height=700,
+            show_minimize=True,
+            show_maximize=True
+        )
+        # Disable auto-delete so we can salvage the query_tab on close
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+
+        self.query_tab = query_tab
+        self._on_close_callback = on_close_callback
+        query_tab.setParent(None)  # Detach from previous parent first
+
+        layout = QVBoxLayout(self.content_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(query_tab)
+        query_tab.show()
+
+        # Reconnect close button to ensure it goes through our closeEvent
+        try:
+            self.title_bar.close_clicked.disconnect()
+        except RuntimeError:
+            pass
+        self.title_bar.close_clicked.connect(self.close)
+
+    def closeEvent(self, event):
+        """On close, reparent the query tab out and call re-attachment callback."""
+        query_tab = self.query_tab
+        layout = self.content_widget.layout()
+        if layout:
+            layout.removeWidget(query_tab)
+        query_tab.setParent(None)
+
+        if self._on_close_callback:
+            try:
+                self._on_close_callback(query_tab)
+            except Exception as e:
+                logger.error(f"Failed to re-attach query tab: {e}")
+
+        super().closeEvent(event)
+        self.deleteLater()
 
 
 class DatabaseTabMixin:
@@ -98,8 +150,9 @@ class DatabaseTabMixin:
             target_database=target_database
         )
 
-        # Connect query_saved signal to forward to DatabaseManager's signal
+        # Connect signals
         query_tab.query_saved.connect(self.query_saved.emit)
+        query_tab.detach_requested.connect(self._detach_query_tab)
 
         # Add to tab widget (target or own)
         tw = target_tab_widget or self.tab_widget
@@ -162,3 +215,53 @@ class DatabaseTabMixin:
                 if widget.db_connection and widget.db_connection.id == db_id:
                     widget.connection = new_connection
                     logger.debug(f"Updated connection in tab: {widget.tab_name}")
+
+    def _detach_query_tab(self, query_tab: QueryTab):
+        """Detach a QueryTab from the tab widget into its own window."""
+        # Find and remove from tab widget
+        for tw in self._get_all_tab_widgets():
+            for i in range(tw.count()):
+                if tw.widget(i) is query_tab:
+                    tab_name = tw.tabText(i)
+                    query_tab.tab_name = tab_name
+                    tw.removeTab(i)
+                    break
+
+        # Create popup window with the query tab
+        window = QueryWindow(query_tab, on_close_callback=self._on_query_window_closed)
+
+        tab_id = id(query_tab)
+        self._detached_windows[tab_id] = window
+
+        # Hide detach button while detached
+        query_tab.detach_btn.setVisible(False)
+
+        window.center_on_screen()
+        window.show()
+        window.raise_()
+
+        logger.info(f"Detached query tab: {query_tab.tab_name}")
+
+    def _on_query_window_closed(self, query_tab: QueryTab):
+        """Re-attach a QueryTab when its window is closed."""
+        tab_id = id(query_tab)
+        self._detached_windows.pop(tab_id, None)
+
+        # Re-attach to main tab widget
+        query_tab.detach_btn.setVisible(True)
+        query_tab.show()
+        db_conn = getattr(query_tab, 'db_connection', None)
+        self._add_query_tab_to_widget(
+            self.tab_widget, query_tab, query_tab.tab_name, db_conn
+        )
+
+        # Ensure the database manager panel is visible in the stacked widget
+        from PySide6.QtWidgets import QStackedWidget
+        parent = self.parent()
+        while parent is not None:
+            if isinstance(parent, QStackedWidget):
+                parent.setCurrentWidget(self)
+                break
+            parent = parent.parent()
+
+        logger.info(f"Re-attached query tab: {query_tab.tab_name}")
