@@ -192,6 +192,148 @@ class DatabaseContextMenuMixin:
 
             menu.exec(self.schema_tree.viewport().mapToGlobal(position))
 
+    # ==================== Public context action providers ====================
+
+    def get_database_context_actions(self, data: dict, parent,
+                                     target_tab_widget=None, workspace_id=None):
+        """Get context menu actions for a database node."""
+        actions = []
+        db_id = data.get("db_id") or data.get("id")
+        db_name = data.get("database_name") or data.get("name")
+
+        if db_id:
+            new_query_action = QAction("New Query", parent)
+            new_query_action.triggered.connect(
+                lambda checked, did=db_id, dbn=db_name: self._new_query_tab(
+                    did, target_tab_widget=target_tab_widget,
+                    target_database=dbn, workspace_id=workspace_id
+                )
+            )
+            actions.append(new_query_action)
+
+        return actions
+
+    def get_query_context_actions(self, data: dict, parent,
+                                  target_tab_widget=None, workspace_id=None):
+        """Get context menu actions for a saved query."""
+        actions = []
+        query_obj = data.get("resource_obj")
+        if query_obj:
+            exec_action = QAction(tr("ws_execute"), parent)
+            exec_action.triggered.connect(
+                lambda checked, q=query_obj, w=workspace_id: self.execute_saved_query(
+                    q, target_tab_widget=target_tab_widget, workspace_id=w
+                )
+            )
+            actions.append(exec_action)
+        return actions
+
+    def get_table_context_actions(self, data: dict, parent,
+                                  target_tab_widget=None, workspace_id=None):
+        """Get context menu actions for a table or view."""
+        actions = []
+
+        select_all_action = QAction("SELECT *", parent)
+        select_all_action.triggered.connect(
+            lambda checked, d=data: self._generate_select_query(
+                d, limit=None, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+            )
+        )
+        actions.append(select_all_action)
+
+        select_top_action = QAction("SELECT TOP 100 *", parent)
+        select_top_action.triggered.connect(
+            lambda checked, d=data: self._generate_select_query(
+                d, limit=QUERY_PREVIEW_LIMIT, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+            )
+        )
+        actions.append(select_top_action)
+
+        select_cols_action = QAction("SELECT COLUMNS...", parent)
+        select_cols_action.triggered.connect(
+            lambda checked, d=data: self._generate_select_columns_query(
+                d, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+            )
+        )
+        actions.append(select_cols_action)
+
+        if data.get("type") == "view":
+            edit_code_action = QAction("\u270f\ufe0f Edit Code (ALTER VIEW)", parent)
+            edit_code_action.triggered.connect(
+                lambda checked, d=data: self._load_view_code(
+                    d, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+                )
+            )
+            actions.append(edit_code_action)
+
+        dist_action = QAction("\U0001f4ca Distribution Analysis", parent)
+        dist_action.triggered.connect(lambda checked, d=data: self._show_distribution_analysis(d))
+        actions.append(dist_action)
+
+        return actions
+
+    def get_procedure_context_actions(self, data: dict, parent,
+                                      target_tab_widget=None, workspace_id=None):
+        """Get context menu actions for a stored procedure."""
+        actions = []
+
+        view_code_action = QAction("\U0001f4c4 View Code", parent)
+        view_code_action.triggered.connect(
+            lambda checked, d=data: self._load_routine_code(
+                d, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+            )
+        )
+        actions.append(view_code_action)
+
+        exec_action = QAction("\u26a1 Generate EXEC Template", parent)
+        exec_action.triggered.connect(
+            lambda checked, d=data: self._generate_exec_template(
+                d, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+            )
+        )
+        actions.append(exec_action)
+
+        copy_name_action = QAction("\U0001f4cb Copy Name", parent)
+        copy_name_action.triggered.connect(
+            lambda: QApplication.clipboard().setText(
+                f"[{data.get('db_name')}].[{data.get('schema')}].[{data.get('proc_name')}]"
+            )
+        )
+        actions.append(copy_name_action)
+
+        return actions
+
+    def get_function_context_actions(self, data: dict, parent,
+                                     target_tab_widget=None, workspace_id=None):
+        """Get context menu actions for a function."""
+        actions = []
+
+        view_code_action = QAction("\U0001f4c4 View Code", parent)
+        view_code_action.triggered.connect(
+            lambda checked, d=data: self._load_routine_code(
+                d, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+            )
+        )
+        actions.append(view_code_action)
+
+        select_action = QAction("\u26a1 Generate SELECT Template", parent)
+        select_action.triggered.connect(
+            lambda checked, d=data: self._generate_select_function(
+                d, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+            )
+        )
+        actions.append(select_action)
+
+        copy_name_action = QAction("\U0001f4cb Copy Name", parent)
+        copy_name_action.triggered.connect(
+            lambda: QApplication.clipboard().setText(
+                f"[{data.get('db_name')}].[{data.get('schema')}].[{data.get('func_name')}]"
+            )
+        )
+        actions.append(copy_name_action)
+
+        return actions
+
     def _show_distribution_analysis(self, data: dict):
         """Show distribution analysis for a table or view"""
         table_name = data["name"]

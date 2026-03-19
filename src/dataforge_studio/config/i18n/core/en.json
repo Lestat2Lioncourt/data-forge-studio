@@ -376,6 +376,7 @@
     "query_toolbar_export": "Export",
     "query_toggle_split": "Toggle layout (stacked / side by side)",
     "query_detach_tooltip": "Detach query in separate window",
+    "folder_merge_files": "View all data files combined",
     "query_export_language": "Language",
     "query_btn_run": "▶",
     "query_btn_format": "{ }",

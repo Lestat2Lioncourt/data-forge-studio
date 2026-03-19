@@ -269,6 +269,7 @@ class CustomDataGridView(QWidget):
 
         self._dataframe = df  # Store reference for export
         self.columns = list(df.columns)
+        self.active_sorts = []  # Reset sort state for new data
 
         num_rows = len(df)
         num_cols = len(df.columns)
@@ -783,7 +784,9 @@ class CustomDataGridView(QWidget):
         # First, restore all headers to their original text (remove previous indicators)
         for col_idx in range(self.table.columnCount()):
             original_text = self.columns[col_idx] if col_idx < len(self.columns) else f"Column {col_idx}"
-            self.table.horizontalHeaderItem(col_idx).setText(original_text)
+            header_item = self.table.horizontalHeaderItem(col_idx)
+            if header_item:
+                header_item.setText(original_text)
 
         # Add sort indicators for all sorted columns
         for sort_index, (col, order) in enumerate(self.active_sorts, start=1):
@@ -791,13 +794,20 @@ class CustomDataGridView(QWidget):
                 header_item = self.table.horizontalHeaderItem(col)
                 if header_item:
                     original_text = self.columns[col] if col < len(self.columns) else f"Column {col}"
-                    # Triangle: ▲ for ascending, ▼ for descending
                     arrow = "▲" if order == Qt.SortOrder.AscendingOrder else "▼"
-                    # Show number only if multiple sorts
                     if len(self.active_sorts) > 1:
                         header_item.setText(f"{original_text} {arrow}{sort_index}")
                     else:
                         header_item.setText(f"{original_text} {arrow}")
+
+        # Also set native Qt sort indicator on primary sort column
+        header = self.table.horizontalHeader()
+        if self.active_sorts:
+            primary_col, primary_order = self.active_sorts[0]
+            header.setSortIndicatorShown(True)
+            header.setSortIndicator(primary_col, primary_order)
+        else:
+            header.setSortIndicatorShown(False)
 
     def _export_csv(self):
         """Export data to CSV file."""

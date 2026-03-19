@@ -1271,6 +1271,27 @@ class ThemeBridge(BaseThemeManager):
         QHeaderView::section:hover {{
             background-color: {colors['hover_bg']};
         }}
+        /* Sort indicator arrows */
+        QHeaderView::down-arrow {{
+            image: none;
+            subcontrol-position: center right;
+            width: 0;
+            height: 0;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid {colors['grid_header_fg']};
+            margin-right: 5px;
+        }}
+        QHeaderView::up-arrow {{
+            image: none;
+            subcontrol-position: center right;
+            width: 0;
+            height: 0;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-bottom: 5px solid {colors['grid_header_fg']};
+            margin-right: 5px;
+        }}
         /* TreeWidget specific header */
         QTreeWidget QHeaderView::section {{
             background-color: {colors['tree_heading_bg']};

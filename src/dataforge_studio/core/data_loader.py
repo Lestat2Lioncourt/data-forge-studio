@@ -610,3 +610,96 @@ def dataframe_to_records(df: pd.DataFrame) -> List[dict]:
         List of dictionaries (one per row)
     """
     return df.to_dict(orient='records')
+
+
+MERGEABLE_EXTENSIONS = {'.csv', '.xlsx', '.xls', '.json'}
+
+
+def merge_folder_files(folder_path: Union[str, Path]) -> DataLoadResult:
+    """
+    Merge all data files (CSV, Excel, JSON) in a folder into a single DataFrame.
+
+    Scans the folder for supported files, collects the union of all column names,
+    and concatenates all data with an extra '_source_file' column.
+
+    Args:
+        folder_path: Path to the folder to scan
+
+    Returns:
+        DataLoadResult with merged DataFrame
+    """
+    folder_path = Path(folder_path)
+    result = DataLoadResult()
+
+    if not folder_path.is_dir():
+        result.error = FileNotFoundError(f"Not a directory: {folder_path}")
+        result.warning_level = LoadWarningLevel.ERROR
+        return result
+
+    # Find all supported files
+    files = sorted([
+        f for f in folder_path.iterdir()
+        if f.is_file() and f.suffix.lower() in MERGEABLE_EXTENSIONS
+    ])
+
+    if not files:
+        result.error = ValueError("No data files (CSV, Excel, JSON) found in folder")
+        result.warning_level = LoadWarningLevel.ERROR
+        result.warning_message = "No data files found in this folder."
+        return result
+
+    # Load each file
+    dataframes = []
+    errors = []
+
+    for file_path in files:
+        ext = file_path.suffix.lower()
+        try:
+            if ext == '.csv':
+                file_result = csv_to_dataframe(file_path, skip_large_warning=True)
+            elif ext in ('.xlsx', '.xls'):
+                file_result = excel_to_dataframe(file_path, skip_large_warning=True)
+            elif ext == '.json':
+                file_result = json_to_dataframe(file_path)
+            else:
+                continue
+
+            if file_result.success and file_result.dataframe is not None and not file_result.dataframe.empty:
+                df = file_result.dataframe
+                df.insert(0, '_source_file', file_path.name)
+                dataframes.append(df)
+            elif file_result.error:
+                errors.append(f"{file_path.name}: {file_result.error}")
+        except Exception as e:
+            errors.append(f"{file_path.name}: {e}")
+
+    if not dataframes:
+        result.error = ValueError("No files could be loaded")
+        result.warning_level = LoadWarningLevel.ERROR
+        result.warning_message = "No files could be loaded.\n" + "\n".join(errors)
+        return result
+
+    # Concatenate all dataframes (union of columns, missing values become NaN)
+    merged = pd.concat(dataframes, ignore_index=True, sort=False)
+
+    result.dataframe = merged
+    result.row_count = len(merged)
+    result.column_count = len(merged.columns)
+    result.source_info['files_loaded'] = len(dataframes)
+    result.source_info['files_total'] = len(files)
+    result.source_info['files_failed'] = len(errors)
+    result.source_info['errors'] = errors
+
+    if errors:
+        result.warning_level = LoadWarningLevel.WARNING
+        result.warning_message = (
+            f"Loaded {len(dataframes)}/{len(files)} files. "
+            f"Errors: {'; '.join(errors)}"
+        )
+
+    logger.info(
+        f"Merged folder {folder_path.name}: {len(dataframes)} files, "
+        f"{result.row_count} rows, {result.column_count} cols"
+    )
+
+    return result

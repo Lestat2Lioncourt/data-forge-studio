@@ -1054,150 +1054,79 @@ class WorkspaceManager(QWidget):
             menu.addAction(remove_action)
 
         elif item_type == "query":
-            # Execute query action
             if self._database_manager:
-                query_obj = data.get("resource_obj")
-                if query_obj:
-                    exec_action = QAction(tr("ws_execute"), self)
-                    ws_id = self._current_workspace_id
-                    exec_action.triggered.connect(
-                        lambda checked, q=query_obj, w=ws_id: self._database_manager.execute_saved_query(
-                            q, target_tab_widget=self.tab_widget, workspace_id=w
-                        )
-                    )
-                    menu.addAction(exec_action)
-                    menu.addSeparator()
+                ws_id = self._current_workspace_id
+                for action in self._database_manager.get_query_context_actions(
+                    data, self, target_tab_widget=self.tab_widget, workspace_id=ws_id
+                ):
+                    menu.addAction(action)
+                menu.addSeparator()
 
             remove_action = QAction("Remove from Workspace", self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
         elif item_type == "database":
-            # New Query tab (via DatabaseManager, into workspace's tab_widget)
             if self._database_manager:
-                db_id = data.get("db_id") or data.get("id")
-                db_name = data.get("database_name")
-                if db_id:
-                    new_query_action = QAction("New Query", self)
-                    new_query_action.triggered.connect(
-                        lambda checked, did=db_id, dbn=db_name: self._database_manager._new_query_tab(
-                            did, target_tab_widget=self.tab_widget,
-                            target_database=dbn
-                        )
-                    )
-                    menu.addAction(new_query_action)
-                    menu.addSeparator()
+                ws_id = self._current_workspace_id
+                for action in self._database_manager.get_database_context_actions(
+                    data, self, target_tab_widget=self.tab_widget, workspace_id=ws_id
+                ):
+                    menu.addAction(action)
+                menu.addSeparator()
 
             remove_action = QAction("Remove from Workspace", self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
         elif item_type == "rootfolder":
+            if self._rootfolder_manager:
+                for action in self._rootfolder_manager.get_folder_context_actions(
+                    data, self, target_viewer=self.object_viewer
+                ):
+                    menu.addAction(action)
+                menu.addSeparator()
+
             remove_action = QAction("Remove from Workspace", self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
+        elif item_type == "folder":
+            if self._rootfolder_manager:
+                for action in self._rootfolder_manager.get_folder_context_actions(
+                    data, self, target_viewer=self.object_viewer
+                ):
+                    menu.addAction(action)
+
         elif item_type in ["table", "view"]:
-            # Use DatabaseManager methods with WorkspaceManager's tab_widget
             if self._database_manager:
                 ws_id = self._current_workspace_id
-
-                # SELECT * action
-                select_all_action = QAction("SELECT *", self)
-                select_all_action.triggered.connect(
-                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_query(
-                        d, limit=None, target_tab_widget=self.tab_widget, workspace_id=w
-                    )
-                )
-                menu.addAction(select_all_action)
-
-                # SELECT TOP 100 action
-                select_top_action = QAction("SELECT TOP 100 *", self)
-                select_top_action.triggered.connect(
-                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_query(
-                        d, limit=QUERY_PREVIEW_LIMIT, target_tab_widget=self.tab_widget, workspace_id=w
-                    )
-                )
-                menu.addAction(select_top_action)
-
-                # SELECT COLUMNS action
-                select_cols_action = QAction("SELECT COLUMNS...", self)
-                select_cols_action.triggered.connect(
-                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_columns_query(
-                        d, target_tab_widget=self.tab_widget, workspace_id=w
-                    )
-                )
-                menu.addAction(select_cols_action)
-
-                menu.addSeparator()
-
-                # Edit Code for views only
-                if item_type == "view":
-                    edit_code_action = QAction("Edit Code (ALTER VIEW)", self)
-                    edit_code_action.triggered.connect(
-                        lambda checked, d=data, w=ws_id: self._database_manager._load_view_code(
-                            d, target_tab_widget=self.tab_widget, workspace_id=w
-                        )
-                    )
-                    menu.addAction(edit_code_action)
-                    menu.addSeparator()
-
-                # Distribution Analysis (opens dialog, works from anywhere)
-                dist_action = QAction("Distribution Analysis", self)
-                dist_action.triggered.connect(
-                    lambda checked, d=data: self._database_manager._show_distribution_analysis(d)
-                )
-                menu.addAction(dist_action)
+                for action in self._database_manager.get_table_context_actions(
+                    data, self, target_tab_widget=self.tab_widget, workspace_id=ws_id
+                ):
+                    menu.addAction(action)
 
         elif item_type == "procedure":
-            # Stored procedure context menu - delegate to DatabaseManager
             if self._database_manager:
                 ws_id = self._current_workspace_id
-
-                view_code_action = QAction("View Code", self)
-                view_code_action.triggered.connect(
-                    lambda checked, d=data, w=ws_id: self._database_manager._load_routine_code(
-                        d, target_tab_widget=self.tab_widget, workspace_id=w
-                    )
-                )
-                menu.addAction(view_code_action)
-
-                exec_action = QAction("Generate EXEC Template", self)
-                exec_action.triggered.connect(
-                    lambda checked, d=data, w=ws_id: self._database_manager._generate_exec_template(
-                        d, target_tab_widget=self.tab_widget, workspace_id=w
-                    )
-                )
-                menu.addAction(exec_action)
+                for action in self._database_manager.get_procedure_context_actions(
+                    data, self, target_tab_widget=self.tab_widget, workspace_id=ws_id
+                ):
+                    menu.addAction(action)
 
         elif item_type == "function":
-            # Function context menu - delegate to DatabaseManager
             if self._database_manager:
                 ws_id = self._current_workspace_id
-
-                view_code_action = QAction("View Code", self)
-                view_code_action.triggered.connect(
-                    lambda checked, d=data, w=ws_id: self._database_manager._load_routine_code(
-                        d, target_tab_widget=self.tab_widget, workspace_id=w
-                    )
-                )
-                menu.addAction(view_code_action)
-
-                select_action = QAction("Generate SELECT", self)
-                select_action.triggered.connect(
-                    lambda checked, d=data, w=ws_id: self._database_manager._generate_select_function(
-                        d, target_tab_widget=self.tab_widget, workspace_id=w
-                    )
-                )
-                menu.addAction(select_action)
+                for action in self._database_manager.get_function_context_actions(
+                    data, self, target_tab_widget=self.tab_widget, workspace_id=ws_id
+                ):
+                    menu.addAction(action)
 
         elif item_type == "file":
-            # Use RootFolderManager's context actions
             if self._rootfolder_manager:
-                file_actions = self._rootfolder_manager.get_file_context_actions(
+                for action in self._rootfolder_manager.get_file_context_actions(
                     data, self, target_viewer=self.object_viewer
-                )
-                for action in file_actions:
+                ):
                     menu.addAction(action)
 
         if menu.actions():

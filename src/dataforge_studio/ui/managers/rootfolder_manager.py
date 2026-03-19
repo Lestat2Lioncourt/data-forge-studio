@@ -324,6 +324,64 @@ class RootFolderManager(QWidget):
 
         return actions
 
+    def get_folder_context_actions(self, data: dict, parent, target_viewer=None):
+        """
+        Get context menu actions for a folder (rootfolder or subfolder).
+
+        Args:
+            data: Folder data dict with 'path' key
+            parent: Parent widget for actions
+            target_viewer: Optional ObjectViewerWidget for display
+
+        Returns:
+            List of QAction objects
+        """
+        actions = []
+        folder_path = Path(data.get("path", ""))
+        viewer = target_viewer or self.object_viewer
+
+        merge_action = QAction(tr("folder_merge_files"), parent)
+        merge_action.triggered.connect(
+            lambda: self._do_merge_folder_files(folder_path, viewer)
+        )
+        actions.append(merge_action)
+
+        return actions
+
+    def _do_merge_folder_files(self, folder_path: Path, viewer):
+        """View all data files in a folder combined in the grid viewer."""
+        from ...core.data_loader import merge_folder_files
+
+        result = merge_folder_files(folder_path)
+
+        if not result.success:
+            from ..widgets.dialog_helper import DialogHelper
+            msg = result.warning_message or str(result.error)
+            DialogHelper.warning(msg, parent=self)
+            return
+
+        file_viewer = viewer.file_viewer
+        file_viewer.content_viewer.set_dataframe(result.dataframe)
+        file_viewer.content_stack.setCurrentIndex(0)
+        viewer.stack.setCurrentWidget(file_viewer)
+
+        info = result.source_info
+        files_loaded = info.get('files_loaded', 0)
+        files_total = info.get('files_total', 0)
+        if file_viewer.details_form_builder:
+            file_viewer.details_form_builder.set_value("name", folder_path.name)
+            file_viewer.details_form_builder.set_value(
+                "type", f"Combined view ({files_loaded}/{files_total} files)"
+            )
+            file_viewer.details_form_builder.set_value(
+                "size", f"{result.row_count:,} rows, {result.column_count} columns"
+            )
+            file_viewer.details_form_builder.set_value("path", str(folder_path))
+
+        if result.warning_level.value == "warning":
+            from ..widgets.dialog_helper import DialogHelper
+            DialogHelper.warning(result.warning_message, parent=self)
+
     # ==================== Context Menu ====================
 
     def _on_tree_context_menu(self, position):
@@ -343,6 +401,9 @@ class RootFolderManager(QWidget):
             edit_action.triggered.connect(lambda: self._edit_rootfolder(data["rootfolder_obj"]))
             menu.addAction(edit_action)
 
+            for action in self.get_folder_context_actions(data, self):
+                menu.addAction(action)
+
             menu.addSeparator()
 
             workspace_menu = self._build_workspace_submenu(data["id"], None)
@@ -359,6 +420,11 @@ class RootFolderManager(QWidget):
             menu.addAction(refresh_action)
 
         elif data["type"] == "folder":
+            for action in self.get_folder_context_actions(data, self):
+                menu.addAction(action)
+
+            menu.addSeparator()
+
             rootfolder_id, subfolder_path = self._get_rootfolder_info(item)
             if rootfolder_id:
                 workspace_menu = self._build_workspace_submenu(rootfolder_id, subfolder_path)

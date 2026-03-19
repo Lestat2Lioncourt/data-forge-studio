@@ -37,6 +37,7 @@ Pour chaque score, donne la justification et l'evolution par rapport a l'audit p
 8. **Memoire** : ratio `.connect()` vs `.disconnect()`, presence de `closeEvent`/`cleanup`, `deleteLater()`
 9. **Dependances** : deps inutilisees dans pyproject.toml (verifier imports reels)
 10. **Architecture** : imports circulaires, coexistence de systemes paralleles
+11. **Delegation des actions contextuelles** : verifier que tout composant affichant des objets (WorkspaceManager, ResourcesManager, ou tout autre consumer) delegue les actions contextuelles (menus clic droit) aux managers proprietaires via des methodes publiques `get_*_context_actions()`. Aucune logique d'action ne doit etre dupliquee en dehors du manager proprietaire de l'objet. Tout ajout d'action dans un manager doit etre automatiquement disponible partout ou l'objet est affiche
 
 ### Format attendu :
 
