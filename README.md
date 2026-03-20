@@ -372,6 +372,20 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📜 Changelog
 
+### v0.6.7 (2026-03-03) - SQL Formatter, Variables & Syntax Highlighting
+- SQL formatter: multi-statement support (split by ;, format individually)
+- SQL formatter: fix WHERE/AND keyword alignment
+- Session variables (DECLARE/SET @) persist across statements (single batch execution)
+- Syntax highlighting for @variables and additional T-SQL keywords
+- Sort indicator auto-resize, splash screen on active monitor
+
+### v0.6.6 (2026-03-03) - Combined File View & Context Menu Refactoring
+- Right-click folder: "View all data files combined" (CSV/Excel/JSON merged view)
+- Context menu delegation refactoring (workspace delegates to specialized managers)
+- Fix sort indicator arrows in themed QHeaderView
+- Detachable query tabs, split toggle (stacked / side-by-side)
+- PopupWindow edge-resize support
+
 ### v0.6.5 (2026-03-03) - SVG Icon Migration
 - Migrate icon system from PNG to SVG (37 icons, scalable, no PIL dependency)
 - SVG recoloring via text replacement, QSvgRenderer rendering
