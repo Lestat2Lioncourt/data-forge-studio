@@ -54,9 +54,9 @@ def format_sql(sql_text: str, style: str = "compact") -> str:
 
         formatted_batches = []
         for batch in batches:
-            stripped = batch.strip().rstrip(';').strip()
-            if stripped:
-                formatted_batches.append(_format_single_batch(stripped, style))
+            batch_result = _format_batch_with_statements(batch.strip(), style)
+            if batch_result:
+                formatted_batches.append(batch_result)
 
         if has_go:
             return '\nGO\n\n'.join(formatted_batches) + '\nGO\n'
@@ -65,6 +65,31 @@ def format_sql(sql_text: str, style: str = "compact") -> str:
     except ValueError as e:
         logger.error(f"SQL formatting error: {e}")
         raise
+
+
+def _format_batch_with_statements(batch_text: str, style: str) -> str:
+    """Split a batch into individual statements by ';', format each, rejoin."""
+    if not batch_text:
+        return ""
+
+    # Use sqlparse to split statements (handles ';' inside strings/comments)
+    raw_statements = sqlparse.split(batch_text)
+
+    if len(raw_statements) <= 1:
+        # Single statement — format directly
+        stripped = batch_text.rstrip(';').strip()
+        if stripped:
+            return _format_single_batch(stripped, style)
+        return ""
+
+    # Multiple statements — format each individually
+    formatted_parts = []
+    for stmt in raw_statements:
+        stripped = stmt.strip().rstrip(';').strip()
+        if stripped:
+            formatted_parts.append(_format_single_batch(stripped, style) + ';')
+
+    return '\n\n'.join(formatted_parts)
 
 
 def _format_single_batch(sql_text: str, style: str) -> str:
@@ -1268,23 +1293,26 @@ def _format_where_section(result: list, section: dict, max_keyword_len: int):
 
         equals_position = max_left_len + 1
 
+        where_pad = "WHERE".ljust(max_keyword_len)
+        and_pad = "AND".ljust(max_keyword_len)
+
         first_cond = parsed_conditions[0]
         if first_cond.get('has_operator'):
             left = first_cond['left']
             operator = first_cond['operator']
             padding = _calc_operator_padding(left, operator, equals_position)
-            result.append(f"WHERE      {left}{' ' * padding}{operator} {first_cond['right']}")
+            result.append(f"{where_pad} {left}{' ' * padding}{operator} {first_cond['right']}")
         else:
-            result.append(f"WHERE      {first_cond['full']}")
+            result.append(f"{where_pad} {first_cond['full']}")
 
         for cond_info in parsed_conditions[1:]:
             if cond_info.get('has_operator'):
                 left = cond_info['left']
                 operator = cond_info['operator']
                 padding = _calc_operator_padding(left, operator, equals_position)
-                result.append(f"AND        {left}{' ' * padding}{operator} {cond_info['right']}")
+                result.append(f"{and_pad} {left}{' ' * padding}{operator} {cond_info['right']}")
             else:
-                result.append(f"AND        {cond_info['full']}")
+                result.append(f"{and_pad} {cond_info['full']}")
 
 
 def _format_function_args_multiline(func_text: str, base_indent: int, line_limit: int = 80) -> list[str]:

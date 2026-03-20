@@ -33,11 +33,22 @@ class QueryExecutionMixin:
             return selected.replace('\u2029', '\n')
         return self.sql_editor.toPlainText().strip()
 
+    def _has_session_variables(self, statements):
+        """Check if any statement declares or sets session variables."""
+        for stmt in statements:
+            first_word = stmt.text.strip().split()[0].upper() if stmt.text.strip() else ""
+            if first_word in ('DECLARE', 'SET'):
+                return True
+        return False
+
     def _execute_as_query(self):
         """Execute as independent queries (parallel mode with separate connections).
 
         Each SELECT statement runs in its own connection, allowing parallel
         background loading. Best for independent queries.
+
+        Falls back to script mode if session variables are detected (DECLARE/SET),
+        since variables don't persist across parallel connections.
         """
         query = self._get_executable_sql()
 
@@ -60,6 +71,13 @@ class QueryExecutionMixin:
 
         # Split into statements
         statements = split_sql_statements(query, self.db_type)
+
+        # If session variables detected, fall back to script mode
+        if statements and self._has_session_variables(statements):
+            logger.debug("Query mode: session variables detected, switching to script mode")
+            self._append_message("-- Session variables detected, using sequential execution")
+            self._execute_as_script()
+            return
 
         if not statements:
             DialogHelper.warning(tr("no_query_to_execute"), parent=self)
@@ -132,6 +150,10 @@ class QueryExecutionMixin:
 
         All statements run sequentially on the same connection, preserving
         session state (temp tables, variables, transactions). Best for scripts.
+
+        When session variables are detected (DECLARE/SET @), the entire SQL
+        is sent as a single batch to preserve variable scope across statements.
+        Otherwise, statements are executed individually for better error reporting.
         """
         query = self._get_executable_sql()
 
@@ -159,13 +181,17 @@ class QueryExecutionMixin:
             DialogHelper.warning(tr("no_query_to_execute"), parent=self)
             return
 
-        # Show initial status
+        # Check for session variables — if present, execute as single batch
+        if self._has_session_variables(statements):
+            self._execute_as_single_batch(query, statements)
+            return
+
+        # No variables — execute statements individually for better error reporting
         stmt_count = len(statements)
         self.result_info_label.setText(tr("query_executing_statements", count=stmt_count))
         self.result_info_label.setStyleSheet("color: orange;")
         QApplication.processEvents()
 
-        # Execute each statement sequentially on same connection
         select_count = 0
         error_occurred = False
 
@@ -185,25 +211,20 @@ class QueryExecutionMixin:
                 needs_commit = False
                 while has_more:
                     if cursor.description:
-                        # SELECT query - create result tab
                         select_count += 1
                         tab_name = self._generate_result_tab_name(stmt.text, select_count)
                         tab_state = self._create_result_tab(i, tab_name)
-
-                        # Always use synchronous loading in script mode
                         self._execute_select_statement(tab_state, cursor, stmt, is_multi_statement=True)
 
                         if select_count == 1:
                             self.results_tab_widget.setCurrentIndex(0)
                             self.results_grid = tab_state.grid
                     else:
-                        # Non-SELECT statement
                         rows_affected = cursor.rowcount
                         if rows_affected >= 0:
                             self._append_message(f"  → {rows_affected} row(s) affected")
                         needs_commit = True
 
-                    # Advance to next result set (if any)
                     try:
                         has_more = cursor.nextset()
                     except Exception:
@@ -221,7 +242,73 @@ class QueryExecutionMixin:
                 if self._is_connection_error(e):
                     self._handle_connection_error(e)
 
-        # Final status
+        self._finalize_execution(stmt_count, select_count, error_occurred)
+
+    def _execute_as_single_batch(self, full_sql: str, statements):
+        """Execute entire SQL as one batch, iterating result sets with nextset().
+
+        This preserves session variable scope (DECLARE, SET @) across all statements.
+        """
+        stmt_count = len(statements)
+        self.result_info_label.setText(tr("query_executing_statements", count=stmt_count))
+        self.result_info_label.setStyleSheet("color: orange;")
+        QApplication.processEvents()
+
+        self._append_message(f"-- [Batch] Executing {stmt_count} statements as single batch (session variables detected)...")
+
+        select_count = 0
+        error_occurred = False
+
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(full_sql)
+
+            # Iterate through all result sets
+            result_index = 0
+            has_more = True
+            while has_more:
+                if cursor.description:
+                    # Result set — create a tab
+                    select_count += 1
+                    # Try to find matching SELECT statement for tab name
+                    select_stmts = [s for s in statements if s.is_select]
+                    if select_count <= len(select_stmts):
+                        stmt = select_stmts[select_count - 1]
+                        tab_name = self._generate_result_tab_name(stmt.text, select_count)
+                    else:
+                        tab_name = f"Result {select_count}"
+
+                    tab_state = self._create_result_tab(result_index, tab_name)
+                    # Create a dummy SQLStatement for _execute_select_statement
+                    dummy_stmt = SQLStatement(text="", line_start=0, line_end=0, is_select=True)
+                    self._execute_select_statement(tab_state, cursor, dummy_stmt, is_multi_statement=True)
+
+                    if select_count == 1:
+                        self.results_tab_widget.setCurrentIndex(0)
+                        self.results_grid = tab_state.grid
+
+                    self._append_message(f"  → Result set {select_count}: {tab_state.total_rows_fetched:,} row(s)")
+                else:
+                    rows_affected = cursor.rowcount
+                    if rows_affected >= 0:
+                        self._append_message(f"  → {rows_affected} row(s) affected")
+
+                result_index += 1
+
+                try:
+                    has_more = cursor.nextset()
+                except Exception:
+                    has_more = False
+
+        except Exception as e:
+            error_occurred = True
+            self._append_message(f"Error: {str(e)}", is_error=True)
+            logger.error(f"Batch execution error: {e}")
+            messages_tab_index = self.results_tab_widget.count() - 1
+            self.results_tab_widget.setCurrentIndex(messages_tab_index)
+            if self._is_connection_error(e):
+                self._handle_connection_error(e)
+
         self._finalize_execution(stmt_count, select_count, error_occurred)
 
     def _create_parallel_connection(self):

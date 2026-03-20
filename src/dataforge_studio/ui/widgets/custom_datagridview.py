@@ -806,6 +806,10 @@ class CustomDataGridView(QWidget):
             primary_col, primary_order = self.active_sorts[0]
             header.setSortIndicatorShown(True)
             header.setSortIndicator(primary_col, primary_order)
+            # Auto-resize sorted columns so the indicator text fits
+            for col, _order in self.active_sorts:
+                if col < self.table.columnCount():
+                    self.table.resizeColumnToContents(col)
         else:
             header.setSortIndicatorShown(False)
 

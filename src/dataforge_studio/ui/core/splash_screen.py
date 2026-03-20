@@ -166,12 +166,16 @@ class SplashScreen(QSplashScreen):
         return pixmap
 
     def _center_on_screen(self):
-        """Center the splash screen on the primary screen"""
-        from PySide6.QtGui import QGuiApplication
-        screen = QGuiApplication.primaryScreen().geometry()
+        """Center the splash screen on the screen where the cursor is."""
+        from PySide6.QtGui import QGuiApplication, QCursor
+        cursor_pos = QCursor.pos()
+        screen = QGuiApplication.screenAt(cursor_pos)
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+        geo = screen.geometry()
         splash_rect = self.geometry()
-        x = (screen.width() - splash_rect.width()) // 2
-        y = (screen.height() - splash_rect.height()) // 2
+        x = geo.x() + (geo.width() - splash_rect.width()) // 2
+        y = geo.y() + (geo.height() - splash_rect.height()) // 2
         self.move(x, y)
 
     def drawContents(self, painter: QPainter):

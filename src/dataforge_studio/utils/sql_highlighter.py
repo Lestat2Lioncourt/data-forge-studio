@@ -24,6 +24,7 @@ class SQLHighlighter(QSyntaxHighlighter):
         "function": "#dcdcaa",
         "operator": "#d4d4d4",
         "identifier": "#9cdcfe",
+        "variable": "#f48771",
     }
 
     # Default colors for light mode (SSMS style)
@@ -35,6 +36,7 @@ class SQLHighlighter(QSyntaxHighlighter):
         "function": "#795e26",
         "operator": "#000000",
         "identifier": "#001080",
+        "variable": "#811f3f",
     }
 
     def __init__(self, document, theme_colors=None):
@@ -116,6 +118,12 @@ class SQLHighlighter(QSyntaxHighlighter):
         self.operator_format = QTextCharFormat()
         self.operator_format.setForeground(QColor(colors["operator"]))
 
+        # Variable format (@variable, @@global)
+        self.variable_format = QTextCharFormat()
+        default_var_color = "#f48771" if self._is_dark else "#811f3f"
+        self.variable_format.setForeground(QColor(colors.get("variable", default_var_color)))
+        self.variable_format.setFontWeight(QFont.Weight.Bold)
+
     def _setup_rules(self):
         """Setup highlighting rules with regular expressions."""
         self.highlighting_rules = []
@@ -150,8 +158,13 @@ class SQLHighlighter(QSyntaxHighlighter):
             'SET', 'INTO', 'VALUES', 'RETURNING',
             'CASCADE', 'RESTRICT', 'NO', 'ACTION',
 
-            # T-SQL batch separator
-            'GO'
+            # T-SQL
+            'GO', 'DECLARE', 'EXEC', 'EXECUTE', 'PRINT',
+            'IF', 'WHILE', 'BREAK', 'CONTINUE', 'RETURN',
+            'TRY', 'CATCH', 'THROW', 'RAISERROR',
+            'CURSOR', 'FETCH', 'OPEN', 'CLOSE', 'DEALLOCATE',
+            'OUTPUT', 'OVER', 'PARTITION', 'ROWS', 'RANGE',
+            'CROSS', 'APPLY', 'PIVOT', 'UNPIVOT'
         ]
 
         # Create pattern for keywords (word boundaries)
@@ -191,6 +204,12 @@ class SQLHighlighter(QSyntaxHighlighter):
                 QRegularExpression(op),
                 self.operator_format
             ))
+
+        # T-SQL variables (@name, @@global_name)
+        self.highlighting_rules.append((
+            QRegularExpression(r'@@?\w+'),
+            self.variable_format
+        ))
 
         # Single-quoted strings
         self.highlighting_rules.append((
