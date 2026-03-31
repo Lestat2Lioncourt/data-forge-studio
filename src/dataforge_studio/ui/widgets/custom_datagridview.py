@@ -91,6 +91,9 @@ class CustomDataGridView(QWidget):
         self._table_view: Optional[QTableView] = None
         self._table_model: Optional[DataFrameTableModel] = None
 
+        # Column filters: {column_index: filter_text}
+        self._active_filters: dict[int, str] = {}
+
         self._setup_ui()
         self._setup_computing_overlay()
 
@@ -133,9 +136,14 @@ class CustomDataGridView(QWidget):
         self.table.horizontalHeader().setToolTip("Click to sort (▲▼), Ctrl+Click to add column to multi-sort (with numbers)")
         self.table.verticalHeader().setVisible(True)  # Show row numbers
 
-        # Context menu
+        # Context menu on cells
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Context menu on column headers
+        header = self.table.horizontalHeader()
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._show_header_context_menu)
 
         # Compact row height - can be manually resized if needed for multi-line content
         self.table.verticalHeader().setDefaultSectionSize(16)
@@ -270,6 +278,7 @@ class CustomDataGridView(QWidget):
         self._dataframe = df  # Store reference for export
         self.columns = list(df.columns)
         self.active_sorts = []  # Reset sort state for new data
+        self._active_filters = {}  # Reset filters for new data
 
         num_rows = len(df)
         num_cols = len(df.columns)
@@ -812,6 +821,111 @@ class CustomDataGridView(QWidget):
                     self.table.resizeColumnToContents(col)
         else:
             header.setSortIndicatorShown(False)
+
+    # ==================== Column Filtering ====================
+
+    def _show_header_context_menu(self, position):
+        """Show context menu on column header right-click."""
+        header = self.table.horizontalHeader()
+        col = header.logicalIndexAt(position)
+        if col < 0:
+            return
+
+        col_name = self.columns[col] if col < len(self.columns) else f"Column {col}"
+        menu = QMenu(self)
+
+        # Filter action
+        from PySide6.QtWidgets import QInputDialog
+        filter_label = f"Filter \"{col_name}\"..."
+        if col in self._active_filters:
+            filter_label = f"Filter \"{col_name}\" (active: \"{self._active_filters[col]}\")"
+        filter_action = menu.addAction(filter_label)
+        filter_action.triggered.connect(lambda: self._prompt_filter(col, col_name))
+
+        # Clear filter on this column (only if active)
+        if col in self._active_filters:
+            clear_action = menu.addAction(f"Clear filter on \"{col_name}\"")
+            clear_action.triggered.connect(lambda: self._clear_filter(col))
+
+        # Clear all filters (only if any active)
+        if self._active_filters:
+            menu.addSeparator()
+            clear_all_action = menu.addAction(f"Clear all filters ({len(self._active_filters)})")
+            clear_all_action.triggered.connect(self._clear_all_filters)
+
+        menu.exec(header.mapToGlobal(position))
+
+    def _prompt_filter(self, col: int, col_name: str):
+        """Show input dialog to set filter on a column."""
+        from PySide6.QtWidgets import QInputDialog
+        current = self._active_filters.get(col, "")
+        text, ok = QInputDialog.getText(
+            self, f"Filter: {col_name}",
+            f"Show rows where \"{col_name}\" contains:",
+            text=current
+        )
+        if ok:
+            if text.strip():
+                self._active_filters[col] = text.strip()
+            else:
+                self._active_filters.pop(col, None)
+            self._apply_filters()
+            self._update_filter_indicators()
+
+    def _clear_filter(self, col: int):
+        """Clear filter on a specific column."""
+        self._active_filters.pop(col, None)
+        self._apply_filters()
+        self._update_filter_indicators()
+
+    def _clear_all_filters(self):
+        """Clear all active filters."""
+        self._active_filters.clear()
+        self._apply_filters()
+        self._update_filter_indicators()
+
+    def _apply_filters(self):
+        """Apply all active filters by showing/hiding rows."""
+        if not self._active_filters:
+            # No filters — show all rows
+            for row in range(self.table.rowCount()):
+                self.table.setRowHidden(row, False)
+            return
+
+        for row in range(self.table.rowCount()):
+            visible = True
+            for col, filter_text in self._active_filters.items():
+                item = self.table.item(row, col)
+                cell_value = item.text() if item else ""
+                if filter_text.lower() not in cell_value.lower():
+                    visible = False
+                    break
+            self.table.setRowHidden(row, not visible)
+
+    def _update_filter_indicators(self):
+        """Update column headers to show filter indicators (🔽)."""
+        for col_idx in range(self.table.columnCount()):
+            header_item = self.table.horizontalHeaderItem(col_idx)
+            if not header_item:
+                continue
+            original_text = self.columns[col_idx] if col_idx < len(self.columns) else f"Column {col_idx}"
+
+            # Re-apply sort indicators first
+            sort_suffix = ""
+            for sort_index, (sort_col, order) in enumerate(self.active_sorts, start=1):
+                if sort_col == col_idx:
+                    arrow = "▲" if order == Qt.SortOrder.AscendingOrder else "▼"
+                    sort_suffix = f" {arrow}{sort_index}" if len(self.active_sorts) > 1 else f" {arrow}"
+
+            # Add filter indicator
+            filter_suffix = " \U0001f50d" if col_idx in self._active_filters else ""
+
+            header_item.setText(f"{original_text}{sort_suffix}{filter_suffix}")
+
+        # Auto-resize filtered columns
+        for col in self._active_filters:
+            if col < self.table.columnCount():
+                self.table.resizeColumnToContents(col)
 
     def _export_csv(self):
         """Export data to CSV file."""

@@ -33,6 +33,155 @@ JOIN_TYPES = frozenset({
 })
 
 
+class _TopLevelScanner:
+    """Iterate over SQL text tracking parenthesis depth and string literals.
+
+    Yields (index, char, depth, in_string) for each character.
+    Provides utility methods for common top-level operations.
+    """
+
+    @staticmethod
+    def iter(text: str):
+        """Yield (index, char, depth, in_string) for each character."""
+        depth = 0
+        in_single = False
+        for i, ch in enumerate(text):
+            if ch == "'" and not in_single:
+                in_single = True
+            elif ch == "'" and in_single:
+                in_single = False
+            elif not in_single:
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+            yield i, ch, depth, in_single
+
+    @staticmethod
+    def paren_delta(text: str) -> int:
+        """Count net parenthesis depth change, ignoring parens inside strings."""
+        depth = 0
+        in_single = False
+        for ch in text:
+            if ch == "'" and not in_single:
+                in_single = True
+            elif ch == "'" and in_single:
+                in_single = False
+            elif not in_single:
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+        return depth
+
+    @staticmethod
+    def split_by_comma(text: str) -> list:
+        """Split text by commas at top level only (not inside parentheses or strings)."""
+        parts = []
+        current: list[str] = []
+        for _i, ch, depth, in_string in _TopLevelScanner.iter(text):
+            if ch == ',' and depth == 0 and not in_string:
+                parts.append(''.join(current))
+                current = []
+            else:
+                current.append(ch)
+        if current:
+            parts.append(''.join(current))
+        return parts
+
+    @staticmethod
+    def find_keyword(text: str, keyword: str) -> int:
+        """Find position of a keyword at top level (depth 0, word boundaries).
+        Returns index or -1 if not found."""
+        upper = text.upper()
+        kw_len = len(keyword)
+        for i, _ch, depth, in_string in _TopLevelScanner.iter(text):
+            if depth == 0 and not in_string and upper[i:i + kw_len] == keyword:
+                before_ok = (i == 0 or not (upper[i - 1].isalnum() or upper[i - 1] == '_'))
+                after_ok = (i + kw_len >= len(text) or not (upper[i + kw_len].isalnum() or upper[i + kw_len] == '_'))
+                if before_ok and after_ok:
+                    return i
+        return -1
+
+    @staticmethod
+    def find_last_keyword(text: str, keyword: str):
+        """Find last occurrence of keyword at top level. Returns (start, end) or None."""
+        upper = text.upper()
+        kw_len = len(keyword)
+        result = None
+        for i, _ch, depth, in_string in _TopLevelScanner.iter(text):
+            if depth == 0 and not in_string and upper[i:i + kw_len] == keyword:
+                before_ok = (i == 0 or not (upper[i - 1].isalnum() or upper[i - 1] == '_'))
+                after_ok = (i + kw_len >= len(text) or not (upper[i + kw_len].isalnum() or upper[i + kw_len] == '_'))
+                if before_ok and after_ok:
+                    result = (i, i + kw_len)
+        return result
+
+    @staticmethod
+    def find_equals(text: str) -> int:
+        """Find first '=' at top level, ignoring >=, <=, !=. Returns index or -1."""
+        length = len(text)
+        for i, ch, depth, in_string in _TopLevelScanner.iter(text):
+            if depth == 0 and not in_string and ch == '=':
+                if i > 0 and text[i - 1] in ('>', '<', '!'):
+                    continue
+                if i + 1 < length and text[i + 1] in ('>', '<'):
+                    continue
+                return i
+        return -1
+
+    @staticmethod
+    def extract_paren_content(text: str, open_pos: int) -> str:
+        """Extract content between '(' at open_pos and its matching ')'.
+        Returns content without outer parens, or None if unmatched."""
+        if open_pos >= len(text) or text[open_pos] != '(':
+            return None
+        depth = 0
+        in_single = False
+        for i in range(open_pos, len(text)):
+            ch = text[i]
+            if ch == "'" and not in_single:
+                in_single = True
+            elif ch == "'" and in_single:
+                in_single = False
+            elif not in_single:
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                    if depth == 0:
+                        return text[open_pos + 1:i]
+        return None
+
+    @staticmethod
+    def split_on_keywords(text: str, keywords: list) -> list:
+        """Split text on keyword boundaries at top level.
+        Returns list of (keyword_or_empty, text_chunk) tuples for clauses like WHEN/ELSE."""
+        upper = text.upper()
+        length = len(text)
+        splits = []
+        current_start = 0
+
+        for i, _ch, depth, in_string in _TopLevelScanner.iter(text):
+            if depth == 0 and not in_string:
+                for kw in keywords:
+                    kw_len = len(kw)
+                    if upper[i:i + kw_len] == kw:
+                        before_ok = (i == 0 or not (upper[i - 1].isalnum() or upper[i - 1] == '_'))
+                        after_ok = (i + kw_len >= length or not (upper[i + kw_len].isalnum() or upper[i + kw_len] == '_'))
+                        if before_ok and after_ok and i > current_start:
+                            chunk = text[current_start:i].strip()
+                            if chunk:
+                                splits.append(chunk)
+                            current_start = i
+                            break
+
+        remaining = text[current_start:].strip()
+        if remaining:
+            splits.append(remaining)
+        return splits
+
+
 def format_sql(sql_text: str, style: str = "compact") -> str:
     """
     Format SQL query with specified style.
@@ -92,52 +241,93 @@ def _format_batch_with_statements(batch_text: str, style: str) -> str:
     return '\n\n'.join(formatted_parts)
 
 
+def _protect_standalone_comments(sql_text: str) -> tuple:
+    """Protect standalone comment lines (lines starting with --) from sqlparse mangling.
+
+    Returns (protected_text, restore_map).
+    Standalone comments are replaced with SELECT placeholders that sqlparse
+    treats as separate statements, preserving line boundaries.
+    """
+    lines = sql_text.split('\n')
+    comment_map = {}
+    protected = []
+    counter = 0
+    for line in lines:
+        if line.strip().startswith('--'):
+            # Use a SELECT statement as placeholder — sqlparse keeps it on its own line
+            key = f"SELECT '__CMTLINE{counter}__'"
+            comment_map[key] = line.strip()
+            protected.append(key)
+            counter += 1
+        else:
+            protected.append(line)
+    return '\n'.join(protected), comment_map
+
+
+def _restore_standalone_comments(text: str, comment_map: dict) -> str:
+    """Restore standalone comment lines from placeholders."""
+    if not comment_map:
+        return text
+    # Build reverse lookup: extract the index from each key
+    index_to_comment = {}
+    for key, original in comment_map.items():
+        match = re.search(r'__CMTLINE(\d+)__', key)
+        if match:
+            index_to_comment[match.group(0)] = original
+
+    lines = text.split('\n')
+    result = []
+    for line in lines:
+        match = re.search(r'__CMTLINE\d+__', line)
+        if match and match.group(0) in index_to_comment:
+            result.append(index_to_comment[match.group(0)])
+        else:
+            result.append(line)
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(result))
+
+
 def _format_single_batch(sql_text: str, style: str) -> str:
     """Format a single SQL batch (no GO separators)."""
+    # Protect standalone comment lines before any formatting
+    protected_text, comment_map = _protect_standalone_comments(sql_text)
+
     if style == "compact":
-        return sqlparse.format(
-            sql_text,
+        formatted = sqlparse.format(
+            protected_text,
             reindent=True,
             keyword_case='upper',
             indent_width=2,
             use_space_around_operators=True,
             wrap_after=120
         )
+        return _restore_standalone_comments(formatted, comment_map)
 
-    elif style == "expanded":
+    elif style in ("expanded", "ultimate"):
+        # Try CTE-aware formatting first (handles WITH ... AS queries)
+        cte_result = _try_format_cte_ultimate(protected_text)
+        if cte_result is not None:
+            return _restore_standalone_comments(cte_result, comment_map)
+        # Normal ultimate formatting
         formatted = sqlparse.format(
-            sql_text,
+            protected_text,
             reindent=True,
             keyword_case='upper',
             indent_width=4,
             use_space_around_operators=True
         )
-        return _force_one_column_per_line(formatted)
+        result = _apply_sophisticated_formatting(formatted)
+        return _restore_standalone_comments(result, comment_map)
 
     elif style == "comma_first":
-        return sqlparse.format(
-            sql_text,
+        formatted = sqlparse.format(
+            protected_text,
             reindent=True,
             keyword_case='upper',
             indent_width=4,
             use_space_around_operators=True,
             comma_first=True
         )
-
-    elif style == "ultimate":
-        # Try CTE-aware formatting first (handles WITH ... AS queries)
-        cte_result = _try_format_cte_ultimate(sql_text)
-        if cte_result is not None:
-            return cte_result
-        # Normal ultimate formatting (no CTEs)
-        formatted = sqlparse.format(
-            sql_text,
-            reindent=True,
-            keyword_case='upper',
-            indent_width=4,
-            use_space_around_operators=True
-        )
-        return _apply_sophisticated_formatting(formatted)
+        return _restore_standalone_comments(formatted, comment_map)
 
     else:
         return sqlparse.format(
@@ -148,71 +338,9 @@ def _format_single_batch(sql_text: str, style: str) -> str:
         )
 
 
-def _force_one_column_per_line(sql_text: str) -> str:
-    """Force SELECT columns to be on separate lines"""
-    lines = sql_text.split('\n')
-    result = []
-    in_select = False
-
-    for line in lines:
-        stripped = line.strip().upper()
-
-        if stripped.startswith('SELECT'):
-            in_select = True
-            if ',' in line:
-                parts = line.split(',')
-                result.append(parts[0])
-                for part in parts[1:]:
-                    result.append(f"    , {part.strip()}")
-            else:
-                result.append(line)
-
-        elif in_select and (stripped.startswith('FROM') or stripped.startswith('WHERE') or
-                           stripped.startswith('ORDER BY') or stripped.startswith('GROUP BY')):
-            in_select = False
-            result.append(line)
-
-        elif in_select and ',' in line:
-            parts = line.split(',')
-            for i, part in enumerate(parts):
-                if i == 0:
-                    result.append(part.rstrip())
-                else:
-                    indent = len(line) - len(line.lstrip())
-                    result.append(f"{' ' * indent}, {part.strip()}")
-        else:
-            result.append(line)
-
-    return '\n'.join(result)
-
-
 def _find_top_level_with(sql: str) -> int:
     """Find position of WITH keyword at top level (not inside parens or strings)."""
-    upper = sql.upper()
-    depth = 0
-    in_single = False
-    i = 0
-    length = len(sql)
-
-    while i < length:
-        ch = sql[i]
-        if ch == "'" and not in_single:
-            in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-            elif depth == 0 and upper[i:i + 4] == 'WITH':
-                before_ok = (i == 0 or not (upper[i - 1].isalnum() or upper[i - 1] == '_'))
-                after_ok = (i + 4 >= length or not (upper[i + 4].isalnum() or upper[i + 4] == '_'))
-                if before_ok and after_ok:
-                    return i
-        i += 1
-
-    return -1
+    return _TopLevelScanner.find_keyword(sql, 'WITH')
 
 
 def _extract_ctes_from_text(text: str):
@@ -443,60 +571,29 @@ def _format_sql_lines(lines: list) -> list:
 
 def _count_paren_delta(text: str) -> int:
     """Count net parenthesis depth change, ignoring parens inside string literals."""
-    depth = 0
-    in_single = False
-    for ch in text:
-        if ch == "'" and not in_single:
-            in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-    return depth
+    return _TopLevelScanner.paren_delta(text)
 
 
 def _split_into_keyword(line: str) -> list:
     """Split a line that contains a mid-line INTO keyword (SELECT ... INTO).
 
     Returns a list of 1 or 2 lines. Only splits if INTO appears at paren
-    depth 0 and is NOT at the very start of the line (that case is already
-    handled by the normal keyword matching).
+    depth 0 and is NOT at the very start of the line.
     """
     upper = line.upper()
-    # Quick check - no INTO at all
     if ' INTO ' not in upper:
         return [line]
 
-    # Don't split if line already starts with INTO or INSERT INTO / MERGE INTO
     stripped_upper = line.strip().upper()
     if stripped_upper.startswith('INTO ') or stripped_upper.startswith('INSERT ') or stripped_upper.startswith('MERGE '):
         return [line]
 
-    # Find INTO at paren depth 0
-    depth = 0
-    in_single = False
-    i = 0
-    text = line
-    while i < len(text) - 4:
-        ch = text[i]
-        if ch == "'" and not in_single:
-            in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-            elif depth == 0 and text[i:i+5].upper() == ' INTO' and (i + 5 >= len(text) or not text[i+5].isalpha()):
-                before = text[:i].rstrip()
-                after = text[i+1:].strip()  # skip the leading space, keep "INTO ..."
-                if before and after:
-                    return [before, after]
-        i += 1
+    pos = _TopLevelScanner.find_keyword(line, 'INTO')
+    if pos > 0:
+        before = line[:pos].rstrip()
+        after = line[pos:].strip()
+        if before and after:
+            return [before, after]
     return [line]
 
 
@@ -565,166 +662,32 @@ def _parse_sql_sections(lines: list, main_keywords: list) -> list:
 
 def _split_by_comma_respecting_parens(text: str) -> list:
     """Split text by commas at top level only (not inside parentheses or strings)."""
-    parts = []
-    current: list[str] = []
-    depth = 0
-    in_single = False
-
-    for ch in text:
-        if ch == "'" and not in_single:
-            in_single = True
-            current.append(ch)
-        elif ch == "'" and in_single:
-            in_single = False
-            current.append(ch)
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-                current.append(ch)
-            elif ch == ')':
-                depth -= 1
-                current.append(ch)
-            elif ch == ',' and depth == 0:
-                parts.append(''.join(current))
-                current = []
-            else:
-                current.append(ch)
-        else:
-            current.append(ch)
-
-    if current:
-        parts.append(''.join(current))
-
-    return parts
+    return _TopLevelScanner.split_by_comma(text)
 
 
 def _find_top_level_as(text: str):
     """Find the last AS keyword at paren depth 0. Returns (start, end) or None."""
-    upper = text.upper()
-    depth = 0
-    in_single = False
-    result = None
-
-    for i, ch in enumerate(text):
-        if ch == "'" and not in_single:
-            in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-            elif (depth == 0 and upper[i:i + 2] == 'AS'
-                  and (i == 0 or not (upper[i - 1].isalnum() or upper[i - 1] == '_'))
-                  and (i + 2 >= len(text) or not (upper[i + 2].isalnum() or upper[i + 2] == '_'))):
-                result = (i, i + 2)
-
-    return result
+    return _TopLevelScanner.find_last_keyword(text, 'AS')
 
 
 def _find_top_level_equals(text: str) -> int | None:
     """Find position of first '=' at paren depth 0, ignoring >=, <=, !=, <>.
     Returns index of '=' or None."""
-    depth = 0
-    in_single = False
-    length = len(text)
-    i = 0
-    while i < length:
-        ch = text[i]
-        if ch == "'" and not in_single:
-            in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-            elif depth == 0 and ch == '=':
-                # Skip compound operators: >=, <=, !=
-                if i > 0 and text[i - 1] in ('>', '<', '!'):
-                    pass
-                # Skip <> (already handled since < is not =)
-                elif i + 1 < length and text[i + 1] in ('>', '<'):
-                    pass
-                else:
-                    return i
-        i += 1
-    return None
+    result = _TopLevelScanner.find_equals(text)
+    return result if result >= 0 else None
 
 
 def _extract_paren_content(text: str, open_pos: int) -> str | None:
     """Extract content between '(' at open_pos and its matching ')'.
     Returns the content (without outer parens) or None if unmatched."""
-    if open_pos >= len(text) or text[open_pos] != '(':
-        return None
-    depth = 0
-    in_single = False
-    for i in range(open_pos, len(text)):
-        ch = text[i]
-        if ch == "'" and not in_single:
-            in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-                if depth == 0:
-                    return text[open_pos + 1:i]
-    return None
+    return _TopLevelScanner.extract_paren_content(text, open_pos)
 
 
 def _split_case_clauses(text: str) -> list[str]:
     """Split CASE body into WHEN/ELSE clauses respecting parens and strings.
     Input: text between CASE and END (exclusive).
     Returns list of clause strings like ['WHEN ... THEN ...', 'ELSE ...']."""
-    clauses = []
-    upper = text.upper()
-    depth = 0
-    in_single = False
-    current_start = 0
-    i = 0
-    length = len(text)
-
-    # Skip leading whitespace to find first WHEN
-    while current_start < length and text[current_start] in (' ', '\t', '\n', '\r'):
-        current_start += 1
-    i = current_start
-
-    while i < length:
-        ch = text[i]
-        if ch == "'" and not in_single:
-            in_single = True
-        elif ch == "'" and in_single:
-            in_single = False
-        elif not in_single:
-            if ch == '(':
-                depth += 1
-            elif ch == ')':
-                depth -= 1
-            elif depth == 0:
-                # Check for WHEN or ELSE keyword boundary
-                for kw in ('WHEN', 'ELSE'):
-                    kw_len = len(kw)
-                    if upper[i:i + kw_len] == kw:
-                        before_ok = (i == 0 or not (upper[i - 1].isalnum() or upper[i - 1] == '_'))
-                        after_ok = (i + kw_len >= length or not (upper[i + kw_len].isalnum() or upper[i + kw_len] == '_'))
-                        if before_ok and after_ok and i > current_start:
-                            clause = text[current_start:i].strip()
-                            if clause:
-                                clauses.append(clause)
-                            current_start = i
-                            break
-        i += 1
-
-    # Last clause
-    remaining = text[current_start:].strip()
-    if remaining:
-        clauses.append(remaining)
-    return clauses
+    return _TopLevelScanner.split_on_keywords(text.strip(), ['WHEN', 'ELSE'])
 
 
 def _preparse_select_section(section: dict):
@@ -990,10 +953,26 @@ def _format_with_section(result: list, section: dict, max_keyword_len: int):
 
 def _format_select_section(result: list, section: dict, max_keyword_len: int, max_field_len: int):
     """Format SELECT section: columns aligned at keyword width, with comment alignment."""
-    keyword_pad = "SELECT".ljust(max_keyword_len)
-    col_indent = ' ' * (max_keyword_len - 1)  # align ", " so column names match
-
     columns = section.get('parsed_columns', [])
+
+    # Detect DISTINCT / TOP N prefix on first column
+    select_prefix = "SELECT"
+    if columns:
+        first_field = columns[0]['field']
+        first_upper = first_field.upper()
+        if first_upper.startswith('DISTINCT '):
+            select_prefix = "SELECT DISTINCT"
+            columns[0] = {**columns[0], 'field': first_field[9:].strip()}
+        elif first_upper.startswith('TOP '):
+            # TOP N or TOP (N)
+            top_match = re.match(r'TOP\s+\(?\d+\)?\s+', first_field, re.IGNORECASE)
+            if top_match:
+                top_part = first_field[:top_match.end()].strip()
+                select_prefix = f"SELECT {top_part}"
+                columns[0] = {**columns[0], 'field': first_field[top_match.end():].strip()}
+
+    keyword_pad = select_prefix.ljust(max_keyword_len)
+    col_indent = ' ' * (max_keyword_len - 1)  # align ", " so column names match
     has_comments = any(col.get('comment') for col in columns)
 
     # Build display texts for each column
