@@ -64,5 +64,6 @@ link-mode = "copy"
 
 [dependency-groups]
 dev = [
+    "mkdocs-material>=9.7.6",
     "pytest>=9.0.2",
 ]

@@ -49,6 +49,9 @@ data/
 src/dataforge_studio/ui/assets/icons/dark/
 src/dataforge_studio/ui/assets/icons/light/
 
+# Generated documentation site
+docs/site/
+
 # Temporary files
 *.tmp
 nul
