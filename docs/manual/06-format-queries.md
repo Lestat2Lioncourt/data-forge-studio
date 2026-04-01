@@ -12,10 +12,10 @@ DataForge Studio propose **4 styles de formatage** accessibles dans la barre d'o
 
 | Style | Description | Ideal pour |
 |-------|-------------|------------|
-| **Expanded** | Une colonne par ligne, indentation 4 espaces | Requetes complexes, revues de code |
+| **Ultimate** | Mots-cles, AS, alias et operateurs tous alignes sur des colonnes fixes | Usage quotidien, lisibilite maximale |
 | **Compact** | Plusieurs colonnes par ligne (limite 120 car.) | Requetes simples, logs |
 | **Comma First** | Virgules en debut de ligne | Diff Git, detection d'erreurs |
-| **Aligned** | Mots-cles et operateurs alignes | Documentation, presentation |
+| **Expanded** | Identique a Ultimate | Alias de Ultimate |
 
 ### Utiliser le formateur
 
@@ -24,7 +24,7 @@ DataForge Studio propose **4 styles de formatage** accessibles dans la barre d'o
 3. Cliquez sur le bouton **Format**
 4. La requete est reformatee instantanement avec la coloration syntaxique mise a jour
 
-![Avant/apres formatage d'une requete complexe en style Expanded](screenshots/06-format-before-after.png)
+![Avant/apres formatage d'une requete complexe en style Ultimate](screenshots/06-format-before-after.png)
 
 ### Exemple concret
 
@@ -34,21 +34,40 @@ DataForge Studio propose **4 styles de formatage** accessibles dans la barre d'o
 SELECT u.id, u.name, u.email, COUNT(o.id) as order_count, SUM(o.total) as total FROM users u JOIN orders o ON u.id=o.user_id WHERE u.status='active' AND o.date > '2024-01-01' GROUP BY u.id, u.name, u.email ORDER BY total DESC
 ```
 
-**Apres** (style Expanded) :
+**Apres** (style **Ultimate** — recommande) :
 
 ```sql
-SELECT u.id,
-       u.name,
-       u.email,
-       COUNT(o.id) AS order_count,
-       SUM(o.total) AS total
+SELECT           u.id
+               , u.name
+               , u.email
+               , COUNT(o.id)  AS order_count
+               , SUM(o.total) AS total
+FROM             users  u
+JOIN             orders o ON  u.id = o.user_id
+WHERE            u.status = 'active'
+AND              o.date   > '2024-01-01'
+GROUP BY         u.id
+               , u.name
+               , u.email
+ORDER BY         total DESC
+```
+
+Points cles du style Ultimate :
+
+- Tous les **mots-cles** (`SELECT`, `FROM`, `JOIN`, `WHERE`, `AND`, `ORDER BY`...) sont alignes sur la meme colonne (17 caracteres)
+- Les **alias** sont alignes via `AS` sur une colonne commune
+- Les **operateurs** (`=`, `>`, `IS NULL`...) sont alignes dans les conditions `WHERE`/`AND` et `ON`
+- Les **tables** et **alias de table** sont alignes dans les `JOIN`
+
+**Apres** (style Compact) :
+
+```sql
+SELECT u.id, u.name, u.email, COUNT(o.id) AS order_count, SUM(o.total) AS total
 FROM users u
 JOIN orders o ON u.id = o.user_id
 WHERE u.status = 'active'
-    AND o.date > '2024-01-01'
-GROUP BY u.id,
-         u.name,
-         u.email
+  AND o.date > '2024-01-01'
+GROUP BY u.id, u.name, u.email
 ORDER BY total DESC
 ```
 
@@ -76,18 +95,30 @@ ORDER BY total DESC
 
 ### Formatage multi-statements
 
-Si votre requete contient **plusieurs instructions** separees par `;`, chaque instruction est formatee individuellement :
+Si votre requete contient **plusieurs instructions** separees par `;`, chaque instruction est formatee individuellement avec un saut de ligne entre elles :
 
 ```sql
 -- Avant
 SELECT * FROM clients; SELECT COUNT(*) FROM commandes;
 
--- Apres (chaque instruction formatee separement)
-SELECT *
-FROM clients;
+-- Apres
+SELECT           *
+FROM             clients;
 
-SELECT COUNT(*)
-FROM commandes;
+SELECT           COUNT(*)
+FROM             commandes;
+```
+
+### Commentaires en ligne
+
+Les lignes commentees (commencant par `--`) sont preservees sur leur propre ligne. Utile pour desactiver temporairement une clause :
+
+```sql
+SELECT TOP 5     a.Contract_ID
+               , a.Name          AS DisplayName
+--INTO             #TempTable
+FROM             contracts a
+WHERE            a.Status = 'Active'
 ```
 
 ### Variables T-SQL
@@ -95,38 +126,35 @@ FROM commandes;
 DataForge Studio gere les **variables T-SQL** (`DECLARE`, `SET @variable`) :
 
 ```sql
-DECLARE @date_debut DATE = '2024-01-01'
-DECLARE @date_fin DATE = '2024-12-31'
+DECLARE @date_debut DATE = '2024-01-01';
 
-SELECT client_id,
-       SUM(montant) AS total
-FROM commandes
-WHERE date_commande BETWEEN @date_debut AND @date_fin
-GROUP BY client_id
+SELECT           client_id
+               , SUM(montant) AS total
+FROM             commandes
+WHERE            date_commande >= @date_debut
+GROUP BY         client_id;
 ```
 
-- Les variables sont **colorees** distinctement dans l'editeur (orange en theme sombre)
-- Dans un meme batch (execution sans separateur), les variables declarees dans le premier statement sont accessibles dans les suivants
+- Les variables sont **colorees** distinctement dans l'editeur (orange en theme sombre, bordeaux en theme clair)
+- Lors de l'execution, si un `DECLARE` est detecte, tout le batch est envoye en une seule fois au serveur pour que les variables persistent entre les statements
 
 ---
 
 ## SELECT DISTINCT et SELECT TOP
 
-Le formateur reconnait et preserve correctement `DISTINCT` et `TOP N` :
+Le formateur traite `DISTINCT` et `TOP N` comme faisant partie du mot-cle `SELECT`, pour garder l'alignement :
 
 ```sql
--- DISTINCT est preserve avec le formatage
-SELECT DISTINCT ville,
-                code_postal
-FROM clients
-ORDER BY ville
+SELECT DISTINCT  ville
+               , code_postal
+FROM             clients
+ORDER BY         ville
 
--- TOP N est preserve aussi
-SELECT TOP 100 nom,
-               prenom,
-               email
-FROM clients
-WHERE statut = 'actif'
+SELECT TOP 100   nom
+               , prenom
+               , email
+FROM             clients
+WHERE            statut = 'actif'
 ```
 
 ---
@@ -174,31 +202,18 @@ La requete est stockee dans la base de configuration, organisee par projet et ca
 
 ---
 
-## Edit Query depuis une grille de resultats
-
-Si un resultat de requete contient une colonne SQL (par exemple une colonne nommee `query` ou `requete`) :
-
-1. **Clic droit** sur la cellule contenant du SQL
-2. Selectionnez **Edit Query**
-3. Le SQL est automatiquement **formate** en style aligned
-4. Un nouvel onglet s'ouvre avec la requete prete a etre executee
-
-Les noms de colonnes declencheurs sont configurables dans les preferences (par defaut : `query`, `requete`). La detection est insensible a la casse.
-
----
-
 ## Astuce
 
-- Choisissez un style de formatage et tenez-vous-y dans votre equipe. Le style **Expanded** est le plus lisible pour les revues de code. **Comma First** est le plus pratique pour les diffs Git.
+- Le style **Ultimate** est recommande pour un usage quotidien : il produit le SQL le plus lisible grace a l'alignement complet des mots-cles, alias et operateurs.
 - Sauvegardez vos requetes **des qu'elles fonctionnent**. Une requete non sauvegardee est une requete perdue au prochain redemarrage.
 - Organisez vos requetes avec des noms de projet et de categorie coherents. Par exemple : projet = nom du client, categorie = type de rapport ou frequence.
-- Le style de formatage par defaut est configurable dans **Options > Preferences > General > sql_format_style**.
+- Le style de formatage par defaut est configurable dans les preferences.
 
 ---
 
 ## Ce qui se passe en coulisse
 
-- Le formateur utilise **sqlparse** comme moteur de base, avec un post-traitement maison pour le style Expanded (fonction `_force_one_column_per_line`) et le style Aligned.
+- Le formateur utilise **sqlparse** comme moteur de base, puis applique un post-traitement avance via `_TopLevelScanner` (parsing des parentheses et chaines) et des fonctions specialisees par section (SELECT, FROM/JOIN, WHERE, GROUP BY, ORDER BY).
 - Le formatage ne modifie jamais la logique SQL : seuls l'espacement, l'indentation et la casse des mots-cles changent. Les chaines de caracteres et les commentaires sont preserves.
 - Les requetes sauvegardees sont stockees dans la table `saved_queries` de `_AppConfig/configuration.db`, liees a la connexion cible par `target_database_id`.
 - La coloration syntaxique est un `QSyntaxHighlighter` PySide6 qui applique des regles regex pour les mots-cles, les chaines, les commentaires, les nombres et les variables.
