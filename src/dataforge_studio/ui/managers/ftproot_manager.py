@@ -156,6 +156,8 @@ class FTPRootManager(QWidget):
         self.ftp_tree = QTreeWidget()
         self.ftp_tree.setHeaderHidden(True)
         self.ftp_tree.setIndentation(20)
+        from PySide6.QtCore import QSize
+        self.ftp_tree.setIconSize(QSize(16, 16))
         self.ftp_tree.setRootIsDecorated(False)
         self.ftp_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.ftp_tree.customContextMenuRequested.connect(self._on_tree_context_menu)
@@ -196,21 +198,15 @@ class FTPRootManager(QWidget):
         """Add an FTP root to the tree."""
         root_item = QTreeWidgetItem(self.ftp_tree)
 
-        # Check if connected
-        is_connected = ftp_root.id in self._connections
-
-        # Icon based on connection state
-        icon_name = "ftp_connected.png" if is_connected else "ftp.png"
-        root_icon = get_icon(icon_name, size=16)
-        if not root_icon:
-            root_icon = get_icon("database.png", size=16)  # Fallback
+        # Icon with connection status dot
+        root_icon = self.get_ftp_icon(ftp_root.id)
         if root_icon:
             root_item.setIcon(0, root_icon)
 
-        # Display name with protocol
-        display_name = ftp_root.name or f"{ftp_root.protocol.upper()}://{ftp_root.host}"
-        status = " [connecte]" if is_connected else ""
-        root_item.setText(0, f"{display_name}{status}")
+        # Display name with connection status
+        root_item.setText(0, self.get_ftp_display_name(ftp_root))
+
+        is_connected = self.is_connected(ftp_root.id)
         root_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "ftproot",
             "ftproot_obj": ftp_root,
@@ -289,6 +285,20 @@ class FTPRootManager(QWidget):
     def is_connected(self, ftp_root_id: str) -> bool:
         """Check if an FTP root is currently connected."""
         return ftp_root_id in self._connections
+
+    def get_ftp_icon(self, ftp_root_id: str) -> Optional[QIcon]:
+        """Get FTP icon with connection status dot (green=connected, red=disconnected)."""
+        from ...utils.image_loader import get_icon_with_status_dot
+        is_connected = self.is_connected(ftp_root_id)
+        dot_color = "#00cc00" if is_connected else "#cc0000"
+        return get_icon_with_status_dot("ftp", dot_color, icon_size=16, dot_size=7)
+
+    def get_ftp_display_name(self, ftp_root) -> str:
+        """Get display name for an FTP root, with connection status."""
+        display_name = ftp_root.name or f"{ftp_root.protocol.upper()}://{ftp_root.host}"
+        if self.is_connected(ftp_root.id):
+            display_name += " [connecte]"
+        return display_name
 
     # Note: File icon, size formatting, and tree population now handled by tree_helpers
 

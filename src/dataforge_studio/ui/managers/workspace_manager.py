@@ -26,6 +26,14 @@ from ..utils.tree_helpers import (
 from ...database.config_db import get_config_db, Workspace, Script
 from ...database.models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
 from ...utils.image_loader import get_icon, get_database_icon, get_database_icon_with_dot, get_auto_color
+from ..utils.tree_item_builders import (
+    get_database_display_icon, get_database_display_name,
+    get_rootfolder_display_icon,
+    get_query_display_icon, get_query_display_name,
+    get_script_display_icon, get_script_display_name,
+    get_job_display_icon, get_job_display_name,
+    get_category_display_icon,
+)
 from ...utils.workspace_export import (
     export_workspace_to_json, save_export_to_file, get_export_summary,
     load_import_from_file, check_workspace_conflict, import_workspace_from_json,
@@ -515,8 +523,7 @@ class WorkspaceManager(QWidget):
             for i, ws_db in enumerate(ws_databases):
                 db = ws_db.connection
                 db_item = QTreeWidgetItem(db_cat)
-                color = db.color or get_auto_color(i)
-                db_icon = get_database_icon_with_dot(db.db_type, color)
+                db_icon = get_database_display_icon(db, i)
                 if db_icon:
                     db_item.setIcon(0, db_icon)
                 db_item.setText(0, ws_db.display_name)
@@ -554,7 +561,7 @@ class WorkspaceManager(QWidget):
             for ws_fr in ws_file_roots:
                 fr = ws_fr.file_root
                 fr_item = QTreeWidgetItem(rf_cat)
-                fr_icon = get_icon("RootFolders.png", size=16)
+                fr_icon = get_rootfolder_display_icon()
                 if fr_icon:
                     fr_item.setIcon(0, fr_icon)
                 fr_item.setText(0, ws_fr.display_name)
@@ -580,9 +587,10 @@ class WorkspaceManager(QWidget):
             for ws_ftp in ws_ftp_roots:
                 ftp = ws_ftp.ftp_root
                 ftp_item = QTreeWidgetItem(ftp_cat)
-                ftp_icon = get_icon("ftp.png", size=16) or get_icon("database.png", size=16)
-                if ftp_icon:
-                    ftp_item.setIcon(0, ftp_icon)
+                if self._ftproot_manager:
+                    ftp_icon = self._ftproot_manager.get_ftp_icon(ftp.id)
+                    if ftp_icon:
+                        ftp_item.setIcon(0, ftp_icon)
                 ftp_item.setText(0, ws_ftp.display_name)
                 ftp_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "ftproot",
@@ -618,7 +626,7 @@ class WorkspaceManager(QWidget):
 
         for cat_name, cat_queries in sorted(categories.items()):
             cat_item = QTreeWidgetItem(parent)
-            cat_icon = get_icon("folder.png", size=16)
+            cat_icon = get_category_display_icon()
             if cat_icon:
                 cat_item.setIcon(0, cat_icon)
             cat_item.setText(0, f"{cat_name} ({len(cat_queries)})")
@@ -629,10 +637,10 @@ class WorkspaceManager(QWidget):
 
             for query in cat_queries:
                 q_item = QTreeWidgetItem(cat_item)
-                q_icon = get_icon("query.png", size=16)
+                q_icon = get_query_display_icon()
                 if q_icon:
                     q_item.setIcon(0, q_icon)
-                q_item.setText(0, query.name)
+                q_item.setText(0, get_query_display_name(query))
                 q_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "query",
                     "id": query.id,
@@ -650,7 +658,7 @@ class WorkspaceManager(QWidget):
 
         for type_name, type_scripts in sorted(types.items()):
             type_item = QTreeWidgetItem(parent)
-            type_icon = get_icon("folder.png", size=16)
+            type_icon = get_category_display_icon()
             if type_icon:
                 type_item.setIcon(0, type_icon)
             type_item.setText(0, f"{type_name} ({len(type_scripts)})")
@@ -661,10 +669,10 @@ class WorkspaceManager(QWidget):
 
             for script in type_scripts:
                 s_item = QTreeWidgetItem(type_item)
-                s_icon = get_icon("script.png", size=16)
+                s_icon = get_script_display_icon()
                 if s_icon:
                     s_item.setIcon(0, s_icon)
-                s_item.setText(0, script.name)
+                s_item.setText(0, get_script_display_name(script))
                 s_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "script",
                     "id": script.id,
@@ -682,7 +690,7 @@ class WorkspaceManager(QWidget):
 
         for type_name, type_jobs in sorted(types.items()):
             type_item = QTreeWidgetItem(parent)
-            type_icon = get_icon("folder.png", size=16)
+            type_icon = get_category_display_icon()
             if type_icon:
                 type_item.setIcon(0, type_icon)
             type_item.setText(0, f"Jobs: {type_name} ({len(type_jobs)})")
@@ -693,12 +701,10 @@ class WorkspaceManager(QWidget):
 
             for job in type_jobs:
                 j_item = QTreeWidgetItem(type_item)
-                j_icon = get_icon("jobs.png", size=16)
+                j_icon = get_job_display_icon()
                 if j_icon:
                     j_item.setIcon(0, j_icon)
-                # Include status indicator
-                status_icon = "✓" if job.enabled else "✗"
-                j_item.setText(0, f"{status_icon} {job.name}")
+                j_item.setText(0, get_job_display_name(job))
                 j_item.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "job",
                     "id": job.id,
@@ -833,7 +839,10 @@ class WorkspaceManager(QWidget):
             DialogHelper.warning(tr("ws_ftp_load_error"), parent=self)
 
     def _on_ftp_connection_established(self, ftp_root_id: str):
-        """Handle FTP connection established - process pending load if any."""
+        """Handle FTP connection established - update icon and process pending load."""
+        # Update FTP icons in the tree
+        self._update_ftp_icons(ftp_root_id)
+
         # Check if we have a pending load for this FTP root
         if ftp_root_id not in self._pending_ftp_loads_map:
             return
@@ -845,9 +854,31 @@ class WorkspaceManager(QWidget):
         self._load_ftp_folder_from_manager(parent_item, ftp_root_id, remote_path)
 
     def _on_ftp_connection_failed(self, ftp_root_id: str):
-        """Handle FTP connection failure - remove from pending list."""
+        """Handle FTP connection failure - update icon and remove from pending list."""
+        self._update_ftp_icons(ftp_root_id)
         if ftp_root_id in self._pending_ftp_loads_map:
             self._pending_ftp_loads_map.pop(ftp_root_id)
+
+    def _update_ftp_icons(self, ftp_root_id: str):
+        """Update FTP item icons in the workspace tree after connection state change."""
+        if not self._ftproot_manager:
+            return
+        new_icon = self._ftproot_manager.get_ftp_icon(ftp_root_id)
+        if not new_icon:
+            return
+        # Walk the tree to find all FTP items with this ID
+        root = self.workspace_tree.invisibleRootItem()
+        self._update_ftp_icons_recursive(root, ftp_root_id, new_icon)
+
+    def _update_ftp_icons_recursive(self, item, ftp_root_id: str, new_icon):
+        """Recursively find and update FTP items in the tree."""
+        for i in range(item.childCount()):
+            child = item.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "ftproot" and data.get("id") == ftp_root_id:
+                child.setIcon(0, new_icon)
+            if child.childCount() > 0:
+                self._update_ftp_icons_recursive(child, ftp_root_id, new_icon)
 
     def _on_query_saved_from_workspace(self):
         """Refresh current workspace when a query is saved (auto-linked)."""

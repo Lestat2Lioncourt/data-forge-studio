@@ -329,10 +329,59 @@ def get_database_icon_with_dot(db_type: str, hex_color: str, icon_size: int = 16
     return icon
 
 
+_icon_with_dot_cache: Dict[str, QIcon] = {}
+
+
+def get_icon_with_status_dot(icon_name: str, hex_color: str, icon_size: int = 16, dot_size: int = 8) -> Optional[QIcon]:
+    """
+    Get any themed icon with a colored status dot in the bottom-right corner.
+
+    Args:
+        icon_name: Icon name (e.g., "ftp.png")
+        hex_color: Hex color for the dot (e.g., "#00cc00" for green, "#cc0000" for red)
+        icon_size: Size of the base icon
+        dot_size: Size of the status dot
+
+    Returns:
+        QIcon with base icon + color dot overlay
+    """
+    theme_key = "dark" if ImageLoader._is_dark_theme else "light"
+    cache_key = f"{icon_name}_{hex_color}_{icon_size}_{dot_size}_{theme_key}"
+
+    if cache_key in _icon_with_dot_cache:
+        return _icon_with_dot_cache[cache_key]
+
+    base_icon = get_icon(icon_name, size=icon_size)
+    if not base_icon:
+        return create_color_dot_icon(hex_color, icon_size)
+
+    base_pixmap = base_icon.pixmap(icon_size, icon_size)
+
+    composite = QPixmap(icon_size, icon_size)
+    composite.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(composite)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.drawPixmap(0, 0, base_pixmap)
+
+    dot_x = icon_size - dot_size
+    dot_y = icon_size - dot_size
+    color = QColor(hex_color)
+    painter.setBrush(QBrush(color))
+    painter.setPen(QPen(color.darker(130), 1))
+    painter.drawEllipse(dot_x, dot_y, dot_size - 1, dot_size - 1)
+    painter.end()
+
+    icon = QIcon(composite)
+    _icon_with_dot_cache[cache_key] = icon
+    return icon
+
+
 def _clear_color_caches():
     """Clear color dot icon caches (called on theme change)."""
     _color_dot_cache.clear()
     _db_icon_with_dot_cache.clear()
+    _icon_with_dot_cache.clear()
 
 
 def get_database_icon(db_type: str, size: int = 16) -> Optional[QIcon]:

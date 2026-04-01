@@ -24,6 +24,14 @@ from ..widgets.dialog_helper import DialogHelper
 from ..core.i18n_bridge import tr
 from ...database.config_db import get_config_db
 from ...utils.image_loader import get_icon, get_database_icon, get_database_icon_with_dot, get_auto_color
+from ..utils.tree_item_builders import (
+    get_database_display_icon, get_database_display_name,
+    get_rootfolder_display_icon, get_rootfolder_display_name,
+    get_query_display_icon, get_query_display_name,
+    get_script_display_icon, get_script_display_name,
+    get_job_display_icon, get_job_display_name,
+    get_category_display_icon,
+)
 from ...constants import QUERY_PREVIEW_LIMIT
 
 import logging
@@ -109,6 +117,8 @@ class ResourcesManager(BaseManagerView):
         self.tree_view.tree.setRootIsDecorated(True)
         self.tree_view.tree.setAnimated(True)
         self.tree_view.tree.setIndentation(20)
+        from PySide6.QtCore import QSize
+        self.tree_view.tree.setIconSize(QSize(16, 16))
         # Disable default double-click expand/collapse (we handle it ourselves)
         self.tree_view.tree.setExpandsOnDoubleClick(False)
 
@@ -320,11 +330,10 @@ class ResourcesManager(BaseManagerView):
             for i, db in enumerate(databases):
                 item = self.tree_view.add_item(
                     parent=self._category_items["databases"],
-                    text=[db.name],
+                    text=[get_database_display_name(db)],
                     data={"type": "database", "id": db.id, "obj": db}
                 )
-                color = db.color or get_auto_color(i)
-                db_icon = get_database_icon_with_dot(db.db_type, color)
+                db_icon = get_database_display_icon(db, i)
                 if db_icon:
                     item.setIcon(0, db_icon)
                 self._add_dummy_child(item)
@@ -337,10 +346,12 @@ class ResourcesManager(BaseManagerView):
             for rf in rootfolders:
                 item = self.tree_view.add_item(
                     parent=self._category_items["rootfolders"],
-                    text=[rf.name or rf.path],
+                    text=[get_rootfolder_display_name(rf)],
                     data={"type": "rootfolder", "id": rf.id, "obj": rf, "path": rf.path}
                 )
-                self._set_item_icon(item, "folder")
+                rf_icon = get_rootfolder_display_icon()
+                if rf_icon:
+                    item.setIcon(0, rf_icon)
                 self._add_dummy_child(item)
 
             # FTP Roots - workspace filtered (with expansion support like rootfolders)
@@ -349,18 +360,17 @@ class ResourcesManager(BaseManagerView):
             else:
                 ftp_roots = config_db.get_all_ftp_roots()
             for ftp in ftp_roots:
-                display_name = ftp.name or f"{ftp.protocol.upper()}://{ftp.host}"
-                # Check if connected via FTPRootManager
                 is_connected = self._ftproot_manager and self._ftproot_manager.is_connected(ftp.id)
-                status = tr("res_connected") if is_connected else ""
+                display_name = self._ftproot_manager.get_ftp_display_name(ftp) if self._ftproot_manager else ftp.name
                 item = self.tree_view.add_item(
                     parent=self._category_items["ftproots"],
-                    text=[f"{display_name}{status}"],
+                    text=[display_name],
                     data={"type": "ftproot", "id": ftp.id, "obj": ftp, "connected": is_connected}
                 )
-                # Icon based on connection state
-                icon_name = "ftp_connected" if is_connected else "ftp"
-                self._set_item_icon(item, icon_name)
+                if self._ftproot_manager:
+                    ftp_icon = self._ftproot_manager.get_ftp_icon(ftp.id)
+                    if ftp_icon:
+                        item.setIcon(0, ftp_icon)
                 # Add dummy child for expansion (like rootfolders)
                 self._add_dummy_child(item)
 
@@ -381,23 +391,25 @@ class ResourcesManager(BaseManagerView):
             # Create category folders and add queries
             self._query_category_items = {}
             for category_name in sorted(queries_by_category.keys()):
-                # Create category folder
                 cat_item = self.tree_view.add_item(
                     parent=self._category_items["queries"],
                     text=[f"{category_name} ({len(queries_by_category[category_name])})"],
                     data={"type": "query_category", "name": category_name}
                 )
-                self._set_item_icon(cat_item, "folder")
+                cat_icon = get_category_display_icon()
+                if cat_icon:
+                    cat_item.setIcon(0, cat_icon)
                 self._query_category_items[category_name] = cat_item
 
-                # Add queries under this category
                 for query in queries_by_category[category_name]:
                     item = self.tree_view.add_item(
                         parent=cat_item,
-                        text=[query.name],
+                        text=[get_query_display_name(query)],
                         data={"type": "query", "id": query.id, "obj": query}
                     )
-                    self._set_item_icon(item, "queries")
+                    q_icon = get_query_display_icon()
+                    if q_icon:
+                        item.setIcon(0, q_icon)
 
             # Images - only logical categories (user-defined)
             # Images without categories are only visible in ImageLibraryManager
@@ -447,20 +459,24 @@ class ResourcesManager(BaseManagerView):
             for job in jobs:
                 item = self.tree_view.add_item(
                     parent=self._category_items["jobs"],
-                    text=[job.name],
+                    text=[get_job_display_name(job)],
                     data={"type": "job", "id": job.id, "obj": job}
                 )
-                self._set_item_icon(item, "jobs")
+                j_icon = get_job_display_icon()
+                if j_icon:
+                    item.setIcon(0, j_icon)
 
             # Scripts
             scripts = config_db.get_all_scripts()
             for script in scripts:
                 item = self.tree_view.add_item(
                     parent=self._category_items["scripts"],
-                    text=[script.name],
+                    text=[get_script_display_name(script)],
                     data={"type": "script", "id": script.id, "obj": script}
                 )
-                self._set_item_icon(item, "scripts")
+                s_icon = get_script_display_icon()
+                if s_icon:
+                    item.setIcon(0, s_icon)
 
             # Expand categories
             for cat_item in self._category_items.values():
@@ -680,7 +696,6 @@ class ResourcesManager(BaseManagerView):
         # Map category keys to actual icon filenames
         icon_map = {
             "ftproots": "ftp",
-            "ftp_connected": "ftp_connected",
             "remote_folder": "folder",
         }
         actual_icon = icon_map.get(icon_name, icon_name)
