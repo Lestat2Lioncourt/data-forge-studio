@@ -2,42 +2,42 @@
 
 **Version**: 0.6.8
 **Objectif**: POC v0.9.xx / Production v1.0
-**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5)
+**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audit #6)
 
 ---
 
-## Analyse Globale de la Solution (Audit #5 - 02/03/2026)
+## Analyse Globale de la Solution (Audit #6 - 01/04/2026)
 
 ### Scores sur 10
 
 | Critere | Score | Evol. | Justification |
 |---------|-------|-------|---------------|
-| **Structure de l'application** | 9/10 | = | 222 fichiers Python (59,542L). Les 3 God Objects majeurs TOUS refactores: config_db.py (2547→474L, facade), database_manager.py (2536→209L, mixins), query_tab.py (2061→417L, 6 mixins). 10 repos. 30 fichiers > 500L. 7 fichiers >1000L restants (managers non-critiques, responsabilite unique) |
-| **Qualite du code** | 8/10 | = | 172 `except Exception` (vs 341, -50%), **0 bare `except:`**, 58 except+pass (dont 22 avec exceptions specifiques). 0 dep inutilisee. 6 TODO. DataFrameTableModel: reste 2 copies (ui/widgets + core/) |
-| **Gestion de la securite** | 8/10 | = | Credentials via keyring (bon). **0 `shell=True`**, **0 `eval()`/`exec()`**. 35 f-string SQL — toutes avec identifiants internes (table_name) ou parametres (?). Quoting dialect-specific operationnel. Aucune injection detectee |
-| **Maintenabilite** | 8/10 | = | **3 architectures facade+mixins completes**: config_db.py (10 repos), database_manager.py (8 mixins), query_tab.py (6 mixins). 28 fichiers mixin/repo. 0 God Object critique. 79 tests passent. Couverture ~15% |
-| **Fiabilite** | 7.5/10 | = | ConnectionPool avec context managers (77 `with` dans repos). 448 `.connect()` vs 25 `.disconnect()` (ratio 18:1, Qt signals). 29 fichiers avec cleanup/closeEvent. 19 `deleteLater()`. Quelques curseurs sans close explicite dans query_gen_mixin |
-| **Performance** | 7.5/10 | = | ConnectionPool reuse. TTLCache (60s, 100 entries), schema_cache. 4 QThread workers (DB, FTP, scan). Lazy loading generalise. Pas d'async generalise |
-| **Extensibilite** | 8.5/10 | = | 10 plugins UI, 5 dialects DB (SQLite/PostgreSQL/SQL Server/MySQL/Access), 4 themes JSON, Factory pattern. Plugin system bien defini (base_plugin + plugin_manager) |
-| **Documentation** | 7/10 | = | 24 guides utilisateur, README 428L. Docstrings ameliorees (repositories, config_db). Toujours pas de documentation API developpeur standalone |
-| **UX/UI** | 8.5/10 | = | PySide6, 4 themes, i18n EN/FR (652 cles, parite 100%). Pastilles colorees, workspace favori, onglet "+". 30+ widgets reutilisables. Reste: ~50 strings FR hardcodees, ES inexistant |
+| **Structure de l'application** | 9/10 | = | 223 fichiers Python (60,545L). 3 God Objects refactores. 10 repos. 29 fichiers > 500L. 8 fichiers >1000L (resources_manager 1811L est le plus gros — responsabilite unique, tree building). Nouveau module `tree_item_builders.py` centralise l'affichage |
+| **Qualite du code** | 8.5/10 | +0.5 | 177 `except Exception` (+5 vs 172, lie aux nouvelles features), **0 bare `except:`**, 69 except+pass. 0 dep inutilisee. 6 TODO. **Refactoring majeur**: delegation context menus (10 `get_*_context_actions()`), `tree_item_builders.py` (affichage centralise), `_TopLevelScanner` (parsing SQL deuplique). Style "expanded" fusionne avec "ultimate" |
+| **Gestion de la securite** | 8/10 | = | Credentials via keyring. **0 `shell=True`**, **0 `eval()`/`exec()`**. 35 f-string SQL securisees. Variables SQL executees en batch unique (pas de fuite de scope). Aucune injection detectee |
+| **Maintenabilite** | 8.5/10 | +0.5 | Delegation systematique: context menus via `get_*_context_actions()`, affichage via `tree_item_builders.py`, icones FTP via `ftproot_manager.get_ftp_icon()`. Tout ajout dans un manager est disponible partout. Critere d'audit #11 ajoute pour renforcer. SQL formatter refactorise (`_TopLevelScanner`, -74 lignes) |
+| **Fiabilite** | 7.5/10 | = | 459 `.connect()` vs 26 `.disconnect()` (ratio 18:1, Qt signals). 23 fichiers avec cleanup/closeEvent. 20 `deleteLater()`. Detachement/rattachement QueryTab fiable (reparentage widget). FTP icons dynamiques sur changement d'etat |
+| **Performance** | 7.5/10 | = | ConnectionPool reuse. TTLCache, schema_cache. QSvgRenderer pour icones SVG. Filtrage colonnes par hide/show rows (pas de copie). Sort indicators avec autosize. Pas d'async generalise |
+| **Extensibilite** | 9/10 | +0.5 | 10 plugins UI, 5 dialects DB, 4 themes JSON. **SVG icon system** (37 icones, recoloration texte, fallback PNG). `get_icon_with_status_dot()` generique. SQL formatter extensible via `_TopLevelScanner`. Detachable query tabs via `PopupWindow`. Column filters dans GridView |
+| **Documentation** | 7/10 | = | 24 guides utilisateur. README changelog a jour (v0.6.2-v0.6.8). ROADMAP avec specs Scripts & Jobs detaillees. Critere audit #11. Toujours pas de doc API developpeur standalone |
+| **UX/UI** | 9/10 | +0.5 | i18n EN/FR (655 cles, parite 100%). **Nouveautes**: split toggle (stacked/side-by-side), detachable query tabs, column filters (clic droit header, contains, cumulatif), DB logos dans connection selector, sort indicators CSS, splash sur ecran actif, SELECT DISTINCT/TOP formate, variables SQL colorees, popups redimensionnables |
 
-**Score Global: 7.9/10** (= vs audit #4) — Tous les correctifs P1/P2 de securite et qualite sont resolus. La base technique est mature pour les nouvelles fonctionnalites.
+**Score Global: 8.2/10** (+0.3 vs audit #5) — Progression significative en maintenabilite (delegation, centralisation), extensibilite (SVG, filters, detach) et UX (nombreuses ameliorations). La base technique est mature et bien factorisee.
 
 ### Historique des scores
 
-| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Audit #5 | Tendance |
-|---------|----------|----------|----------|----------|----------|----------|
-| Structure | 8 | 8 | 8.5 | 9 | 9 | = |
-| Qualite du code | 7 | 6.5 | 7 | 8 | 8 | = |
-| Securite | 7 | 6.5 | 7 | 8 | 8 | = |
-| Maintenabilite | 7 | 6.5 | 7.5 | 8 | 8 | = |
-| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | 7.5 | = |
-| Performance | 7 | 7 | 7.5 | 7.5 | 7.5 | = |
-| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 | = |
-| Documentation | 7.5 | 7 | 7 | 7 | 7 | = |
-| UX/UI | 8 | 8.5 | 8.5 | 8.5 | 8.5 | = |
-| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **7.9** | **=** |
+| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Audit #5 | Audit #6 | Tendance |
+|---------|----------|----------|----------|----------|----------|----------|----------|
+| Structure | 8 | 8 | 8.5 | 9 | 9 | 9 | = |
+| Qualite du code | 7 | 6.5 | 7 | 8 | 8 | 8.5 | ↑ |
+| Securite | 7 | 6.5 | 7 | 8 | 8 | 8 | = |
+| Maintenabilite | 7 | 6.5 | 7.5 | 8 | 8 | 8.5 | ↑ |
+| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | = |
+| Performance | 7 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | = |
+| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | ↑ |
+| Documentation | 7.5 | 7 | 7 | 7 | 7 | 7 | = |
+| UX/UI | 8 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | ↑ |
+| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **7.9** | **8.2** | **↑** |
 
 ---
 
@@ -522,35 +522,35 @@ L'utilisateur cree un job via l'UI en selectionnant un script valide et en rempl
 
 | Metrique | Valeur | Evolution |
 |----------|--------|-----------|
-| Fichiers Python | 222 | = |
-| Lignes de code (src/) | 59,542 | +51 |
+| Fichiers Python | 223 | +1 (tree_item_builders.py) |
+| Lignes de code (src/) | 60,545 | +1,003 |
 | Fichiers de tests | 7 | = |
 | Lignes de tests | 1,463 | = |
 | Tests en echec | 0 (79 passed) | = |
 | Plugins | 10 | = |
 | Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) | = |
-| Langues i18n | 2 (EN: 652 cles, FR: 652 cles) | = |
+| Langues i18n | 2 (EN: 655 cles, FR: 655 cles) | +3 cles |
 | Themes | 4 | = |
 | Guides documentation | 24 | = |
-| Commits depuis Dec 2025 | ~142 | +2 |
-| `except Exception` generiques | 172 | = (vs 341 initial, -50%) |
-| `except` specifiques | ~95 | *(nouveau)* — sqlite3.Error, ftplib.all_errors, OSError, etc. |
+| Commits depuis Dec 2025 | ~157 | +15 |
+| `except Exception` generiques | 177 | +5 (nouvelles features) |
 | bare `except:` | 0 | = |
-| `except` + `pass` | 58 (dont 22 specifiques) | = |
+| `except` + `pass` | 69 | +11 (nouvelles features) |
 | `shell=True` | 0 | = |
 | `eval()`/`exec()` | 0 | = |
 | f-string SQL | 35 (toutes securisees) | = |
-| `.connect()` / `.disconnect()` | 448 / 25 | ratio 18:1 (Qt signals) |
-| `deleteLater()` | 19 | = |
-| cleanup/closeEvent | 29 | = |
-| Fichiers > 500 lignes | 30 | +1 |
-| Fichiers > 1000 lignes | 7 | = |
+| `.connect()` / `.disconnect()` | 459 / 26 | ratio 18:1 (Qt signals) |
+| `deleteLater()` | 20 | +1 |
+| cleanup/closeEvent | 23 | -6 (refactoring) |
+| Fichiers > 500 lignes | 29 | -1 |
+| Fichiers > 1000 lignes | 8 | +1 (resources_manager 1811L) |
 | Repositories actifs | 10 | = |
-| ConnectionPool context managers | 77 | = |
 | TODO/FIXME | 6 | = |
 | Deps (pyproject.toml) | 15 | = (toutes utilisees) |
+| SVG icones | 37 (+ 15 PNG base conserves) | *(nouveau)* |
+| `get_*_context_actions()` publiques | 10 | *(nouveau)* |
 
-*Statistiques mises a jour: 02 Mars 2026 (audit #5)*
+*Statistiques mises a jour: 01 Avril 2026 (audit #6)*
 
 ---
 
@@ -598,6 +598,18 @@ Mars 2026
 |-- Suppression shell=True, parametrisation/quoting SQL
 |-- Reduction except Exception generiques: 341→172 (-50%, 51 fichiers)
 |-- Audit #5 (7.9/10) — base technique mature, tous correctifs P1/P2 resolus
+|-- v0.6.5
+|
+Avril 2026
+|-- Migration SVG (37 icones), DB logos dans connection selector
+|-- Split toggle, detachable query tabs, PopupWindow resize
+|-- Column filters (clic droit header, contains, cumulatif AND)
+|-- SQL formatter: multi-statement, DISTINCT/TOP, standalone comments, _TopLevelScanner
+|-- Variables SQL (DECLARE/SET) en batch unique, coloration syntaxique @variables
+|-- Delegation context menus (10 get_*_context_actions), tree_item_builders.py
+|-- FTP icon status dot (vert/rouge), mise a jour dynamique
+|-- Combined file view (CSV/Excel/JSON dans un grid)
+|-- Audit #6 (8.2/10) — maintenabilite, extensibilite, UX en hausse
 |-- v0.6.8 (actuel)
 ```
 
@@ -635,7 +647,7 @@ S2 2026
 
 DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.8.
 
-**Score global: 7.9/10** (+0.6 vs audit #2) — Tous les correctifs P1/P2 critiques sont resolus: 3 God Objects refactores, exceptions specifiques, securite SQL, shell=True. La base technique est mature.
+**Score global: 8.2/10** (+0.3 vs audit #5) — Progression en maintenabilite (delegation, centralisation), extensibilite (SVG, filters, detach) et UX. La base technique est mature et bien factorisee.
 
 **Bilan des corrections realisees**:
 - ~~MySQL backend (dialect + loader + factories)~~ Done

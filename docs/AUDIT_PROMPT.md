@@ -67,4 +67,4 @@ Pour chaque score, donne la justification et l'evolution par rapport a l'audit p
 
 ---
 
-*Derniere utilisation : 2026-02-28 (Audit #2)*
+*Derniere utilisation : 2026-04-01 (Audit #6)*
