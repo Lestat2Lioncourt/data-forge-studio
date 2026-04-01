@@ -42,7 +42,7 @@ Les chapitres sont independants : vous pouvez les lire dans l'ordre qui correspo
 | `Code` | Commande a taper ou valeur technique |
 | Menu > Sous-menu | Chemin de navigation dans les menus |
 | F5 | Raccourci clavier |
-| [Screenshot: description] | Emplacement reserve pour une capture d'ecran future |
+| ![description](screenshots/XX-name.png) | Capture d'ecran (images a placer dans le dossier `screenshots/`) |
 
 ---
 

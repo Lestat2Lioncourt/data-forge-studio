@@ -23,7 +23,7 @@
 4. Cliquez sur **Test** pour verifier la connexion
 5. **Save**
 
-[Screenshot: Dialogue de configuration FTP avec les champs remplis]
+![Dialogue de configuration FTP avec les champs remplis](screenshots/07-ftp-config-dialog.png)
 
 ---
 
@@ -45,7 +45,7 @@ FTP Partenaire Alpha
 - Le **nombre de fichiers** dans chaque dossier est affiche a cote du nom
 - La navigation se fait de maniere asynchrone : l'interface reste reactive pendant le chargement
 
-[Screenshot: Arbre FTP avec dossiers deplies et compteurs de fichiers]
+![Arbre FTP avec dossiers deplies et compteurs de fichiers](screenshots/07-ftp-tree-expanded.png)
 
 ---
 

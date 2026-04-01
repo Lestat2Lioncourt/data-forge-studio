@@ -19,7 +19,7 @@
 4. **Test Connection** pour valider (timeout de 5 secondes)
 5. **Save** -- le schema se charge automatiquement
 
-[Screenshot: Arbre du schema avec tables et vues deplies]
+![Arbre du schema avec tables et vues deplies](screenshots/02-schema-tree-expanded.png)
 
 ---
 
@@ -74,7 +74,7 @@ ORDER BY nb_clients DESC
 
 Puis **F5** pour executer.
 
-[Screenshot: Grille de resultats avec tri actif sur une colonne]
+![Grille de resultats avec tri actif sur une colonne](screenshots/02-results-grid-sorted.png)
 
 ---
 

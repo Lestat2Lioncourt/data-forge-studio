@@ -13,7 +13,7 @@ Le Database Manager supporte les **onglets multiples**. Chaque onglet est indepe
 3. Cliquez sur le **+** pour ajouter un deuxieme onglet
 4. Dans chaque onglet, selectionnez la base de donnees cible dans le selecteur de connexion
 
-[Screenshot: Deux onglets de requete avec des connexions differentes]
+![Deux onglets de requete avec des connexions differentes](screenshots/04-two-query-tabs.png)
 
 ### Renommer les onglets
 
@@ -31,7 +31,7 @@ Par defaut, l'editeur SQL est au-dessus et les resultats en dessous (mode empile
 
 Ce mode est particulierement utile sur un ecran large pour garder la requete visible tout en consultant les resultats.
 
-[Screenshot: Split view en mode cote a cote avec editeur a gauche et resultats a droite]
+![Split view en mode cote a cote avec editeur a gauche et resultats a droite](screenshots/04-split-view-side-by-side.png)
 
 ---
 
@@ -48,7 +48,7 @@ La fenetre detachee conserve toutes les fonctionnalites : execution, formatage, 
 
 Pour **re-attacher** l'onglet, fermez la fenetre detachee : l'onglet revient dans la fenetre principale.
 
-[Screenshot: Deux fenetres cote a cote, chacune avec une requete sur une base differente]
+![Deux fenetres cote a cote, chacune avec une requete sur une base differente](screenshots/04-detached-tabs-side-by-side.png)
 
 ---
 

@@ -24,7 +24,7 @@ DataForge Studio propose **4 styles de formatage** accessibles dans la barre d'o
 3. Cliquez sur le bouton **Format**
 4. La requete est reformatee instantanement avec la coloration syntaxique mise a jour
 
-[Screenshot: Avant/apres formatage d'une requete complexe en style Expanded]
+![Avant/apres formatage d'une requete complexe en style Expanded](screenshots/06-format-before-after.png)
 
 ### Exemple concret
 
@@ -150,7 +150,7 @@ Pour retrouver une requete rapidement plus tard :
 
 La requete est stockee dans la base de configuration, organisee par projet et categorie.
 
-[Screenshot: Dialogue de sauvegarde de requete avec les champs remplis]
+![Dialogue de sauvegarde de requete avec les champs remplis](screenshots/06-save-query-dialog.png)
 
 ---
 
@@ -170,7 +170,7 @@ La requete est stockee dans la base de configuration, organisee par projet et ca
 3. Cliquez sur une requete pour voir ses details dans le panneau droit
 4. **Double-cliquez** pour la charger dans le Database Manager
 
-[Screenshot: Queries Manager avec l'arbre et le panneau de details]
+![Queries Manager avec l'arbre et le panneau de details](screenshots/06-queries-manager.png)
 
 ---
 

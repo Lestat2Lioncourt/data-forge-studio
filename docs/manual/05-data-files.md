@@ -20,7 +20,7 @@ Un **RootFolder** (racine de fichiers) est un repertoire local que DataForge Stu
 
 Le repertoire et son contenu apparaissent dans l'arbre de navigation.
 
-[Screenshot: Arbre du RootFolder avec sous-dossiers et fichiers]
+![Arbre du RootFolder avec sous-dossiers et fichiers](screenshots/05-rootfolder-tree.png)
 
 ---
 
@@ -45,7 +45,7 @@ Depliez le RootFolder pour voir la hierarchie de dossiers et fichiers. DataForge
 - Pour les fichiers texte : un viewer avec coloration syntaxique
 - Pour les fichiers JSON : detection automatique du format (tableau d'objets, objets imbriques)
 
-[Screenshot: Fichier CSV ouvert dans la grille avec en-tetes et donnees]
+![Fichier CSV ouvert dans la grille avec en-tetes et donnees](screenshots/05-csv-file-grid.png)
 
 ---
 
@@ -75,7 +75,7 @@ Quand un dossier contient plusieurs fichiers de meme structure (par exemple des 
 
 L'application gere intelligemment les cas ou les fichiers n'ont pas exactement les memes colonnes : les colonnes manquantes sont remplies avec des valeurs vides.
 
-[Screenshot: Vue combinee de plusieurs fichiers CSV dans une seule grille]
+![Vue combinee de plusieurs fichiers CSV dans une seule grille](screenshots/05-combined-view.png)
 
 ---
 

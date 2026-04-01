@@ -40,7 +40,7 @@
    uv run python scripts/create_shortcut.py
    ```
 
-[Screenshot: Splash screen au lancement de l'application]
+![Splash screen au lancement de l'application](screenshots/01-splash-screen.png)
 
 ---
 
@@ -59,7 +59,7 @@ Pour ajouter votre propre base de donnees :
 4. Cliquez sur **Test Connection** pour verifier la connectivite
 5. Cliquez sur **Save**
 
-[Screenshot: Dialogue de creation de connexion avec les champs remplis]
+![Dialogue de creation de connexion avec les champs remplis](screenshots/01-new-connection-dialog.png)
 
 Le schema de la base (tables, vues, colonnes) se charge automatiquement dans l'arbre de navigation a gauche.
 
@@ -83,7 +83,7 @@ ORDER BY nom
 
 Puis **F5** pour executer.
 
-[Screenshot: Editeur SQL avec resultats dans la grille]
+![Editeur SQL avec resultats dans la grille](screenshots/01-sql-editor-with-results.png)
 
 ---
 

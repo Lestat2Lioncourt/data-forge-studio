@@ -24,7 +24,7 @@ DataForge Studio propose **4 themes integres** :
 
 Le theme s'applique a l'ensemble de l'interface : barre laterale, arbres, grilles, editeur SQL, dialogues et fenetres detachees.
 
-[Screenshot: Meme ecran en theme sombre et en theme clair cote a cote]
+![Meme ecran en theme sombre et en theme clair cote a cote](screenshots/08-theme-dark-vs-light.png)
 
 ---
 
@@ -60,7 +60,7 @@ Pour modifier un parametre :
 2. Modifiez la valeur dans le panneau droit
 3. Cliquez sur **Appliquer**
 
-[Screenshot: Panneau de preferences avec un parametre selectionne]
+![Panneau de preferences avec un parametre selectionne](screenshots/08-preferences-panel.png)
 
 ---
 

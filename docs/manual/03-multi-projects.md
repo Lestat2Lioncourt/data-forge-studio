@@ -14,7 +14,7 @@ Un **Workspace** est un conteneur logique qui regroupe :
 - **Scripts** : les scripts Python associes
 - **Jobs** : les taches planifiees
 
-Les Workspaces fonctionnent en **many-to-many** : une meme base de donnees peut appartenir a plusieurs workspaces. Modifier une connexion dans un workspace la met a jour partout.
+Les Workspaces fonctionnent en **many-to-many** : une meme ressource peut etre rattachee a plusieurs workspaces. Modifier une connexion dans un workspace la met a jour partout.
 
 ---
 
@@ -28,7 +28,7 @@ Les Workspaces fonctionnent en **many-to-many** : une meme base de donnees peut 
 4. Cochez **Set as default** si vous voulez qu'il s'ouvre automatiquement au demarrage
 5. **Save**
 
-[Screenshot: Dialogue de creation de workspace]
+![Dialogue de creation de workspace](screenshots/03-new-workspace-dialog.png)
 
 ---
 
@@ -96,7 +96,7 @@ Quand un workspace contient beaucoup de ressources, utilisez le **filtre** en ha
 
 Le filtre fonctionne sur les noms de bases, dossiers, fichiers et requetes.
 
-[Screenshot: Arbre du workspace filtre avec le terme de recherche]
+![Arbre du workspace filtre avec le terme de recherche](screenshots/03-workspace-tree-filtered.png)
 
 ---
 
