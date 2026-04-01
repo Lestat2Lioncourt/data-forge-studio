@@ -202,12 +202,18 @@ class PopupWindow(QMainWindow):
             }}
         """)
 
-        # Apply content widget background
-        self.content_widget.setStyleSheet(f"""
-            QWidget {{
-                background-color: {window_bg};
-            }}
-        """)
+        # Apply global QSS to content widget (includes QHeaderView, QTableWidget, etc.)
+        try:
+            from ...core.theme_bridge import ThemeBridge
+            theme_bridge = ThemeBridge.get_instance()
+            global_qss = theme_bridge.generate_global_qss()
+            self.content_widget.setStyleSheet(global_qss)
+        except Exception:
+            self.content_widget.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {window_bg};
+                }}
+            """)
 
     def _on_theme_changed(self, colors: dict):
         """Handle theme change."""

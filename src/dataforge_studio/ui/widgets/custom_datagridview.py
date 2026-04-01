@@ -410,13 +410,26 @@ class CustomDataGridView(QWidget):
             self._table_view.verticalHeader().setDefaultSectionSize(16)
             self._table_view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
-            # Context menu
+            # Context menu on cells
             self._table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             self._table_view.customContextMenuRequested.connect(self._show_virtual_context_menu)
 
+            # Context menu on column headers (for filters)
+            virtual_header = self._table_view.horizontalHeader()
+            virtual_header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            virtual_header.customContextMenuRequested.connect(self._show_header_context_menu)
+
             # Connect signals
             self._table_view.selectionModel().selectionChanged.connect(self._on_virtual_selection_changed)
-            self._table_view.horizontalHeader().sectionClicked.connect(self._on_virtual_header_clicked)
+            virtual_header.sectionClicked.connect(self._on_virtual_header_clicked)
+
+            # Apply global theme QSS
+            try:
+                from ..core.theme_bridge import ThemeBridge
+                theme_bridge = ThemeBridge.get_instance()
+                self._table_view.setStyleSheet(theme_bridge.generate_global_qss())
+            except Exception:
+                pass
 
             # Add to layout
             self._main_layout.addWidget(self._table_view)
@@ -1098,15 +1111,6 @@ class CustomDataGridView(QWidget):
 
         menu.exec(self._table_view.viewport().mapToGlobal(position))
 
-    def apply_theme_style(self, stylesheet: str):
-        """
-        Apply QSS stylesheet to the table.
-
-        Args:
-            stylesheet: QSS stylesheet string
-        """
-        self.table.setStyleSheet(stylesheet)
-
     def resize_columns_to_contents(self):
         """Resize all columns to fit their contents."""
         self.table.resizeColumnsToContents()
@@ -1178,6 +1182,14 @@ class CustomDataGridView(QWidget):
         self.fullscreen_table.horizontalHeader().sectionClicked.connect(self._on_fullscreen_header_clicked)
 
         layout.addWidget(self.fullscreen_table)
+
+        # Apply global theme QSS to fullscreen dialog
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            theme_bridge = ThemeBridge.get_instance()
+            self.fullscreen_dialog.setStyleSheet(theme_bridge.generate_global_qss())
+        except Exception:
+            pass
 
         # Apply existing sorts to fullscreen table
         if self.active_sorts:
