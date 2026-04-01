@@ -300,6 +300,65 @@ class FTPRootManager(QWidget):
             display_name += " [connecte]"
         return display_name
 
+    def get_remote_folder_context_actions(self, data: dict, parent, target_viewer=None):
+        """Get context menu actions for a remote FTP folder.
+
+        Returns all actions applicable to a remote folder, usable from any consumer
+        (ftproot_manager, workspace_manager, resources_manager).
+        """
+        actions = []
+        viewer = target_viewer or self.object_viewer
+
+        merge_action = QAction(tr("folder_merge_files"), parent)
+        merge_action.triggered.connect(
+            lambda: self._merge_remote_folder_files(data, target_viewer=viewer)
+        )
+        actions.append(merge_action)
+
+        upload_action = QAction("Envoyer un fichier ici", parent)
+        upload_action.triggered.connect(self._upload_file)
+        actions.append(upload_action)
+
+        new_folder_action = QAction("Nouveau dossier", parent)
+        new_folder_action.triggered.connect(
+            lambda: self._create_remote_folder_by_data(data)
+        )
+        actions.append(new_folder_action)
+
+        delete_action = QAction("Supprimer", parent)
+        delete_action.triggered.connect(
+            lambda: self._delete_remote_item(data, is_directory=True)
+        )
+        actions.append(delete_action)
+
+        return actions
+
+    def get_remote_file_context_actions(self, data: dict, parent, target_viewer=None):
+        """Get context menu actions for a remote FTP file.
+
+        Returns all actions applicable to a remote file, usable from any consumer.
+        """
+        actions = []
+        viewer = target_viewer or self.object_viewer
+
+        preview_action = QAction("Ouvrir", parent)
+        preview_action.triggered.connect(
+            lambda: self._preview_remote_file(data, target_viewer=viewer)
+        )
+        actions.append(preview_action)
+
+        download_action = QAction("Telecharger", parent)
+        download_action.triggered.connect(lambda: self._download_file_by_data(data))
+        actions.append(download_action)
+
+        delete_action = QAction("Supprimer", parent)
+        delete_action.triggered.connect(
+            lambda: self._delete_remote_item(data, is_directory=False)
+        )
+        actions.append(delete_action)
+
+        return actions
+
     # Note: File icon, size formatting, and tree population now handled by tree_helpers
 
     # ==================== Tree Event Handlers ====================
@@ -713,6 +772,73 @@ class FTPRootManager(QWidget):
         if success:
             DialogHelper.info(f"Telechargement termine:\n{local_path}", parent=self)
 
+    def _merge_remote_folder_files(self, data: dict, target_viewer=None):
+        """Download and display all data files from a remote folder combined."""
+        from ...core.data_loader import merge_remote_folder_files
+
+        ftp_root_id = data.get("ftproot_id")
+        remote_path = data.get("path", "/")
+
+        if ftp_root_id not in self._connections:
+            DialogHelper.warning("Non connecte.", parent=self)
+            return
+
+        client = self._connections[ftp_root_id]
+
+        # List files in the remote folder
+        try:
+            file_list = client.list_directory(remote_path)
+        except Exception as e:
+            DialogHelper.warning(f"Erreur lecture dossier: {e}", parent=self)
+            return
+
+        # Progress dialog
+        progress = QProgressDialog("Chargement des fichiers...", "Annuler", 0, 100, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
+        def on_progress(current, total, filename):
+            if progress.wasCanceled():
+                return
+            pct = int(current / total * 100) if total > 0 else 0
+            progress.setValue(pct)
+            progress.setLabelText(f"Chargement {current}/{total}: {filename}")
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
+
+        result = merge_remote_folder_files(client, remote_path, file_list, on_progress)
+        progress.close()
+
+        if not result.success:
+            DialogHelper.warning(
+                result.warning_message or str(result.error), parent=self
+            )
+            return
+
+        # Display in viewer
+        viewer = target_viewer or self.object_viewer
+        file_viewer = viewer.file_viewer
+        file_viewer.content_viewer.set_dataframe(result.dataframe)
+        file_viewer.content_stack.setCurrentIndex(0)
+        viewer.stack.setCurrentWidget(file_viewer)
+
+        folder_name = remote_path.rstrip('/').split('/')[-1] or remote_path
+        info = result.source_info
+        files_loaded = info.get('files_loaded', 0)
+        files_total = info.get('files_total', 0)
+        if file_viewer.details_form_builder:
+            file_viewer.details_form_builder.set_value("name", folder_name)
+            file_viewer.details_form_builder.set_value(
+                "type", f"Combined view ({files_loaded}/{files_total} remote files)"
+            )
+            file_viewer.details_form_builder.set_value(
+                "size", f"{result.row_count:,} rows, {result.column_count} columns"
+            )
+            file_viewer.details_form_builder.set_value("path", remote_path)
+
+        if result.warning_level.value == "warning":
+            DialogHelper.warning(result.warning_message, parent=self)
+
     def _upload_file(self):
         """Upload a file to the current remote folder."""
         item = self.ftp_tree.currentItem()
@@ -863,13 +989,8 @@ class FTPRootManager(QWidget):
         elif data["type"] == "remote_folder":
             ftp_root_id = data.get("ftproot_id")
 
-            upload_action = QAction("Envoyer un fichier ici", self)
-            upload_action.triggered.connect(self._upload_file)
-            menu.addAction(upload_action)
-
-            new_folder_action = QAction("Nouveau dossier", self)
-            new_folder_action.triggered.connect(lambda: self._create_remote_folder(item, data))
-            menu.addAction(new_folder_action)
+            for action in self.get_remote_folder_context_actions(data, self):
+                menu.addAction(action)
 
             menu.addSeparator()
 
@@ -879,32 +1000,38 @@ class FTPRootManager(QWidget):
 
             menu.addSeparator()
 
-            # Workspace submenu for subfolder
             workspace_menu = self._build_workspace_submenu(ftp_root_id, data.get("path"))
             menu.addMenu(workspace_menu)
 
-            menu.addSeparator()
-
-            delete_action = QAction("Supprimer", self)
-            delete_action.triggered.connect(lambda: self._delete_remote_item(data, is_directory=True))
-            menu.addAction(delete_action)
-
         elif data["type"] == "remote_file":
-            download_action = QAction("Telecharger", self)
-            download_action.triggered.connect(self._download_selected)
-            menu.addAction(download_action)
-
-            preview_action = QAction("Previsualiser", self)
-            preview_action.triggered.connect(lambda: self._preview_remote_file(data))
-            menu.addAction(preview_action)
-
-            menu.addSeparator()
-
-            delete_action = QAction("Supprimer", self)
-            delete_action.triggered.connect(lambda: self._delete_remote_item(data, is_directory=False))
-            menu.addAction(delete_action)
+            for action in self.get_remote_file_context_actions(data, self):
+                menu.addAction(action)
 
         menu.exec(self.ftp_tree.viewport().mapToGlobal(position))
+
+    def _create_remote_folder_by_data(self, data: dict):
+        """Create a new remote folder (without tree item reference)."""
+        ftp_root_id = data.get("ftproot_id")
+        if ftp_root_id not in self._connections:
+            DialogHelper.warning("Non connecte.", parent=self)
+            return
+
+        name, ok = QInputDialog.getText(self, "Nouveau dossier", "Nom du dossier:")
+        if not ok or not name.strip():
+            return
+
+        parent_path = data.get("path", "/")
+        new_path = f"{parent_path.rstrip('/')}/{name.strip()}"
+        client = self._connections[ftp_root_id]
+
+        worker = FTPCreateDirectoryWorker(client, new_path)
+        worker.completed.connect(
+            lambda success, path: DialogHelper.info(f"Dossier cree: {path}", parent=self) if success else None
+        )
+        worker.error.connect(lambda msg: DialogHelper.warning(msg, parent=self))
+        worker.finished.connect(lambda: self._cleanup_worker(worker))
+        self._workers.append(worker)
+        worker.start()
 
     def _create_remote_folder(self, parent_item: QTreeWidgetItem, parent_data: dict):
         """Create a new remote folder."""

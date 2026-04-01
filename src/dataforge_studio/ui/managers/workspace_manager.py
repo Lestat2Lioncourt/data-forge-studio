@@ -1153,6 +1153,20 @@ class WorkspaceManager(QWidget):
                 ):
                     menu.addAction(action)
 
+        elif item_type == "remote_folder":
+            if self._ftproot_manager:
+                for action in self._ftproot_manager.get_remote_folder_context_actions(
+                    data, self, target_viewer=self.object_viewer
+                ):
+                    menu.addAction(action)
+
+        elif item_type == "remote_file":
+            if self._ftproot_manager:
+                for action in self._ftproot_manager.get_remote_file_context_actions(
+                    data, self, target_viewer=self.object_viewer
+                ):
+                    menu.addAction(action)
+
         elif item_type == "file":
             if self._rootfolder_manager:
                 for action in self._rootfolder_manager.get_file_context_actions(

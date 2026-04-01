@@ -703,3 +703,113 @@ def merge_folder_files(folder_path: Union[str, Path]) -> DataLoadResult:
     )
 
     return result
+
+
+def merge_remote_folder_files(
+    ftp_client,
+    remote_path: str,
+    file_list: list,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None
+) -> DataLoadResult:
+    """
+    Download and merge data files from a remote FTP folder into a single DataFrame.
+
+    Args:
+        ftp_client: Connected FTP/SFTP client instance
+        remote_path: Remote folder path
+        file_list: List of RemoteFile objects from list_directory()
+        progress_callback: Optional callback(current, total, filename) for progress
+
+    Returns:
+        DataLoadResult with merged DataFrame
+    """
+    import tempfile
+    import os
+
+    result = DataLoadResult()
+
+    # Filter to supported data files
+    supported_files = [
+        f for f in file_list
+        if not f.is_dir and Path(f.name).suffix.lower() in MERGEABLE_EXTENSIONS
+    ]
+
+    if not supported_files:
+        result.error = ValueError("No data files (CSV, Excel, JSON) found in remote folder")
+        result.warning_level = LoadWarningLevel.ERROR
+        result.warning_message = "No data files found in this remote folder."
+        return result
+
+    dataframes = []
+    errors = []
+    total = len(supported_files)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, remote_file in enumerate(supported_files):
+            filename = remote_file.name
+            if progress_callback:
+                progress_callback(i, total, filename)
+
+            remote_file_path = f"{remote_path.rstrip('/')}/{filename}"
+            local_tmp = os.path.join(tmpdir, filename)
+
+            try:
+                # Download to temp
+                success = ftp_client.download_file(remote_file_path, local_tmp)
+                if not success:
+                    errors.append(f"{filename}: download failed")
+                    continue
+
+                # Load into DataFrame
+                ext = Path(filename).suffix.lower()
+                if ext == '.csv':
+                    file_result = csv_to_dataframe(local_tmp, skip_large_warning=True)
+                elif ext in ('.xlsx', '.xls'):
+                    file_result = excel_to_dataframe(local_tmp, skip_large_warning=True)
+                elif ext == '.json':
+                    file_result = json_to_dataframe(local_tmp)
+                else:
+                    continue
+
+                if file_result.success and file_result.dataframe is not None and not file_result.dataframe.empty:
+                    df = file_result.dataframe
+                    df.insert(0, '_source_file', filename)
+                    dataframes.append(df)
+                elif file_result.error:
+                    errors.append(f"{filename}: {file_result.error}")
+
+            except Exception as e:
+                errors.append(f"{filename}: {e}")
+
+    if progress_callback:
+        progress_callback(total, total, "Done")
+
+    if not dataframes:
+        result.error = ValueError("No files could be loaded")
+        result.warning_level = LoadWarningLevel.ERROR
+        result.warning_message = "No files could be loaded.\n" + "\n".join(errors)
+        return result
+
+    merged = pd.concat(dataframes, ignore_index=True, sort=False)
+
+    result.dataframe = merged
+    result.row_count = len(merged)
+    result.column_count = len(merged.columns)
+    result.source_info['files_loaded'] = len(dataframes)
+    result.source_info['files_total'] = total
+    result.source_info['files_failed'] = len(errors)
+    result.source_info['errors'] = errors
+
+    if errors:
+        result.warning_level = LoadWarningLevel.WARNING
+        result.warning_message = (
+            f"Loaded {len(dataframes)}/{total} files. "
+            f"Errors: {'; '.join(errors)}"
+        )
+
+    logger.info(
+        f"Merged remote folder {remote_path}: {len(dataframes)} files, "
+        f"{result.row_count} rows, {result.column_count} cols"
+    )
+
+    return result
