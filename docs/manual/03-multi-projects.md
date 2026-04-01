@@ -148,4 +148,4 @@ Pour partager une configuration de workspace avec un collegue ou la sauvegarder 
 
 ---
 
-[<< Explorer une base inconnue](02-explore-database.md) | [Suivant : Comparer des donnees >>](04-compare-data.md)
+[<< Explorer une base inconnue](02-explore-database.md) | [Suivant : Requetes multi-onglets >>](04-compare-data.md)

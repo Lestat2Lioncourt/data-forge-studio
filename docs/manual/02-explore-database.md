@@ -14,7 +14,7 @@
    |-------|--------------------|--------------------|
    | Nom | Prod - Analytics | Staging - DWH |
    | Type | SQL Server | PostgreSQL |
-   | Connection string | `Driver={ODBC Driver 18 for SQL Server};Server=srv01;Database=Analytics;Trusted_Connection=yes` | `postgresql://user:pass@srv01:5432/dwh` |
+   | Connection string | `Driver={ODBC Driver 18 for SQL Server};Server=srv01;Database=Analytics;Trusted_Connection=yes` | `postgresql://srv01:5432/dwh` |
 
 4. **Test Connection** pour valider (timeout de 5 secondes)
 5. **Save** -- le schema se charge automatiquement

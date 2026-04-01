@@ -1,4 +1,4 @@
-# 05 - Travailler avec des fichiers de donnees
+# 05 - Arborescence de fichiers
 
 > **Situation** : Vous recevez regulierement des fichiers CSV, Excel ou JSON avec la meme structure (exports mensuels, feeds quotidiens). Vous avez besoin de les explorer, les combiner et les filtrer.
 
@@ -134,4 +134,4 @@ Le meme RootFolder peut appartenir a plusieurs workspaces.
 
 ---
 
-[<< Comparer des donnees](04-compare-data.md) | [Suivant : Formater et sauvegarder des requetes >>](06-format-queries.md)
+[<< Requetes multi-onglets](04-compare-data.md) | [Suivant : Formater et sauvegarder des requetes >>](06-format-queries.md)

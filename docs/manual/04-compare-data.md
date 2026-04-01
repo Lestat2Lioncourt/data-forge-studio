@@ -1,6 +1,59 @@
-# 04 - Comparer des donnees entre deux bases
+# 04 - Requetes multi-onglets
 
-> **Situation** : Vous devez comparer les donnees entre un environnement de staging et la production, ou entre deux bases clients, pour identifier les ecarts.
+> **Situation** : Vous devez executer plusieurs requetes en parallele, comparer des resultats entre deux bases, ou lancer un batch de requetes et visualiser chaque resultat dans son propre onglet.
+
+---
+
+## Plusieurs requetes dans un seul editeur
+
+Vous pouvez saisir **plusieurs requetes dans le meme editeur**, separees par `;`. Chaque requete produit son propre onglet de resultat :
+
+```sql
+SELECT COUNT(*) FROM clients;
+
+SELECT COUNT(*) FROM commandes;
+
+SELECT TOP 10  *
+FROM           clients
+ORDER BY       date_creation DESC;
+```
+
+A l'execution (**F5**), DataForge Studio :
+
+1. Detecte les 3 requetes (separees par `;`)
+2. Cree un onglet de resultat pour chaque SELECT
+3. Affiche un onglet **Messages** avec le journal d'execution
+
+Le mode d'execution est selectionnable dans la barre d'outils :
+
+| Mode | Comportement |
+|------|-------------|
+| **Auto** | Detecte automatiquement : si toutes les requetes sont des SELECT, mode parallele. Sinon, mode script |
+| **Query** | Chaque SELECT s'execute sur sa propre connexion (parallele, plus rapide) |
+| **Script** | Toutes les requetes s'executent sequentiellement sur la meme connexion (preserve les variables) |
+
+---
+
+## Variables partagees entre requetes
+
+Si votre batch utilise des **variables T-SQL**, le mode Script est automatiquement active pour que les variables persistent :
+
+```sql
+DECLARE @seuil INT = 1000;
+
+SELECT           client_id
+               , SUM(montant) AS total
+FROM             commandes
+GROUP BY         client_id
+HAVING           SUM(montant) > @seuil;
+
+SELECT           COUNT(*) AS nb_gros_clients
+FROM             commandes
+GROUP BY         client_id
+HAVING           SUM(montant) > @seuil;
+```
+
+Les deux SELECT ont acces a `@seuil`. Chacun produit son propre onglet de resultat.
 
 ---
 
@@ -17,7 +70,7 @@ Le Database Manager supporte les **onglets multiples**. Chaque onglet est indepe
 
 ### Renommer les onglets
 
-Double-cliquez sur le titre d'un onglet pour le renommer. Utilisez des noms explicites comme "Prod - clients" et "Staging - clients" pour savoir lequel est lequel.
+Double-cliquez sur le titre d'un onglet pour le renommer. Utilisez des noms explicites comme "Prod - clients" et "Staging - clients".
 
 ---
 
@@ -29,7 +82,7 @@ Par defaut, l'editeur SQL est au-dessus et les resultats en dessous (mode empile
 2. L'editeur passe a gauche et les resultats a droite
 3. Cliquez a nouveau pour revenir au mode empile
 
-Ce mode est particulierement utile sur un ecran large pour garder la requete visible tout en consultant les resultats.
+Ce mode est utile sur un ecran large pour garder la requete visible tout en consultant les resultats.
 
 ![Split view en mode cote a cote avec editeur a gauche et resultats a droite](screenshots/04-split-view-side-by-side.png)
 
@@ -39,53 +92,15 @@ Ce mode est particulierement utile sur un ecran large pour garder la requete vis
 
 Pour comparer visuellement deux jeux de resultats, vous pouvez **detacher un onglet** :
 
-1. **Clic droit** sur l'onglet de requete
-2. Selectionnez **Detach tab** (ou faites glisser l'onglet hors de la fenetre)
-3. L'onglet s'ouvre dans une **PopupWindow** independante avec sa propre barre de titre
-4. Redimensionnez et positionnez les fenetres cote a cote
+1. Cliquez sur le bouton **Detach** dans la barre d'outils de l'onglet
+2. L'onglet s'ouvre dans une fenetre independante, redimensionnable
+3. Positionnez les fenetres cote a cote sur votre ecran
 
 La fenetre detachee conserve toutes les fonctionnalites : execution, formatage, export, split view.
 
-Pour **re-attacher** l'onglet, fermez la fenetre detachee : l'onglet revient dans la fenetre principale.
+Pour **re-attacher** l'onglet, fermez la fenetre : l'onglet revient automatiquement dans la fenetre principale et le panel Database s'active.
 
 ![Deux fenetres cote a cote, chacune avec une requete sur une base differente](screenshots/04-detached-tabs-side-by-side.png)
-
----
-
-## Scenario pas a pas : comparer les clients entre staging et prod
-
-### Etape 1 -- Preparer les onglets
-
-1. Creez deux onglets dans le Database Manager
-2. Onglet 1 : connectez-vous a **Prod - ClientDB**
-3. Onglet 2 : connectez-vous a **Staging - ClientDB**
-
-### Etape 2 -- Executer la meme requete
-
-Dans chaque onglet, executez :
-
-```sql
-SELECT statut,
-       COUNT(*) AS nb_clients,
-       MIN(date_creation) AS premiere_creation,
-       MAX(date_creation) AS derniere_creation
-FROM clients
-GROUP BY statut
-ORDER BY nb_clients DESC
-```
-
-### Etape 3 -- Comparer visuellement
-
-1. Detachez le deuxieme onglet dans une fenetre separee
-2. Placez les deux fenetres cote a cote sur votre ecran
-3. Comparez les chiffres ligne par ligne
-
-### Etape 4 -- Exporter pour analyse croisee
-
-Si les volumes sont importants :
-
-1. Exportez les resultats de chaque onglet en **CSV**
-2. Chargez les deux fichiers dans un outil de comparaison (Excel, Python, etc.)
 
 ---
 
@@ -93,11 +108,20 @@ Si les volumes sont importants :
 
 Pour affiner l'analyse dans la grille de resultats :
 
-- **Clic** sur un en-tete de colonne : tri ascendant, puis descendant, puis aucun tri
+- **Clic** sur un en-tete de colonne : tri ascendant, puis descendant
 - **Ctrl+Clic** sur un autre en-tete : ajoute cette colonne au tri (multi-colonnes)
-- Des indicateurs numerotes (1, 2, 3...) montrent l'ordre de priorite du tri
+- Des indicateurs numerotes (1▲, 2▼...) montrent l'ordre de priorite du tri
 
-Cela permet par exemple de trier par statut puis par date de creation, directement dans la grille.
+### Filtrer les resultats
+
+Clic droit sur un en-tete de colonne pour filtrer :
+
+- **Filter "NomColonne"...** : saisir un texte — seules les lignes contenant ce texte (insensible a la casse) sont affichees
+- Les filtres sont **cumulatifs** (AND) : filtrer sur deux colonnes affine le resultat
+- Une loupe (🔍) s'affiche dans l'en-tete des colonnes filtrees
+- **Clear filter** / **Clear all filters** pour retirer les filtres
+
+Les filtres n'affectent que l'affichage — les donnees et l'export CSV restent complets.
 
 ---
 
@@ -105,29 +129,29 @@ Cela permet par exemple de trier par statut puis par date de creation, directeme
 
 Pour examiner un jeu de resultats volumineux :
 
-1. **Double-cliquez** sur la grille de resultats (ou utilisez le bouton plein ecran)
-2. La grille s'ouvre dans une fenetre plein ecran
+1. Cliquez sur le bouton **Fullscreen** dans la barre d'outils de la grille
+2. La grille s'ouvre en plein ecran
 3. Appuyez sur **Echap** pour revenir a la vue normale
 
-Le tri multi-colonnes fonctionne aussi en mode plein ecran.
+Le tri et le filtrage fonctionnent aussi en mode plein ecran.
 
 ---
 
 ## Astuce
 
-- Utilisez des noms d'onglets avec le contexte : "Prod - COUNT clients" vs "Staging - COUNT clients". Quand les onglets sont detaches, vous saurez immediatement a quoi correspond chaque fenetre.
-- Le bouton **Format** permet de formater les deux requetes de la meme maniere, ce qui facilite la comparaison visuelle du SQL lui-meme.
-- Si vous comparez regulierement les memes jeux de donnees, sauvegardez vos requetes (voir [chapitre 06](06-format-queries.md)) pour les retrouver instantanement.
+- Utilisez des noms d'onglets explicites : "Prod - COUNT clients" vs "Staging - COUNT clients". Les onglets detaches conservent leur nom dans la barre de titre.
+- Pour comparer les memes donnees entre deux bases, ecrivez la requete une fois, copiez-la dans le deuxieme onglet, et changez la connexion.
+- Si vous comparez regulierement les memes jeux de donnees, sauvegardez vos requetes (voir [chapitre 06](06-format-queries.md)).
 
 ---
 
 ## Ce qui se passe en coulisse
 
-- Chaque onglet de requete est une instance de `QueryTab` avec son propre `QSplitter` (pour le split view) et sa propre connexion a la base.
-- Les onglets detaches utilisent la classe `PopupWindow`, une fenetre thematique avec barre de titre personnalisee et support du redimensionnement par les bords.
-- Le tri multi-colonnes repose sur le tri stable de Python : on trie sequentiellement par chaque colonne dans l'ordre inverse de priorite, ce qui garantit un resultat correct.
-- Le `QSplitter` gere dynamiquement la repartition de l'espace entre editeur et resultats. La barre separatrice peut etre deplacee a la souris.
+- Chaque onglet de requete est une instance de `QueryTab` avec son propre `QSplitter` et sa propre connexion.
+- En mode **Query**, chaque SELECT s'execute sur une connexion parallele pour ne pas bloquer les autres. En mode **Script**, tout passe par la meme connexion sequentiellement.
+- Quand des `DECLARE`/`SET` sont detectes, le batch entier est envoye au serveur en une seule commande via `cursor.execute()`, et les result sets sont recuperes via `cursor.nextset()`.
+- Les onglets detaches utilisent `PopupWindow` avec reparentage du widget — la connexion, le curseur et les resultats restent intacts.
 
 ---
 
-[<< Travailler sur plusieurs projets](03-multi-projects.md) | [Suivant : Travailler avec des fichiers >>](05-data-files.md)
+[<< Travailler sur plusieurs projets](03-multi-projects.md) | [Suivant : Arborescence de fichiers >>](05-data-files.md)

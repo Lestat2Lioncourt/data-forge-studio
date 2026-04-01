@@ -12,8 +12,8 @@
 | [01](01-quick-start.md) | **Demarrage rapide** | Installation, premiere connexion, premiere requete en 5 minutes |
 | [02](02-explore-database.md) | **Explorer une base inconnue** | Se connecter, naviguer le schema, analyser la distribution des donnees |
 | [03](03-multi-projects.md) | **Travailler sur plusieurs projets** | Workspaces, favoris, filtres, organisation multi-clients |
-| [04](04-compare-data.md) | **Comparer des donnees** | Multi-onglets, split view, onglets detachables, comparaison cote a cote |
-| [05](05-data-files.md) | **Travailler avec des fichiers** | RootFolders, vue combinee, filtres de colonnes, detection d'encodage |
+| [04](04-compare-data.md) | **Requetes multi-onglets** | Multi-requetes, onglets de resultats, split view, onglets detachables, filtres |
+| [05](05-data-files.md) | **Arborescence de fichiers** | RootFolders, vue combinee, filtres de colonnes, detection d'encodage |
 | [06](06-format-queries.md) | **Formater et sauvegarder des requetes** | Styles de formatage, requetes sauvegardees, export, variables |
 | [07](07-ftp-access.md) | **Acceder a un serveur FTP** | Racines FTP, navigation distante, telechargement |
 | [08](08-customize.md) | **Personnaliser l'environnement** | Themes, langue, preferences, disposition |

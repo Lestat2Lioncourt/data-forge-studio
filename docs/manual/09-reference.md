@@ -42,10 +42,10 @@
 | Base | Driver | Connection string | Particularites |
 |------|--------|-------------------|----------------|
 | **SQL Server** | pyodbc (ODBC 17/18) | `Driver={ODBC Driver 18 for SQL Server};Server=...;Database=...;Trusted_Connection=yes` | `TOP N`, schemas `dbo.`, Windows Auth possible |
-| **PostgreSQL** | SQLAlchemy | `postgresql://user:pass@host:5432/db` | `LIMIT N`, schemas `public.`, guillemets doubles pour casse |
-| **MySQL** | SQLAlchemy | `mysql+pymysql://user:pass@host:3306/db` | `LIMIT N`, backticks pour les identifiants |
+| **PostgreSQL** | psycopg2 | `postgresql://host:5432/db` | `LIMIT N`, schemas `public.`, guillemets doubles pour casse. Credentials via keyring |
+| **MySQL** | pymysql | `mysql+pymysql://host:3306/db` | `LIMIT N`, backticks pour les identifiants. Credentials via keyring |
 | **SQLite** | sqlite3 (natif) | Chemin du fichier `.db` | `LIMIT N`, pas de driver ODBC requis, module Python natif |
-| **Oracle** | SQLAlchemy | `oracle+oracledb://user:pass@host:1521/service` | `FETCH FIRST N ROWS ONLY`, schemas owner.table |
+| **Oracle** | oracledb | `oracle+oracledb://host:1521/service` | `FETCH FIRST N ROWS ONLY`, schemas owner.table. Credentials via keyring |
 | **Access** | pyodbc | `Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=path.accdb` | `TOP N`, fichier local uniquement |
 
 ### Installation des drivers

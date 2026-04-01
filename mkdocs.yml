@@ -29,8 +29,8 @@ theme:
     - search.highlight
     - search.suggest
     - content.code.copy
-  icon:
-    logo: material/database
+  logo: assets/logo.png
+  favicon: assets/logo.png
   font:
     text: Roboto
     code: Roboto Mono
@@ -40,8 +40,8 @@ nav:
   - Démarrage rapide: 01-quick-start.md
   - Explorer une base: 02-explore-database.md
   - Multi-projets: 03-multi-projects.md
-  - Comparer des données: 04-compare-data.md
-  - Fichiers de données: 05-data-files.md
+  - Requêtes multi-onglets: 04-compare-data.md
+  - Arborescence de fichiers: 05-data-files.md
   - Requêtes SQL: 06-format-queries.md
   - Accès FTP: 07-ftp-access.md
   - Personnalisation: 08-customize.md
