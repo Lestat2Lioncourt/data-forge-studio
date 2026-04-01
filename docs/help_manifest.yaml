@@ -40,7 +40,20 @@ categories:
       - SQL_STYLES_COMPARISON.md
       - ALIGNED_STYLE_GUIDE.md
 
-  - name: "Guides"
+  - name: "Manuel utilisateur"
+    icon: "help.png"
+    docs:
+      - manual/01-quick-start.md
+      - manual/02-explore-database.md
+      - manual/03-multi-projects.md
+      - manual/04-compare-data.md
+      - manual/05-data-files.md
+      - manual/06-format-queries.md
+      - manual/07-ftp-access.md
+      - manual/08-customize.md
+      - manual/09-reference.md
+
+  - name: "Guides techniques"
     icon: "file.png"
     docs:
       - HELP_VIEWER_GUIDE.md
