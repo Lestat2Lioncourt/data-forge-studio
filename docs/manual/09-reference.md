@@ -12,6 +12,8 @@
 |-----------|--------|
 | **F5** | Executer la requete (onglet actif dans le Database Manager) |
 | **F6** | Executer la requete (onglet actif dans un workspace) |
+| **Tab** | Inserer 4 espaces (pas de caractere tabulation) |
+| **Entree** | Nouvelle ligne avec auto-indent (reprend l'indentation de la ligne courante) |
 | **Ctrl+Espace** | Declencher l'auto-completion (noms de tables, colonnes) |
 | **Echap** | Fermer l'auto-completion / quitter le plein ecran |
 
@@ -19,8 +21,9 @@
 
 | Raccourci | Action |
 |-----------|--------|
-| **Clic sur en-tete** | Trier par cette colonne (ascendant > descendant > aucun) |
+| **Clic sur en-tete** | Trier par cette colonne (ascendant > descendant) |
 | **Ctrl+Clic sur en-tete** | Ajouter la colonne au tri multi-colonnes |
+| **Clic droit sur en-tete** | Filtrer la colonne (contains), effacer les filtres |
 | **Double-clic sur la grille** | Ouvrir en plein ecran |
 | **Echap** | Fermer la vue plein ecran |
 

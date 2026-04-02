@@ -77,6 +77,8 @@ L'application gere intelligemment les cas ou les fichiers n'ont pas exactement l
 
 ![Vue combinee de plusieurs fichiers CSV dans une seule grille](screenshots/05-combined-view.png)
 
+> **Astuce** : Cette fonction est aussi disponible sur les **dossiers FTP distants** (voir [chapitre 07](07-ftp-access.md)). Les fichiers sont telecharges temporairement avec une barre de progression.
+
 ---
 
 ## Filtres de colonnes

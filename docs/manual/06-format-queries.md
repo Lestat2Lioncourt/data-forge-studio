@@ -159,6 +159,70 @@ WHERE            statut = 'actif'
 
 ---
 
+## Alias T-SQL avec =
+
+Le formateur reconnait le style d'alias T-SQL `alias = expression` (en plus du standard `expression AS alias`) et aligne les signes `=` :
+
+```sql
+SELECT           s.session_id
+               , blocked_by    = r.blocking_session_id
+               , database_name = DB_NAME(r.database_id)
+               , wait_type     = r.wait_type
+               , status        = r.status
+FROM             sys.dm_exec_sessions s
+```
+
+> **Important** : ne melangez pas les deux styles (`=` et `AS`) dans le meme SELECT. Le formateur affichera un avertissement si une telle combinaison est detectee.
+
+---
+
+## OUTER APPLY et CROSS APPLY
+
+Les clauses T-SQL `OUTER APPLY` et `CROSS APPLY` sont reconnues et alignees comme des JOINs :
+
+```sql
+FROM             sys.dm_exec_sessions                   s
+LEFT JOIN        sys.dm_exec_requests                   r        ON  r.session_id = s.session_id
+OUTER APPLY      sys.dm_exec_sql_text(r.sql_handle)     t
+OUTER APPLY      sys.dm_exec_input_buffer(s.session_id, NULL) ib
+```
+
+---
+
+## CTE et CREATE VIEW
+
+Les requetes avec des CTEs (`WITH ... AS`) sont formatees avec une indentation hierarchique :
+
+- Si la requete commence par `CREATE OR ALTER VIEW ... AS`, tout le bloc est indente de 4 espaces
+- Le mot-cle `WITH` est isole sur sa ligne
+- Chaque CTE est indentee, son contenu (SELECT/FROM/WHERE) indente d'un cran supplementaire
+- La requete principale est au meme niveau que le WITH
+
+```sql
+CREATE OR ALTER VIEW v_Locks AS
+    WITH
+        cte_blockers AS (
+            SELECT           blocking_session_id
+                           , COUNT(*) AS nb
+            FROM             sys.dm_exec_requests
+            WHERE            blocking_session_id > 0
+            GROUP BY         blocking_session_id
+        )
+    SELECT           s.session_id
+    FROM             sys.dm_exec_sessions s
+```
+
+---
+
+## Editeur SQL : confort de saisie
+
+L'editeur SQL integre deux fonctions de confort :
+
+- **Auto-indent** : quand vous appuyez sur Entree, la nouvelle ligne reprend automatiquement l'indentation de la ligne precedente
+- **Tab → espaces** : la touche Tab insere 4 espaces au lieu d'un caractere tabulation, evitant les problemes d'alignement
+
+---
+
 ## Sauvegarder une requete
 
 Pour retrouver une requete rapidement plus tard :

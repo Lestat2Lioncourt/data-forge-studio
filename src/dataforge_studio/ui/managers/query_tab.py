@@ -46,6 +46,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class _AutoIndentTextEdit(QTextEdit):
+    """QTextEdit that preserves indentation on Enter (like Notepad++)."""
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Get current line's indentation
+            cursor = self.textCursor()
+            block_text = cursor.block().text()
+            indent = ''
+            for ch in block_text:
+                if ch in (' ', '\t'):
+                    indent += ch
+                else:
+                    break
+            # Insert newline + same indentation
+            cursor.insertText('\n' + indent)
+            self.setTextCursor(cursor)
+            return
+        if event.key() == Qt.Key.Key_Tab:
+            # Replace tab with 4 spaces
+            self.textCursor().insertText('    ')
+            return
+        super().keyPressEvent(event)
+
+
 @dataclass
 class ResultTabState:
     """State for a single results tab in multi-statement execution."""
@@ -333,8 +358,8 @@ class QueryTab(
         self.splitter = QSplitter(orientation)
         self._update_split_icon()
 
-        # SQL Editor
-        self.sql_editor = QTextEdit()
+        # SQL Editor with auto-indent
+        self.sql_editor = _AutoIndentTextEdit()
         self.sql_editor.setPlaceholderText("-- " + tr("enter_sql_query_here"))
         self.sql_editor.setFont(QFont("Consolas", 10))
         # Colors are managed by the theme system and SQLHighlighter

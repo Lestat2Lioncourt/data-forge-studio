@@ -89,7 +89,9 @@ Avant de deployer l'arbre FTP complet, DataForge Studio effectue une **verificat
 
 - Rattachez vos FTP roots aux workspaces correspondants pour retrouver rapidement les fichiers dans leur contexte projet.
 - Si un serveur FTP est lent a repondre, naviguez d'abord dans vos ressources locales : la connexion FTP se fait en arriere-plan et l'arbre se completera automatiquement.
-- Combinez FTP et RootFolders locaux : telechargez les fichiers depuis le FTP dans un RootFolder local pour pouvoir utiliser la vue combinee et les filtres de colonnes.
+- La **vue combinee** fonctionne directement sur les dossiers FTP : clic droit sur un dossier distant > **"Afficher tous les fichiers combines"**. Les fichiers sont telecharges temporairement, charges et affiches dans un seul gridview avec une colonne `_source_file`.
+- Les **filtres de colonnes** et le **tri** fonctionnent aussi sur les fichiers FTP affiches dans le gridview.
+- Les actions FTP (ouvrir, telecharger, envoyer, creer un dossier, supprimer) sont disponibles aussi bien dans **Ressources** que dans les **Workspaces**.
 
 ---
 

@@ -253,11 +253,20 @@ class QueryConnectionMixin:
 
     def _handle_connection_error(self, error: Exception):
         """
-        Handle a connection error by offering reconnection option.
+        Handle a connection error — auto-reconnect if server reachable, else show popup.
 
         Args:
             error: The connection error
         """
+        # Try auto-reconnect if server is reachable
+        db_manager = self._database_manager
+        if db_manager and self.db_connection and hasattr(db_manager, '_is_server_reachable'):
+            if db_manager._is_server_reachable(self.db_connection):
+                self._append_message("-- Connection lost, auto-reconnecting...")
+                self._attempt_reconnection()
+                return
+
+        # Server unreachable — show popup
         from PySide6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
@@ -269,7 +278,6 @@ class QueryConnectionMixin:
         )
         msg.setDetailedText(str(error))
 
-        # Add custom buttons
         reconnect_btn = msg.addButton(tr("btn_reconnect"), QMessageBox.ButtonRole.AcceptRole)
         msg.addButton(QMessageBox.StandardButton.Cancel)
 

@@ -761,6 +761,56 @@ Le ratio **70% nouveautes / 30% corrections** est desormais recommande — la de
 
 ---
 
+### EVO-3: Diagrammes ER Interactifs
+
+**Objectif**: Visualiser les relations entre tables (FK) sous forme de diagramme interactif. Permet de creer des vues "datamart" : un sous-ensemble de tables d'un datawarehouse avec les FK auto-detectees.
+
+**Priorite**: Haute (prochain step majeur)
+
+**Principe**: L'utilisateur selectionne des tables dans le schema tree, DataForge genere un diagramme ER draggable. Les diagrammes sont nommes et sauvegardes (plusieurs par base, un par datamart/sujet).
+
+#### Modele de donnees
+
+Un diagramme contient :
+
+| Champ | Description |
+|-------|-------------|
+| `name` | Nom du diagramme ("Datamart Ventes", "Datamart RH") |
+| `connection_id` | Connexion DB source |
+| `tables` | Liste des tables selectionnees |
+| `positions` | Coordonnees x,y de chaque table dans le canvas |
+| `description` | Description optionnelle |
+
+#### Rendu visuel (QGraphicsScene)
+
+- [ ] Tables draggables avec header colore, colonnes, types, indicateurs PK/FK
+- [ ] Relations FK auto-detectees depuis les metadata DB (INFORMATION_SCHEMA / sys.foreign_keys / pg_constraint)
+- [ ] **Routage intelligent des lignes FK** : choix du cote optimal (gauche, droite, haut, bas) selon la position relative des tables. Pas de traversee de tables. Connexion verticale quand les tables sont alignees
+- [ ] **Deplacer les points d'ancrage** des lignes FK manuellement (option avancee pour ajuster le trace)
+- [ ] Zoom / dezoom (molette)
+- [ ] Fond sombre/clair selon le theme actif
+
+#### Sauvegarde et export
+
+- [ ] Sauvegarder le diagramme (nom, tables, positions, ancrage FK) dans la config DB
+- [ ] Charger un diagramme sauvegarde — retrouver le meme layout
+- [ ] Plusieurs diagrammes par connexion
+- [ ] Export PNG / SVG pour documentation
+
+#### Selection des tables
+
+- [ ] Multi-selection dans le schema tree (Ctrl+Clic) + clic droit "Creer un diagramme"
+- [ ] Ou dialog de selection avec checkboxes (liste de toutes les tables)
+- [ ] Ajouter/retirer des tables a un diagramme existant
+
+#### Points techniques
+- PySide6 `QGraphicsScene` / `QGraphicsView` natif, pas de dependance externe
+- FK lues via `INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` (SQL Server), `pg_constraint` (PostgreSQL), `PRAGMA foreign_key_list` (SQLite)
+- Algorithme de layout initial : placement en grille puis optimisation par proximite des FK
+- `QGraphicsItem.ItemIsMovable` pour le drag & drop natif
+
+---
+
 ## Backlog (Idees non priorisees)
 
 *Idees a explorer, sans engagement ni planning. A remonter dans les phases quand le besoin se confirme.*
@@ -769,9 +819,10 @@ Le ratio **70% nouveautes / 30% corrections** est desormais recommande — la de
 |------|-------------|-------------------|-------|
 | **Dialect DAX / Power BI** | Connexion aux datasets Power BI via endpoint XMLA, requetes DAX, exploration des tables/mesures | Moyenne-Haute | Necessite licence Power BI Pro/Premium + lib XMLA Python (pyadomd). Meme modele qu'un dialect SQL classique : connexion → schema → requetes → resultats tabulaires. Cible : profils DATA travaillant sur les deux mondes (SQL + Power BI) |
 | **Dependances entre scripts** | Champ `dependencies` dans le manifest pour referencer d'autres scripts. Cas d'usage principal : un script de logging embarque, reutilisable par tous les scripts metier, configure par projet (serveur de logs, table, projet). Au deploiement, DataForge embarque les dependances avec la configuration du projet cible | Moyenne | Compatible avec le logging centralise existant (SSIS, scripts SQL). Le script de logging serait un script embarque valide, livre avec DataForge |
+| **Diagrammes ER interactifs** | Visualisation des relations FK entre tables selectionnees. Details ci-dessous | Moyenne-Haute | Probablement le prochain step majeur apres la mise en forme SQL |
 | **Support Oracle** | Nouveau dialect + loader Oracle | Moyenne | Pas de base de test disponible actuellement |
 | **Support MongoDB** | Nouveau dialect + loader MongoDB (NoSQL) | Moyenne | Pas de base de test disponible actuellement |
 
 ---
 
-*Derniere mise a jour: 2026-03-03*
+*Derniere mise a jour: 2026-04-02*

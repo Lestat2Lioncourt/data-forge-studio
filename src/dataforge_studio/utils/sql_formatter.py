@@ -269,6 +269,9 @@ def format_sql(sql_text: str, style: str = "compact") -> str:
     if not sql_text or not sql_text.strip():
         return sql_text
 
+    # Convert tabs to spaces (tab stops at every 4 characters, like most editors)
+    sql_text = sql_text.expandtabs(4)
+
     try:
         # Split by GO batch separators (SQL Server), format each batch separately
         batches = re.split(r'(?mi)^\s*GO\s*$', sql_text)
@@ -498,7 +501,18 @@ def _extract_ctes_from_text(text: str):
 
 
 def _try_format_cte_ultimate(sql_text: str) -> str | None:
-    """Try to format a CTE query in ultimate style. Returns None if no CTEs found."""
+    """Try to format a CTE query in ultimate style with hierarchical indentation.
+
+    Block hierarchy:
+    - Preamble (CREATE OR ALTER VIEW ... AS) → indent 0
+    - WITH → indent = base_indent
+    - CTE names (cte_name AS () → indent = base_indent + 4
+    - CTE body (SELECT/FROM/WHERE) → indent = base_indent
+    - CTE closing ) → indent = base_indent + 4
+    - Main query (SELECT/FROM/JOIN/WHERE) → indent = base_indent
+
+    base_indent is 4 if there's a preamble (CREATE VIEW), 0 otherwise.
+    """
     # Uppercase keywords without reindenting (preserve structure for CTE parsing)
     upper_sql = _sqlparse_format(sql_text, keyword_case='upper',
                                 use_space_around_operators=True)
@@ -514,20 +528,25 @@ def _try_format_cte_ultimate(sql_text: str) -> str | None:
     if not ctes:
         return None
 
+    # Determine indentation levels based on whether there's a DDL preamble
+    has_preamble = bool(preamble)
+    base_indent = "    " if has_preamble else ""          # WITH, main query
+    cte_name_indent = base_indent + "    "                # CTE names, closing )
+    cte_body_indent = cte_name_indent + "    "            # CTE body (SELECT/FROM/WHERE)
+
     result_lines = []
 
-    # Preamble (e.g., CREATE VIEW ... AS)
+    # Preamble (e.g., CREATE OR ALTER VIEW ... AS)
     if preamble:
         result_lines.append(preamble)
 
-    cte_indent = "    "  # 4-space indent for CTE body lines
+    # WITH keyword
+    result_lines.append(f"{base_indent}WITH")
 
     for i, cte in enumerate(ctes):
-        # CTE header line
-        if i == 0:
-            result_lines.append(f"WITH {cte['name']} AS (")
-        else:
-            result_lines.append(f", {cte['name']} AS (")
+        # CTE header line (name AS ()
+        prefix = "" if i == 0 else ", "
+        result_lines.append(f"{cte_name_indent}{prefix}{cte['name']} AS (")
 
         # Format CTE body through the full pipeline
         body_formatted = _sqlparse_format(
@@ -537,9 +556,10 @@ def _try_format_cte_ultimate(sql_text: str) -> str | None:
         body_lines = _format_sql_lines(body_formatted.split('\n'))
 
         for bl in body_lines:
-            result_lines.append(cte_indent + bl)
+            result_lines.append(cte_body_indent + bl)
 
-        result_lines.append(")")
+        # Closing parenthesis at CTE name indent level
+        result_lines.append(f"{cte_name_indent})")
 
     # Format main body (SELECT ... UNION ALL ... etc.)
     if main_body.strip():
@@ -548,7 +568,8 @@ def _try_format_cte_ultimate(sql_text: str) -> str | None:
             indent_width=4, use_space_around_operators=True
         )
         main_lines = _format_sql_lines(main_formatted.split('\n'))
-        result_lines.extend(main_lines)
+        for ml in main_lines:
+            result_lines.append(base_indent + ml)
 
     return '\n'.join(result_lines)
 
@@ -811,11 +832,18 @@ def _preparse_select_section(section: dict):
             if before_ok and after_ok:
                 field = clean[:start].strip()
                 alias = clean[end:].strip()
-                col_info = {'field': field, 'alias': alias, 'has_as': True}
+                col_info = {'field': field, 'alias': alias, 'has_as': True, 'has_eq': False}
             else:
-                col_info = {'field': clean, 'alias': None, 'has_as': False}
+                col_info = {'field': clean, 'alias': None, 'has_as': False, 'has_eq': False}
         else:
-            col_info = {'field': clean, 'alias': None, 'has_as': False}
+            # Check for T-SQL alias = expression style
+            eq_pos = _TopLevelScanner.find_equals(clean)
+            if eq_pos > 0:
+                alias = clean[:eq_pos].strip()
+                field = clean[eq_pos + 1:].strip()
+                col_info = {'field': field, 'alias': alias, 'has_as': False, 'has_eq': True}
+            else:
+                col_info = {'field': clean, 'alias': None, 'has_as': False, 'has_eq': False}
 
         col_info['comment'] = comment
         parsed_columns.append(col_info)
@@ -1061,12 +1089,24 @@ def _format_select_section(result: list, section: dict, max_keyword_len: int, ma
     col_indent = ' ' * (max_keyword_len - 1)  # align ", " so column names match
     has_comments = any(col.get('comment') for col in columns)
 
+    # Detect alias style and compute max alias length for = alignment
+    has_eq_style = any(col.get('has_eq') for col in columns)
+    max_alias_len_eq = 0
+    if has_eq_style:
+        max_alias_len_eq = max(
+            (len(col['alias']) for col in columns if col.get('has_eq')),
+            default=0
+        )
+
     # Build display texts for each column
     display_texts = []
     for col_info in columns:
-        if col_info['has_as']:
+        if col_info.get('has_as'):
             field_padded = col_info['field'].ljust(max_field_len)
             display_texts.append(f"{field_padded} AS {col_info['alias']}")
+        elif col_info.get('has_eq'):
+            alias_padded = col_info['alias'].ljust(max_alias_len_eq)
+            display_texts.append(f"{alias_padded} = {col_info['field']}")
         else:
             display_texts.append(col_info['field'])
 

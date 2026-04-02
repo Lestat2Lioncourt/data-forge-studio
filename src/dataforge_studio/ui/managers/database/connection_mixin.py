@@ -324,9 +324,52 @@ class DatabaseConnectionMixin:
         QTimer.singleShot(0, lambda item=server_item: item.setExpanded(True))
         self._set_status_message(tr("db_connected_to", name=db_conn.name))
 
+    def _is_server_reachable(self, db_conn: DatabaseConnection, timeout: int = 3) -> bool:
+        """Quick TCP ping to check if the database server is reachable."""
+        import socket
+
+        if db_conn.db_type == "sqlite":
+            # SQLite is local — always reachable if file exists
+            conn_str = db_conn.connection_string
+            if conn_str.startswith("sqlite:///"):
+                return Path(conn_str[10:]).exists()
+            return True
+
+        # Extract host and port from connection string
+        conn_str = db_conn.connection_string
+        host, port = None, None
+
+        if db_conn.db_type == "sqlserver":
+            # ODBC style: Server=host,port or Server=host
+            match = re.search(r'Server=([^;,]+)(?:,(\d+))?', conn_str, re.IGNORECASE)
+            if match:
+                host = match.group(1)
+                port = int(match.group(2)) if match.group(2) else 1433
+        elif db_conn.db_type == "postgresql":
+            # postgresql://host:port/db
+            match = re.search(r'://([^/:]+)(?::(\d+))?', conn_str)
+            if match:
+                host = match.group(1)
+                port = int(match.group(2)) if match.group(2) else 5432
+        elif db_conn.db_type == "mysql":
+            match = re.search(r'://([^/:]+)(?::(\d+))?', conn_str)
+            if match:
+                host = match.group(1)
+                port = int(match.group(2)) if match.group(2) else 3306
+
+        if not host:
+            return True  # Can't determine host — assume reachable
+
+        try:
+            sock = socket.create_connection((host, port), timeout=timeout)
+            sock.close()
+            return True
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            return False
+
     def _on_connection_error(self, server_item: QTreeWidgetItem, db_conn: DatabaseConnection,
                               error_message: str):
-        """Handle connection error from worker thread."""
+        """Handle connection error — auto-reconnect if server reachable, else show popup."""
         # Remove from pending
         self._pending_workers.pop(db_conn.id, None)
 
@@ -339,16 +382,37 @@ class DatabaseConnectionMixin:
         placeholder.setText(0, tr("double_click_to_load"))
         placeholder.setForeground(0, Qt.GlobalColor.gray)
 
-        server_item.setExpanded(False)  # Collapse to allow retry
+        server_item.setExpanded(False)
 
         self._set_status_message(tr("status_ready"))
 
-        # Show error dialog
-        DialogHelper.error(
-            tr("db_connection_error", name=db_conn.name),
-            parent=self,
-            details=error_message
-        )
+        # Check if server is reachable
+        if self._is_server_reachable(db_conn):
+            # Server responds — auto-reconnect silently
+            self._set_status_message(tr("db_reconnecting", name=db_conn.name) if tr("db_reconnecting") != "db_reconnecting" else f"Reconnexion a {db_conn.name}...")
+            server_item.setExpanded(True)
+            self._connect_and_load_schema(server_item, db_conn)
+        else:
+            # Server unreachable — show popup
+            from PySide6.QtWidgets import QMessageBox
+
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle(tr("connection_error"))
+            msg.setText(tr("db_connection_error", name=db_conn.name))
+            msg.setInformativeText(
+                tr("reconnecting_vpn_hint") + "\n\n" + tr("would_you_reconnect")
+            )
+            msg.setDetailedText(error_message)
+
+            reconnect_btn = msg.addButton(tr("btn_reconnect"), QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton(QMessageBox.StandardButton.Cancel)
+
+            msg.exec()
+
+            if msg.clickedButton() == reconnect_btn:
+                server_item.setExpanded(True)
+                self._connect_and_load_schema(server_item, db_conn)
 
     def _create_connection(self, db_conn: DatabaseConnection):
         """
