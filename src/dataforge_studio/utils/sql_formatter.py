@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 MAIN_KEYWORDS = [
     'SELECT', 'INTO', 'FROM', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY',
     'INNER JOIN', 'LEFT JOIN', 'LEFT OUTER JOIN', 'RIGHT JOIN', 'RIGHT OUTER JOIN',
-    'FULL JOIN', 'FULL OUTER JOIN', 'CROSS JOIN', 'JOIN',
+    'FULL JOIN', 'FULL OUTER JOIN', 'CROSS JOIN', 'CROSS APPLY', 'OUTER APPLY', 'JOIN',
     'UNION', 'UNION ALL', 'LIMIT', 'OFFSET',
     'INSERT INTO', 'INSERT', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM', 'DELETE',
     'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE',
@@ -29,7 +29,7 @@ MAX_KEYWORD_LEN = max(len(kw) for kw in MAIN_KEYWORDS)
 JOIN_TYPES = frozenset({
     'FROM', 'INNER JOIN', 'LEFT JOIN', 'LEFT OUTER JOIN',
     'RIGHT JOIN', 'RIGHT OUTER JOIN', 'FULL JOIN', 'FULL OUTER JOIN',
-    'CROSS JOIN', 'JOIN',
+    'CROSS JOIN', 'CROSS APPLY', 'OUTER APPLY', 'JOIN',
 })
 
 
@@ -182,6 +182,79 @@ class _TopLevelScanner:
         return splits
 
 
+class MixedAliasStyleWarning(UserWarning):
+    """Warning raised when both = and AS alias styles are detected in the same SELECT."""
+    pass
+
+
+def detect_mixed_alias_styles(sql_text: str) -> bool:
+    """Check if a SQL text mixes alias = expr and expr AS alias styles in the same SELECT.
+
+    Analyzes the columns in each SELECT block (between SELECT and FROM) to detect
+    if both 'alias = expression' and 'expression AS alias' patterns are used.
+    """
+    # Pre-format to normalize whitespace
+    normalized = _sqlparse_format(sql_text, keyword_case='upper', strip_comments=True)
+
+    # Find all SELECT...FROM blocks
+    # Use our scanner to find SELECT and FROM at top level
+    sections = []
+    lines = normalized.split('\n')
+    current_select_lines = []
+    in_select = False
+
+    for line in lines:
+        stripped = line.strip().upper()
+        if stripped.startswith('SELECT'):
+            in_select = True
+            current_select_lines = [line]
+        elif in_select and (stripped.startswith('FROM') or stripped.startswith('INTO')):
+            in_select = False
+            sections.append('\n'.join(current_select_lines))
+            current_select_lines = []
+        elif in_select:
+            current_select_lines.append(line)
+
+    # Check each SELECT section for mixed styles
+    for section_text in sections:
+        columns = _TopLevelScanner.split_by_comma(section_text)
+        has_as_style = False
+        has_equals_style = False
+
+        for col in columns:
+            col_clean = col.strip()
+            if not col_clean:
+                continue
+            # Remove SELECT keyword from first column
+            col_upper = col_clean.upper()
+            for prefix in ('SELECT DISTINCT ', 'SELECT TOP ', 'SELECT '):
+                if col_upper.startswith(prefix):
+                    col_clean = col_clean[len(prefix):].strip()
+                    break
+
+            if not col_clean:
+                continue
+
+            # Check for AS style: expression AS alias
+            as_pos = _TopLevelScanner.find_last_keyword(col_clean, 'AS')
+            if as_pos:
+                start, end = as_pos
+                # Verify it's not inside a CAST(...AS...) — check paren depth at position
+                before = col_clean[:start]
+                if before.count('(') == before.count(')'):
+                    has_as_style = True
+
+            # Check for = style: alias = expression (= at top level, not comparison)
+            eq_pos = _TopLevelScanner.find_equals(col_clean)
+            if eq_pos >= 0:
+                has_equals_style = True
+
+        if has_as_style and has_equals_style:
+            return True
+
+    return False
+
+
 def format_sql(sql_text: str, style: str = "compact") -> str:
     """
     Format SQL query with specified style.
@@ -241,6 +314,19 @@ def _format_batch_with_statements(batch_text: str, style: str) -> str:
     return '\n\n'.join(formatted_parts)
 
 
+def _sqlparse_format(sql_text: str, **kwargs) -> str:
+    """Wrapper around sqlparse.format that fixes keywords sqlparse doesn't recognize.
+
+    sqlparse doesn't know OUTER APPLY / CROSS APPLY, so they get glued
+    to the previous line. This wrapper inserts line breaks after formatting.
+    """
+    formatted = sqlparse.format(sql_text, **kwargs)
+    # Fix OUTER APPLY / CROSS APPLY glued to previous line
+    formatted = re.sub(r'(?i)(?<=\S) +(OUTER\s+APPLY)\b', r'\n\1', formatted)
+    formatted = re.sub(r'(?i)(?<=\S) +(CROSS\s+APPLY)\b', r'\n\1', formatted)
+    return formatted
+
+
 def _protect_standalone_comments(sql_text: str) -> tuple:
     """Protect standalone comment lines (lines starting with --) from sqlparse mangling.
 
@@ -292,7 +378,7 @@ def _format_single_batch(sql_text: str, style: str) -> str:
     protected_text, comment_map = _protect_standalone_comments(sql_text)
 
     if style == "compact":
-        formatted = sqlparse.format(
+        formatted = _sqlparse_format(
             protected_text,
             reindent=True,
             keyword_case='upper',
@@ -308,7 +394,7 @@ def _format_single_batch(sql_text: str, style: str) -> str:
         if cte_result is not None:
             return _restore_standalone_comments(cte_result, comment_map)
         # Normal ultimate formatting
-        formatted = sqlparse.format(
+        formatted = _sqlparse_format(
             protected_text,
             reindent=True,
             keyword_case='upper',
@@ -319,7 +405,7 @@ def _format_single_batch(sql_text: str, style: str) -> str:
         return _restore_standalone_comments(result, comment_map)
 
     elif style == "comma_first":
-        formatted = sqlparse.format(
+        formatted = _sqlparse_format(
             protected_text,
             reindent=True,
             keyword_case='upper',
@@ -330,7 +416,7 @@ def _format_single_batch(sql_text: str, style: str) -> str:
         return _restore_standalone_comments(formatted, comment_map)
 
     else:
-        return sqlparse.format(
+        return _sqlparse_format(
             sql_text,
             reindent=True,
             keyword_case='upper',
@@ -414,7 +500,7 @@ def _extract_ctes_from_text(text: str):
 def _try_format_cte_ultimate(sql_text: str) -> str | None:
     """Try to format a CTE query in ultimate style. Returns None if no CTEs found."""
     # Uppercase keywords without reindenting (preserve structure for CTE parsing)
-    upper_sql = sqlparse.format(sql_text, keyword_case='upper',
+    upper_sql = _sqlparse_format(sql_text, keyword_case='upper',
                                 use_space_around_operators=True)
 
     with_pos = _find_top_level_with(upper_sql)
@@ -444,7 +530,7 @@ def _try_format_cte_ultimate(sql_text: str) -> str | None:
             result_lines.append(f", {cte['name']} AS (")
 
         # Format CTE body through the full pipeline
-        body_formatted = sqlparse.format(
+        body_formatted = _sqlparse_format(
             cte['body'], reindent=True, keyword_case='upper',
             indent_width=4, use_space_around_operators=True
         )
@@ -457,7 +543,7 @@ def _try_format_cte_ultimate(sql_text: str) -> str | None:
 
     # Format main body (SELECT ... UNION ALL ... etc.)
     if main_body.strip():
-        main_formatted = sqlparse.format(
+        main_formatted = _sqlparse_format(
             main_body, reindent=True, keyword_case='upper',
             indent_width=4, use_space_around_operators=True
         )
@@ -938,7 +1024,7 @@ def _format_with_section(result: list, section: dict, max_keyword_len: int):
             result.append(f", {cte['name']} AS (")
 
         # Format CTE body recursively through the full pipeline
-        body_formatted = sqlparse.format(
+        body_formatted = _sqlparse_format(
             cte['body'], reindent=True, keyword_case='upper',
             indent_width=4, use_space_around_operators=True
         )
@@ -1130,7 +1216,7 @@ def _format_subquery_join(result: list, section: dict, max_keyword_len: int, max
     parsed_conditions = section.get('parsed_on_conditions', [])
 
     # Pre-process subquery through sqlparse to get proper line breaks
-    subquery_formatted = sqlparse.format(
+    subquery_formatted = _sqlparse_format(
         subquery_sql, reindent=True, keyword_case='upper',
         indent_width=4, use_space_around_operators=True
     )

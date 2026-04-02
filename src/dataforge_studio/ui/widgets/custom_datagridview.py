@@ -151,6 +151,35 @@ class CustomDataGridView(QWidget):
 
         self._main_layout.addWidget(self.table)
 
+        # Apply theme QSS for sort indicators (QHeaderView::down-arrow/up-arrow)
+        try:
+            from ..core.theme_bridge import ThemeBridge
+            bridge = ThemeBridge.get_instance()
+            colors = bridge.get_theme_colors()
+            header_fg = colors.get('grid_header_fg', '#e0e0e0')
+            self.table.horizontalHeader().setStyleSheet(f"""
+                QHeaderView::down-arrow {{
+                    image: none;
+                    subcontrol-position: center right;
+                    width: 0; height: 0;
+                    border-left: 4px solid transparent;
+                    border-right: 4px solid transparent;
+                    border-top: 5px solid {header_fg};
+                    margin-right: 5px;
+                }}
+                QHeaderView::up-arrow {{
+                    image: none;
+                    subcontrol-position: center right;
+                    width: 0; height: 0;
+                    border-left: 4px solid transparent;
+                    border-right: 4px solid transparent;
+                    border-bottom: 5px solid {header_fg};
+                    margin-right: 5px;
+                }}
+            """)
+        except Exception:
+            pass
+
         # Connect signals
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         self.table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
@@ -839,8 +868,12 @@ class CustomDataGridView(QWidget):
 
     def _show_header_context_menu(self, position):
         """Show context menu on column header right-click."""
-        header = self.table.horizontalHeader()
-        col = header.logicalIndexAt(position)
+        # Determine which header triggered this (standard or virtual mode)
+        if self._virtual_mode and self._table_view:
+            header = self._table_view.horizontalHeader()
+        else:
+            header = self.table.horizontalHeader()
+        col = header.logicalIndexAt(position.x())
         if col < 0:
             return
 

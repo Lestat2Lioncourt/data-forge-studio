@@ -209,6 +209,8 @@ class WorkspaceManager(QWidget):
         self.tab_widget.tabCloseRequested.connect(self._close_tab)
         self.tab_widget.set_protected_tabs({0})  # Preview tab
         self.tab_widget.setMinimumWidth(200)
+        self.tab_widget.enable_new_tab_button()
+        self.tab_widget.newTabRequested.connect(self._on_new_query_tab_requested)
 
         # Add welcome/preview tab with ObjectViewerWidget
         self.object_viewer = ObjectViewerWidget()
@@ -242,6 +244,14 @@ class WorkspaceManager(QWidget):
             if hasattr(widget, 'cleanup'):
                 widget.cleanup()
             widget.deleteLater()
+
+    def _on_new_query_tab_requested(self):
+        """Handle '+' button click — create new query tab via DatabaseManager."""
+        if self._database_manager:
+            self._database_manager._new_query_tab(
+                target_tab_widget=self.tab_widget,
+                workspace_id=self._current_workspace_id
+            )
 
     # ==================== Tree Filtering ====================
 

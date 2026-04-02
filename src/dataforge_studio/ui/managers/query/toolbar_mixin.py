@@ -91,6 +91,16 @@ class QueryToolbarMixin:
             return
 
         try:
+            # Warn if mixed alias styles detected
+            from ....utils.sql_formatter import detect_mixed_alias_styles
+            if detect_mixed_alias_styles(query_text):
+                DialogHelper.warning(
+                    "La requete melange les styles d'alias (= et AS).\n"
+                    "Le formateur ne supporte qu'un seul style par SELECT.\n"
+                    "Utilisez soit 'alias = expression' soit 'expression AS alias'.",
+                    parent=self
+                )
+
             formatted = format_sql(query_text, style)
             self.sql_editor.setPlainText(formatted)
 
