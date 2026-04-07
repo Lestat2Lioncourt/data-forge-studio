@@ -14,6 +14,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ForeignKeyInfo:
+    """Represents a foreign key relationship between two tables."""
+    fk_name: str
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+    from_schema: str = ""
+    to_schema: str = ""
+
+
+@dataclass
+class PrimaryKeyInfo:
+    """Represents a primary key column."""
+    table_name: str
+    column_name: str
+    schema_name: str = ""
+
+
 class SchemaNodeType(Enum):
     """Types of schema nodes."""
     DATABASE = "database"
@@ -214,3 +234,33 @@ class SchemaLoader(ABC):
                 "proc_name": proc_name
             }
         )
+
+    def load_foreign_keys(self, table_names: List[str] = None,
+                          database_name: str = None) -> List[ForeignKeyInfo]:
+        """
+        Load foreign key relationships.
+
+        Args:
+            table_names: If provided, only return FKs involving these tables.
+                        If None, return all FKs.
+            database_name: Database name (for multi-database systems like SQL Server)
+
+        Returns:
+            List of ForeignKeyInfo objects
+        """
+        return []
+
+    def load_primary_keys(self, table_names: List[str] = None,
+                          database_name: str = None) -> List[PrimaryKeyInfo]:
+        """
+        Load primary key columns.
+
+        Args:
+            table_names: If provided, only return PKs for these tables.
+                        If None, return all PKs.
+            database_name: Database name (for multi-database systems)
+
+        Returns:
+            List of PrimaryKeyInfo objects
+        """
+        return []

@@ -4,7 +4,7 @@ PostgreSQL Schema Loader - Load schema from PostgreSQL databases
 
 from typing import Any, List
 
-from .base import SchemaLoader, SchemaNode, SchemaNodeType
+from .base import SchemaLoader, SchemaNode, SchemaNodeType, ForeignKeyInfo, PrimaryKeyInfo
 
 try:
     from psycopg2 import Error as DbError
@@ -263,3 +263,54 @@ class PostgreSQLSchemaLoader(SchemaLoader):
             logger.error(f"Error listing databases: {e}")
 
         return databases
+
+    def load_foreign_keys(self, table_names=None, database_name=None):
+        """Load FK relationships from PostgreSQL information_schema."""
+        fks = []
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT tc.constraint_name,
+                       kcu.table_schema, kcu.table_name, kcu.column_name,
+                       ccu.table_schema AS ref_schema, ccu.table_name AS ref_table, ccu.column_name AS ref_column
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                    ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                    ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+            """)
+            for row in cursor.fetchall():
+                fk = ForeignKeyInfo(
+                    fk_name=row[0],
+                    from_table=row[2], from_column=row[3], from_schema=row[1],
+                    to_table=row[5], to_column=row[6], to_schema=row[4]
+                )
+                if table_names is None or fk.from_table in table_names or fk.to_table in table_names:
+                    fks.append(fk)
+        except DbError as e:
+            logger.error(f"Error loading foreign keys: {e}")
+        return fks
+
+    def load_primary_keys(self, table_names=None, database_name=None):
+        """Load PK columns from PostgreSQL information_schema."""
+        pks = []
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT kcu.table_schema, kcu.table_name, kcu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                    ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                WHERE tc.constraint_type = 'PRIMARY KEY'
+                AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+            """)
+            for row in cursor.fetchall():
+                if table_names is None or row[1] in table_names:
+                    pks.append(PrimaryKeyInfo(
+                        table_name=row[1], column_name=row[2], schema_name=row[0]
+                    ))
+        except DbError as e:
+            logger.error(f"Error loading primary keys: {e}")
+        return pks

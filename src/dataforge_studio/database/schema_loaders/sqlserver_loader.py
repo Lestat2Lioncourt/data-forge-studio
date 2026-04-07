@@ -10,7 +10,7 @@ Supports loading multiple databases from a server, including:
 
 from typing import List, Any, Tuple
 
-from .base import SchemaLoader, SchemaNode, SchemaNodeType
+from .base import SchemaLoader, SchemaNode, SchemaNodeType, ForeignKeyInfo, PrimaryKeyInfo
 
 try:
     from pyodbc import Error as DbError
@@ -336,3 +336,60 @@ class SQLServerSchemaLoader(SchemaLoader):
         elif col_type in ('decimal', 'numeric'):
             return f"{col_type}({precision},{scale})"
         return col_type
+
+    def load_foreign_keys(self, table_names=None, database_name=None):
+        """Load FK relationships from SQL Server sys tables."""
+        db = database_name or self.db_name
+        fks = []
+        try:
+            cursor = self.connection.cursor()
+            sql = f"""
+                SELECT fk.name AS fk_name,
+                       sp.name AS from_schema, tp.name AS from_table, cp.name AS from_column,
+                       sr.name AS to_schema, tr.name AS to_table, cr.name AS to_column
+                FROM [{db}].sys.foreign_keys fk
+                INNER JOIN [{db}].sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+                INNER JOIN [{db}].sys.tables tp ON fkc.parent_object_id = tp.object_id
+                INNER JOIN [{db}].sys.schemas sp ON tp.schema_id = sp.schema_id
+                INNER JOIN [{db}].sys.columns cp ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
+                INNER JOIN [{db}].sys.tables tr ON fkc.referenced_object_id = tr.object_id
+                INNER JOIN [{db}].sys.schemas sr ON tr.schema_id = sr.schema_id
+                INNER JOIN [{db}].sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
+            """
+            cursor.execute(sql)
+            for row in cursor.fetchall():
+                fk = ForeignKeyInfo(
+                    fk_name=row[0],
+                    from_table=row[2], from_column=row[3], from_schema=row[1],
+                    to_table=row[5], to_column=row[6], to_schema=row[4]
+                )
+                if table_names is None or fk.from_table in table_names or fk.to_table in table_names:
+                    fks.append(fk)
+        except DbError as e:
+            logger.error(f"Error loading foreign keys: {e}")
+        return fks
+
+    def load_primary_keys(self, table_names=None, database_name=None):
+        """Load PK columns from SQL Server sys tables."""
+        db = database_name or self.db_name
+        pks = []
+        try:
+            cursor = self.connection.cursor()
+            sql = f"""
+                SELECT s.name AS schema_name, t.name AS table_name, c.name AS column_name
+                FROM [{db}].sys.indexes i
+                INNER JOIN [{db}].sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                INNER JOIN [{db}].sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                INNER JOIN [{db}].sys.tables t ON i.object_id = t.object_id
+                INNER JOIN [{db}].sys.schemas s ON t.schema_id = s.schema_id
+                WHERE i.is_primary_key = 1
+            """
+            cursor.execute(sql)
+            for row in cursor.fetchall():
+                if table_names is None or row[1] in table_names:
+                    pks.append(PrimaryKeyInfo(
+                        table_name=row[1], column_name=row[2], schema_name=row[0]
+                    ))
+        except DbError as e:
+            logger.error(f"Error loading primary keys: {e}")
+        return pks

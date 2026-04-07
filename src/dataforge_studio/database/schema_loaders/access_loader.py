@@ -4,7 +4,7 @@ Access Schema Loader - Load schema from Microsoft Access databases
 
 from typing import List, Any
 
-from .base import SchemaLoader, SchemaNode, SchemaNodeType
+from .base import SchemaLoader, SchemaNode, SchemaNodeType, ForeignKeyInfo, PrimaryKeyInfo
 
 try:
     from pyodbc import Error as DbError
@@ -133,3 +133,49 @@ class AccessSchemaLoader(SchemaLoader):
             logger.error(f"Error loading columns for {table_name}: {e}")
 
         return columns
+
+    def load_foreign_keys(self, table_names=None, database_name=None):
+        """Load FK relationships from Access via ODBC catalog functions."""
+        fks = []
+        try:
+            cursor = self.connection.cursor()
+            # Get all tables if not specified
+            if table_names is None:
+                table_names = [t.table_name for t in cursor.tables(tableType='TABLE')]
+
+            for table in table_names:
+                try:
+                    for row in cursor.foreignKeys(table=table):
+                        fks.append(ForeignKeyInfo(
+                            fk_name=row.fk_name or f"fk_{row.fktable_name}_{row.fkcolumn_name}",
+                            from_table=row.fktable_name,
+                            from_column=row.fkcolumn_name,
+                            to_table=row.pktable_name,
+                            to_column=row.pkcolumn_name,
+                        ))
+                except DbError:
+                    pass  # Some tables may not support FK queries
+        except DbError as e:
+            logger.error(f"Error loading foreign keys: {e}")
+        return fks
+
+    def load_primary_keys(self, table_names=None, database_name=None):
+        """Load PK columns from Access via ODBC catalog functions."""
+        pks = []
+        try:
+            cursor = self.connection.cursor()
+            if table_names is None:
+                table_names = [t.table_name for t in cursor.tables(tableType='TABLE')]
+
+            for table in table_names:
+                try:
+                    for row in cursor.primaryKeys(table=table):
+                        pks.append(PrimaryKeyInfo(
+                            table_name=row.table_name,
+                            column_name=row.column_name,
+                        ))
+                except DbError:
+                    pass
+        except DbError as e:
+            logger.error(f"Error loading primary keys: {e}")
+        return pks

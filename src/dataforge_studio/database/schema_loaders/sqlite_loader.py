@@ -5,7 +5,7 @@ SQLite Schema Loader - Load schema from SQLite databases
 import sqlite3
 from typing import List
 
-from .base import SchemaLoader, SchemaNode, SchemaNodeType
+from .base import SchemaLoader, SchemaNode, SchemaNodeType, ForeignKeyInfo, PrimaryKeyInfo
 
 import logging
 logger = logging.getLogger(__name__)
@@ -121,3 +121,48 @@ class SQLiteSchemaLoader(SchemaLoader):
             logger.error(f"Error loading columns for {table_name}: {e}")
 
         return columns
+
+    def load_foreign_keys(self, table_names=None, database_name=None):
+        """Load FK relationships from SQLite PRAGMA."""
+        fks = []
+        try:
+            cursor = self.connection.cursor()
+            # Get all tables if not specified
+            if table_names is None:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                table_names = [row[0] for row in cursor.fetchall()]
+
+            for table in table_names:
+                cursor.execute(f"PRAGMA foreign_key_list([{table}])")
+                for row in cursor.fetchall():
+                    fks.append(ForeignKeyInfo(
+                        fk_name=f"fk_{table}_{row[3]}",
+                        from_table=table,
+                        from_column=row[3],  # from column
+                        to_table=row[2],     # referenced table
+                        to_column=row[4],    # referenced column
+                    ))
+        except sqlite3.Error as e:
+            logger.error(f"Error loading foreign keys: {e}")
+        return fks
+
+    def load_primary_keys(self, table_names=None, database_name=None):
+        """Load PK columns from SQLite PRAGMA."""
+        pks = []
+        try:
+            cursor = self.connection.cursor()
+            if table_names is None:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                table_names = [row[0] for row in cursor.fetchall()]
+
+            for table in table_names:
+                cursor.execute(f"PRAGMA table_info([{table}])")
+                for row in cursor.fetchall():
+                    if row[5]:  # pk column is nonzero
+                        pks.append(PrimaryKeyInfo(
+                            table_name=table,
+                            column_name=row[1]
+                        ))
+        except sqlite3.Error as e:
+            logger.error(f"Error loading primary keys: {e}")
+        return pks

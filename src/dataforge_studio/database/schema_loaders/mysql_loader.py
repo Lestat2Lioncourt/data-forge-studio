@@ -4,7 +4,7 @@ MySQL Schema Loader - Load schema from MySQL/MariaDB databases
 
 from typing import Any, List
 
-from .base import SchemaLoader, SchemaNode, SchemaNodeType
+from .base import SchemaLoader, SchemaNode, SchemaNodeType, ForeignKeyInfo, PrimaryKeyInfo
 
 try:
     from pymysql import Error as DbError
@@ -298,3 +298,50 @@ class MySQLSchemaLoader(SchemaLoader):
             logger.error(f"Error listing databases: {e}")
 
         return databases
+
+    def load_foreign_keys(self, table_names=None, database_name=None):
+        """Load FK relationships from MySQL information_schema."""
+        fks = []
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT kcu.CONSTRAINT_NAME,
+                       kcu.TABLE_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME,
+                       kcu.REFERENCED_TABLE_SCHEMA, kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME
+                FROM information_schema.KEY_COLUMN_USAGE kcu
+                WHERE kcu.REFERENCED_TABLE_NAME IS NOT NULL
+                AND kcu.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+            """, self.SYSTEM_SCHEMAS)
+            for row in cursor.fetchall():
+                fk = ForeignKeyInfo(
+                    fk_name=row[0],
+                    from_table=row[2], from_column=row[3], from_schema=row[1],
+                    to_table=row[5], to_column=row[6], to_schema=row[4]
+                )
+                if table_names is None or fk.from_table in table_names or fk.to_table in table_names:
+                    fks.append(fk)
+        except DbError as e:
+            logger.error(f"Error loading foreign keys: {e}")
+        return fks
+
+    def load_primary_keys(self, table_names=None, database_name=None):
+        """Load PK columns from MySQL information_schema."""
+        pks = []
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT kcu.TABLE_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME
+                FROM information_schema.TABLE_CONSTRAINTS tc
+                JOIN information_schema.KEY_COLUMN_USAGE kcu
+                    ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                AND tc.TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+            """, self.SYSTEM_SCHEMAS)
+            for row in cursor.fetchall():
+                if table_names is None or row[1] in table_names:
+                    pks.append(PrimaryKeyInfo(
+                        table_name=row[1], column_name=row[2], schema_name=row[0]
+                    ))
+        except DbError as e:
+            logger.error(f"Error loading primary keys: {e}")
+        return pks
