@@ -185,7 +185,7 @@ class DataForgeMainWindow:
                    rootfolder_manager=None, ftproot_manager=None, queries_manager=None,
                    scripts_manager=None, jobs_manager=None,
                    database_manager=None, resources_manager=None, workspace_manager=None,
-                   image_library_manager=None, icon_sidebar=None):
+                   image_library_manager=None, er_diagram_manager=None, icon_sidebar=None):
         """
         Set the frame and manager widgets after they're created.
         This allows frames and managers to be created separately and injected.
@@ -215,6 +215,7 @@ class DataForgeMainWindow:
         self.resources_manager = resources_manager
         self.workspace_manager = workspace_manager
         self.image_library_manager = image_library_manager
+        self.er_diagram_manager = er_diagram_manager
         self.icon_sidebar = icon_sidebar
 
         # Connect signals from settings frame
@@ -271,6 +272,8 @@ class DataForgeMainWindow:
             self.stacked_widget.addWidget(self.workspace_manager)
         if self.image_library_manager:
             self.stacked_widget.addWidget(self.image_library_manager)
+        if self.er_diagram_manager:
+            self.stacked_widget.addWidget(self.er_diagram_manager)
         if self.resources_manager:
             self.stacked_widget.addWidget(self.resources_manager)
 
@@ -372,7 +375,8 @@ class DataForgeMainWindow:
             "scripts": (self.scripts_manager, "status_viewing_scripts"),
             "jobs": (self.jobs_manager, "status_viewing_jobs"),
             "workspaces": (self.workspace_manager, "status_viewing_workspaces"),
-            "images": (self.image_library_manager, "status_viewing_images")
+            "images": (self.image_library_manager, "status_viewing_images"),
+            "er_diagram": (self.er_diagram_manager, "status_viewing_er_diagram")
         }
 
         if frame_name in frame_map:
@@ -384,7 +388,7 @@ class DataForgeMainWindow:
                 self._update_active_menu(frame_name)
 
                 # Show/hide icon sidebar based on context
-                resource_views = ["database", "rootfolders", "ftproots", "queries", "jobs", "scripts", "images"]
+                resource_views = ["database", "rootfolders", "ftproots", "queries", "er_diagram", "jobs", "scripts", "images"]
                 if frame_name in resource_views:
                     # Remember last resource view for "Resources" menu
                     self._last_resource_view = frame_name

@@ -15,6 +15,7 @@ from .images_plugin import ImagesPlugin
 from .settings_plugin import SettingsPlugin
 from .workspaces_plugin import WorkspacesPlugin
 from .help_plugin import HelpPlugin
+from .er_diagram_plugin import ERDiagramPlugin
 
 # All available plugins
 ALL_PLUGINS = [
@@ -22,6 +23,7 @@ ALL_PLUGINS = [
     RootFolderPlugin,
     FTPRootPlugin,
     QueriesPlugin,
+    ERDiagramPlugin,
     JobsPlugin,
     ScriptsPlugin,
     ImagesPlugin,
@@ -35,6 +37,7 @@ __all__ = [
     'RootFolderPlugin',
     'FTPRootPlugin',
     'QueriesPlugin',
+    'ERDiagramPlugin',
     'JobsPlugin',
     'ScriptsPlugin',
     'ImagesPlugin',

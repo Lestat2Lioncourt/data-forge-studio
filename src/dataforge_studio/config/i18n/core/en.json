@@ -39,6 +39,7 @@
     "status_ready": "Ready",
     "status_viewing_data_lake": "Viewing Data Lake",
     "status_viewing_database": "Database Manager",
+    "status_viewing_er_diagram": "ER Diagrams",
     "status_viewing_queries": "Queries Manager",
     "status_viewing_scripts": "Scripts Manager",
     "status_viewing_jobs": "Jobs Manager",

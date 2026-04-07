@@ -39,6 +39,7 @@
     "status_ready": "Prêt",
     "status_viewing_data_lake": "Affichage Data Lake",
     "status_viewing_database": "Gestionnaire de Base de Données",
+    "status_viewing_er_diagram": "Diagrammes ER",
     "status_viewing_queries": "Gestionnaire de Requêtes",
     "status_viewing_scripts": "Gestionnaire de Scripts",
     "status_viewing_jobs": "Gestionnaire de Jobs",

@@ -152,6 +152,7 @@ def main():
     jobs_manager = plugin_manager.get_plugin_widget('jobs')
     workspace_manager = plugin_manager.get_plugin_widget('workspaces')
     image_library_manager = plugin_manager.get_plugin_widget('images')
+    er_diagram_manager = plugin_manager.get_plugin_widget('er_diagram')
 
     # Set frames and managers in main window
     splash.update_progress("Connexion des composants...", 94)
@@ -166,6 +167,7 @@ def main():
         resources_manager=resources_manager,
         workspace_manager=workspace_manager,
         image_library_manager=image_library_manager,
+        er_diagram_manager=er_diagram_manager,
         icon_sidebar=icon_sidebar
     )
 
