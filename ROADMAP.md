@@ -1,6 +1,6 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.8
+**Version**: 0.6.9
 **Objectif**: POC v0.9.xx / Production v1.0
 **Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audit #6)
 
@@ -19,7 +19,7 @@
 | **Fiabilite** | 7.5/10 | = | 459 `.connect()` vs 26 `.disconnect()` (ratio 18:1, Qt signals). 23 fichiers avec cleanup/closeEvent. 20 `deleteLater()`. Detachement/rattachement QueryTab fiable (reparentage widget). FTP icons dynamiques sur changement d'etat |
 | **Performance** | 7.5/10 | = | ConnectionPool reuse. TTLCache, schema_cache. QSvgRenderer pour icones SVG. Filtrage colonnes par hide/show rows (pas de copie). Sort indicators avec autosize. Pas d'async generalise |
 | **Extensibilite** | 9/10 | +0.5 | 10 plugins UI, 5 dialects DB, 4 themes JSON. **SVG icon system** (37 icones, recoloration texte, fallback PNG). `get_icon_with_status_dot()` generique. SQL formatter extensible via `_TopLevelScanner`. Detachable query tabs via `PopupWindow`. Column filters dans GridView |
-| **Documentation** | 7/10 | = | 24 guides utilisateur. README changelog a jour (v0.6.2-v0.6.8). ROADMAP avec specs Scripts & Jobs detaillees. Critere audit #11. Toujours pas de doc API developpeur standalone |
+| **Documentation** | 7/10 | = | 24 guides utilisateur. README changelog a jour (v0.6.2-v0.6.9). ROADMAP avec specs Scripts & Jobs detaillees. Critere audit #11. Toujours pas de doc API developpeur standalone |
 | **UX/UI** | 9/10 | +0.5 | i18n EN/FR (655 cles, parite 100%). **Nouveautes**: split toggle (stacked/side-by-side), detachable query tabs, column filters (clic droit header, contains, cumulatif), DB logos dans connection selector, sort indicators CSS, splash sur ecran actif, SELECT DISTINCT/TOP formate, variables SQL colorees, popups redimensionnables |
 
 **Score Global: 8.2/10** (+0.3 vs audit #5) — Progression significative en maintenabilite (delegation, centralisation), extensibilite (SVG, filters, detach) et UX (nombreuses ameliorations). La base technique est mature et bien factorisee.
@@ -610,7 +610,7 @@ Avril 2026
 |-- FTP icon status dot (vert/rouge), mise a jour dynamique
 |-- Combined file view (CSV/Excel/JSON dans un grid)
 |-- Audit #6 (8.2/10) — maintenabilite, extensibilite, UX en hausse
-|-- v0.6.8 (actuel)
+|-- v0.6.9 (actuel)
 ```
 
 ### Projection (estimee)
@@ -645,7 +645,7 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.8.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.9.
 
 **Score global: 8.2/10** (+0.3 vs audit #5) — Progression en maintenabilite (delegation, centralisation), extensibilite (SVG, filters, detach) et UX. La base technique est mature et bien factorisee.
 

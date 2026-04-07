@@ -1,9 +1,9 @@
-# DataForge Studio v0.6.8 🚀
+# DataForge Studio v0.6.9 🚀
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.10+-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.8-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.9-orange.svg)](CHANGELOG.md)
 
 **Multi-Datasource management tool with modern PySide6 interface**
 
@@ -372,7 +372,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📜 Changelog
 
-### v0.6.8 (2026-03-03) - SQL Formatter, Variables & Syntax Highlighting
+### v0.6.9 (2026-03-03) - SQL Formatter, Variables & Syntax Highlighting
 - SQL formatter: multi-statement support (split by ;, format individually)
 - SQL formatter: fix WHERE/AND keyword alignment
 - Session variables (DECLARE/SET @) persist across statements (single batch execution)

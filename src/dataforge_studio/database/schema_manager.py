@@ -328,6 +328,7 @@ class SchemaManager:
                     connection_id TEXT NOT NULL,
                     database_name TEXT DEFAULT '',
                     description TEXT DEFAULT '',
+                    zoom_level REAL DEFAULT 1.0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE CASCADE
@@ -344,6 +345,21 @@ class SchemaManager:
                     pos_y REAL DEFAULT 0.0,
                     created_at TEXT NOT NULL,
                     PRIMARY KEY (diagram_id, table_name, schema_name),
+                    FOREIGN KEY (diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
+                )
+            """)
+
+            # ER Diagram FK line midpoints (custom positions for relationship lines)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS er_diagram_fk_midpoints (
+                    diagram_id TEXT NOT NULL,
+                    from_table TEXT NOT NULL,
+                    from_column TEXT NOT NULL,
+                    to_table TEXT NOT NULL,
+                    to_column TEXT NOT NULL,
+                    mid_x REAL NOT NULL,
+                    mid_y REAL NOT NULL,
+                    PRIMARY KEY (diagram_id, from_table, from_column, to_table, to_column),
                     FOREIGN KEY (diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
                 )
             """)

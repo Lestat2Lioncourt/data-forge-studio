@@ -14,7 +14,7 @@ from .ftp_root import FTPRoot, FTPProtocol
 from .script import Script
 from .job import Job
 from .image import ImageRootfolder, SavedImage
-from .er_diagram import ERDiagram, ERDiagramTable
+from .er_diagram import ERDiagram, ERDiagramTable, ERDiagramFKMidpoint
 
 __all__ = [
     "DatabaseConnection",

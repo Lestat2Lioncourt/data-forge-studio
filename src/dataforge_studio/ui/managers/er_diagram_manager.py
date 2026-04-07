@@ -234,13 +234,27 @@ class ERDiagramManager(QWidget):
         # Add FK relationships
         self._scene.add_relationships(foreign_keys)
 
+        # Restore saved FK midpoints
+        for mp in diagram.fk_midpoints:
+            self._scene.set_fk_midpoint(
+                mp.from_table, mp.from_column,
+                mp.to_table, mp.to_column,
+                mp.mid_x, mp.mid_y
+            )
+
         # Auto-layout if no saved positions
         if not has_positions:
             self._scene.auto_layout()
 
         self._view.setScene(self._scene)
-        self._view.fitInView(self._scene.itemsBoundingRect().adjusted(-50, -50, 50, 50),
-                            Qt.AspectRatioMode.KeepAspectRatio)
+
+        # Restore zoom level or fit to view
+        if diagram.zoom_level and diagram.zoom_level != 1.0 and has_positions:
+            self._view.resetTransform()
+            self._view.scale(diagram.zoom_level, diagram.zoom_level)
+        else:
+            self._view.fitInView(self._scene.itemsBoundingRect().adjusted(-50, -50, 50, 50),
+                                Qt.AspectRatioMode.KeepAspectRatio)
 
     def _on_table_moved(self, table_name: str, x: float, y: float):
         """Track table position changes (for save)."""
@@ -300,12 +314,34 @@ class ERDiagramManager(QWidget):
             return
 
         config_db = get_config_db()
+
+        # For multi-database servers (SQL Server), ask which database
+        loader = SchemaLoaderFactory.create(
+            db_conn.db_type, connection, db_conn.id, db_conn.name or ""
+        )
+        if not loader:
+            DialogHelper.error("Cannot create schema loader.", parent=self)
+            return
+
+        target_database = ""
+        databases = loader.get_databases()
+        if databases:
+            from PySide6.QtWidgets import QInputDialog
+            db_name, ok = QInputDialog.getItem(
+                self, "Select Database",
+                "Which database?",
+                databases, 0, False
+            )
+            if not ok:
+                return
+            target_database = db_name
+
         available_tables = []
         try:
-            loader = SchemaLoaderFactory.create(
-                db_conn.db_type, connection, db_conn.id, db_conn.name
-            )
-            tables = loader.load_tables()
+            if target_database:
+                tables = loader.load_tables(target_database)
+            else:
+                tables = loader.load_tables()
             available_tables = [t.metadata.get('table', t.name) for t in tables]
         except Exception as e:
             logger.error(f"Error loading tables: {e}")
@@ -313,7 +349,7 @@ class ERDiagramManager(QWidget):
             return
 
         if not available_tables:
-            DialogHelper.warning("No tables found in this connection.", parent=self)
+            DialogHelper.warning("No tables found.", parent=self)
             return
 
         dialog = NewDiagramDialog(available_tables, parent=self)
@@ -324,6 +360,7 @@ class ERDiagramManager(QWidget):
         diagram = ERDiagram(
             name=dialog.diagram_name,
             connection_id=db_conn.id,
+            database_name=target_database,
             description=dialog.description,
         )
         for table in dialog.selected_tables:
@@ -368,7 +405,7 @@ class ERDiagramManager(QWidget):
         self._load_diagram(self._current_diagram.id)
 
     def _save_positions(self):
-        """Save current table positions."""
+        """Save current table positions, FK midpoints, and zoom level."""
         if not self._current_diagram or not self._scene:
             return
 
@@ -376,9 +413,20 @@ class ERDiagramManager(QWidget):
         for table_name, (x, y) in positions.items():
             self._current_diagram.update_table_position(table_name, x, y)
 
+        # Save FK midpoints
+        from ...database.models import ERDiagramFKMidpoint
+        midpoints_data = self._scene.get_fk_midpoints()
+        self._current_diagram.fk_midpoints = [
+            ERDiagramFKMidpoint(**mp) for mp in midpoints_data
+        ]
+
+        # Save zoom level
+        transform = self._view.transform()
+        self._current_diagram.zoom_level = transform.m11()
+
         config_db = get_config_db()
         config_db.save_er_diagram(self._current_diagram)
-        DialogHelper.info("Positions saved.", parent=self)
+        DialogHelper.info("Diagram saved.", parent=self)
 
     def _export_png(self):
         """Export diagram to PNG."""

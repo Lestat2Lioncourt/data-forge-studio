@@ -21,6 +21,17 @@ class ERDiagramTable:
 
 
 @dataclass
+class ERDiagramFKMidpoint:
+    """Custom midpoint position for a FK relationship line."""
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+    mid_x: float
+    mid_y: float
+
+
+@dataclass
 class ERDiagram:
     """
     Named ER diagram for a database connection.
@@ -40,7 +51,9 @@ class ERDiagram:
     connection_id: str = ""
     database_name: str = ""
     description: str = ""
+    zoom_level: float = 1.0
     tables: List[ERDiagramTable] = field(default_factory=list)
+    fk_midpoints: List[ERDiagramFKMidpoint] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 

@@ -7,7 +7,7 @@ from datetime import datetime
 
 from .base_repository import BaseRepository
 from ..connection_pool import ConnectionPool
-from ..models import ERDiagram, ERDiagramTable
+from ..models import ERDiagram, ERDiagramTable, ERDiagramFKMidpoint
 
 import logging
 logger = logging.getLogger(__name__)
@@ -22,33 +22,34 @@ class ERDiagramRepository(BaseRepository[ERDiagram]):
 
     def _row_to_model(self, row: sqlite3.Row) -> ERDiagram:
         data = dict(row)
-        # Tables are loaded separately
+        # Tables and midpoints are loaded separately
         data['tables'] = []
+        data['fk_midpoints'] = []
         return ERDiagram(**data)
 
     def _get_insert_sql(self) -> str:
         return """
             INSERT INTO er_diagrams
-            (id, name, connection_id, database_name, description, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (id, name, connection_id, database_name, description, zoom_level, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     def _get_update_sql(self) -> str:
         return """
             UPDATE er_diagrams
             SET name = ?, connection_id = ?, database_name = ?,
-                description = ?, updated_at = ?
+                description = ?, zoom_level = ?, updated_at = ?
             WHERE id = ?
         """
 
     def _model_to_insert_tuple(self, model: ERDiagram) -> tuple:
         return (model.id, model.name, model.connection_id, model.database_name,
-                model.description, model.created_at, model.updated_at)
+                model.description, model.zoom_level, model.created_at, model.updated_at)
 
     def _model_to_update_tuple(self, model: ERDiagram) -> tuple:
         model.updated_at = datetime.now().isoformat()
         return (model.name, model.connection_id, model.database_name,
-                model.description, model.updated_at, model.id)
+                model.description, model.zoom_level, model.updated_at, model.id)
 
     def _load_tables(self, diagram_id: str) -> List[ERDiagramTable]:
         """Load tables for a diagram."""
@@ -84,25 +85,64 @@ class ERDiagramRepository(BaseRepository[ERDiagram]):
                 )
             conn.commit()
 
+    def _load_fk_midpoints(self, diagram_id: str) -> List[ERDiagramFKMidpoint]:
+        """Load FK midpoints for a diagram."""
+        with self.pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT from_table, from_column, to_table, to_column, mid_x, mid_y "
+                "FROM er_diagram_fk_midpoints WHERE diagram_id = ?",
+                (diagram_id,)
+            )
+            return [
+                ERDiagramFKMidpoint(
+                    from_table=row[0], from_column=row[1],
+                    to_table=row[2], to_column=row[3],
+                    mid_x=row[4], mid_y=row[5]
+                )
+                for row in cursor.fetchall()
+            ]
+
+    def _save_fk_midpoints(self, diagram_id: str, midpoints: List[ERDiagramFKMidpoint]):
+        """Save FK midpoints for a diagram (replace all)."""
+        with self.pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM er_diagram_fk_midpoints WHERE diagram_id = ?", (diagram_id,))
+            for mp in midpoints:
+                cursor.execute(
+                    "INSERT INTO er_diagram_fk_midpoints "
+                    "(diagram_id, from_table, from_column, to_table, to_column, mid_x, mid_y) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (diagram_id, mp.from_table, mp.from_column,
+                     mp.to_table, mp.to_column, mp.mid_x, mp.mid_y)
+                )
+            conn.commit()
+
+    def _load_full(self, diagram: ERDiagram):
+        """Load tables and FK midpoints for a diagram."""
+        diagram.tables = self._load_tables(diagram.id)
+        diagram.fk_midpoints = self._load_fk_midpoints(diagram.id)
+
     def get_with_tables(self, diagram_id: str) -> Optional[ERDiagram]:
-        """Get a diagram with its tables loaded."""
+        """Get a diagram with its tables and FK midpoints loaded."""
         diagram = self.get_by_id(diagram_id)
         if diagram:
-            diagram.tables = self._load_tables(diagram_id)
+            self._load_full(diagram)
         return diagram
 
     def save(self, diagram: ERDiagram) -> ERDiagram:
-        """Save a diagram (insert or update) with its tables."""
+        """Save a diagram (insert or update) with its tables and FK midpoints."""
         existing = self.get_by_id(diagram.id)
         if existing:
             self.update(diagram)
         else:
             self.add(diagram)
         self._save_tables(diagram.id, diagram.tables)
+        self._save_fk_midpoints(diagram.id, diagram.fk_midpoints)
         return diagram
 
     def get_by_connection(self, connection_id: str) -> List[ERDiagram]:
-        """Get all diagrams for a connection, with tables loaded."""
+        """Get all diagrams for a connection, with tables and midpoints loaded."""
         with self.pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -111,14 +151,14 @@ class ERDiagramRepository(BaseRepository[ERDiagram]):
             )
             diagrams = [self._row_to_model(row) for row in cursor.fetchall()]
         for d in diagrams:
-            d.tables = self._load_tables(d.id)
+            self._load_full(d)
         return diagrams
 
     def get_all_diagrams(self) -> List[ERDiagram]:
-        """Get all diagrams with tables loaded."""
+        """Get all diagrams with tables and midpoints loaded."""
         diagrams = self.get_all(order_by="name")
         for d in diagrams:
-            d.tables = self._load_tables(d.id)
+            self._load_full(d)
         return diagrams
 
     def delete_diagram(self, diagram_id: str):

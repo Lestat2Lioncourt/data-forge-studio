@@ -132,6 +132,39 @@ class ERDiagramScene(QGraphicsScene):
         """Get a table item by name."""
         return self._table_items.get(table_name)
 
+    def get_fk_midpoints(self) -> list:
+        """Get custom midpoints for all FK lines that have been manually adjusted.
+
+        Returns:
+            List of dicts with from_table, from_column, to_table, to_column, mid_x, mid_y
+        """
+        midpoints = []
+        for line in self._relationship_lines:
+            if line._custom_mid:
+                midpoints.append({
+                    'from_table': line.from_table.table_name,
+                    'from_column': line.from_column,
+                    'to_table': line.to_table.table_name,
+                    'to_column': line.to_column,
+                    'mid_x': line._custom_mid.x(),
+                    'mid_y': line._custom_mid.y(),
+                })
+        return midpoints
+
+    def set_fk_midpoint(self, from_table: str, from_column: str,
+                        to_table: str, to_column: str,
+                        mid_x: float, mid_y: float):
+        """Restore a custom midpoint for a FK line."""
+        for line in self._relationship_lines:
+            if (line.from_table.table_name == from_table and
+                line.from_column == from_column and
+                line.to_table.table_name == to_table and
+                line.to_column == to_column):
+                from PySide6.QtCore import QPointF
+                line._custom_mid = QPointF(mid_x, mid_y)
+                line.update_path()
+                return
+
     def clear_all(self):
         """Remove all items from the scene."""
         self._table_items.clear()

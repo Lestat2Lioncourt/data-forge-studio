@@ -52,6 +52,9 @@ src/dataforge_studio/ui/assets/icons/light/
 # Generated documentation site
 docs/site/
 
+# Debug screenshots
+src/dataforge_studio/debug/
+
 # Temporary files
 *.tmp
 nul
