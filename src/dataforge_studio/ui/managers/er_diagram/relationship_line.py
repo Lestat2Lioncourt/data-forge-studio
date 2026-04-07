@@ -3,8 +3,8 @@ ER Relationship Line - Auto-routing FK connector with draggable midpoint.
 """
 
 from typing import Optional
-from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsEllipseItem, QGraphicsItem
-from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QPolygonF, QBrush, QCursor
+from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsEllipseItem, QGraphicsItem, QGraphicsTextItem
+from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QPolygonF, QBrush, QCursor, QFont
 from PySide6.QtCore import Qt, QPointF
 
 from .table_item import ERTableItem
@@ -81,6 +81,8 @@ class ERRelationshipLine(QGraphicsPathItem):
         self._hovered = False
         self._drag_point: Optional[_DragPoint] = None
         self._custom_mid: Optional[QPointF] = None  # User-dragged midpoint
+        self._label: Optional[QGraphicsTextItem] = None  # FK name label
+        self._show_label = False
 
         self.setZValue(0)
         self.setAcceptHoverEvents(True)
@@ -91,6 +93,38 @@ class ERRelationshipLine(QGraphicsPathItem):
         to_table.signals.position_changed.connect(lambda *_: self._on_table_moved())
 
         self.update_path()
+
+    def set_show_label(self, show: bool):
+        """Show or hide the FK name label on the line."""
+        self._show_label = show
+        if show:
+            self._ensure_label()
+            if self._label:
+                self._label.setVisible(True)
+                self._update_label_position()
+        elif self._label:
+            self._label.setVisible(False)
+
+    def _ensure_label(self):
+        """Create the FK name label if not yet created."""
+        if self._label is None and self.scene() and self.fk_name:
+            self._label = QGraphicsTextItem()
+            self._label.setPlainText(self.fk_name)
+            font = QFont("Consolas", 7)
+            self._label.setFont(font)
+            color = QColor("#aaaaaa") if self.is_dark else QColor("#666666")
+            self._label.setDefaultTextColor(color)
+            self._label.setZValue(0.5)  # Between lines (0) and tables (1)
+            self.scene().addItem(self._label)
+
+    def _update_label_position(self):
+        """Position the label at the center of the middle segment."""
+        if self._label and hasattr(self, '_mid_seg_center'):
+            # Offset slightly so it doesn't overlap the line
+            self._label.setPos(
+                self._mid_seg_center.x() + 4,
+                self._mid_seg_center.y() - 12
+            )
 
     def _on_table_moved(self):
         """Called when a connected table moves — reset custom midpoint and update."""
@@ -155,6 +189,9 @@ class ERRelationshipLine(QGraphicsPathItem):
         """Move the drag point to the center of the middle segment."""
         if self._drag_point and not self._custom_mid and hasattr(self, '_mid_seg_center'):
             self._drag_point.setPos(self._mid_seg_center)
+        # Also update label position
+        if self._show_label:
+            self._update_label_position()
 
     def update_path_from_drag(self):
         """Called when the drag point is moved by the user."""

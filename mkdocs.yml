@@ -46,6 +46,7 @@ nav:
   - Accès FTP: 07-ftp-access.md
   - Personnalisation: 08-customize.md
   - Référence rapide: 09-reference.md
+  - Diagrammes ER: 10-er-diagrams.md
 
 markdown_extensions:
   - tables

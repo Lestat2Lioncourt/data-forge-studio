@@ -165,6 +165,11 @@ class ERDiagramScene(QGraphicsScene):
                 line.update_path()
                 return
 
+    def set_show_fk_names(self, show: bool):
+        """Show or hide FK names on all relationship lines."""
+        for line in self._relationship_lines:
+            line.set_show_label(show)
+
     def clear_all(self):
         """Remove all items from the scene."""
         self._table_items.clear()

@@ -18,6 +18,7 @@
 | [07](07-ftp-access.md) | **Acceder a un serveur FTP** | Racines FTP, navigation distante, telechargement |
 | [08](08-customize.md) | **Personnaliser l'environnement** | Themes, langue, preferences, disposition |
 | [09](09-reference.md) | **Reference rapide** | Raccourcis clavier, bases supportees, glossaire, FAQ |
+| [10](10-er-diagrams.md) | **Diagrammes ER** | Tables draggables, relations FK, export PNG/SVG, datamarts |
 
 ---
 

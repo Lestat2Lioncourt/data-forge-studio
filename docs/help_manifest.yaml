@@ -52,6 +52,7 @@ categories:
       - manual/07-ftp-access.md
       - manual/08-customize.md
       - manual/09-reference.md
+      - manual/10-er-diagrams.md
 
   - name: "Guides techniques"
     icon: "file.png"

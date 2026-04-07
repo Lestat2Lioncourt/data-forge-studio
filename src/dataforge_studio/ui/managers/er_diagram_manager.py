@@ -54,6 +54,7 @@ class ERDiagramManager(QWidget):
         self._current_diagram: Optional[ERDiagram] = None
         self._scene: Optional[ERDiagramScene] = None
         self._is_dark = True
+        self._show_fk_names = False
 
         self._setup_ui()
         self._load_diagram_list()
@@ -76,6 +77,8 @@ class ERDiagramManager(QWidget):
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Export PNG", self._export_png, icon="download")
         toolbar_builder.add_button("Export SVG", self._export_svg, icon="download")
+        toolbar_builder.add_separator()
+        toolbar_builder.add_button("FK Names", self._toggle_fk_names, icon="view")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Delete", self._delete_diagram, icon="delete")
 
@@ -427,6 +430,13 @@ class ERDiagramManager(QWidget):
         config_db = get_config_db()
         config_db.save_er_diagram(self._current_diagram)
         DialogHelper.info("Diagram saved.", parent=self)
+
+    def _toggle_fk_names(self):
+        """Toggle FK name labels on/off."""
+        if not self._scene:
+            return
+        self._show_fk_names = not self._show_fk_names
+        self._scene.set_show_fk_names(self._show_fk_names)
 
     def _export_png(self):
         """Export diagram to PNG."""

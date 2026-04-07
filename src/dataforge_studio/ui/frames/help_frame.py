@@ -290,6 +290,10 @@ class HelpFrame(QWidget):
         """Load documentation entries into the tree."""
         self.doc_tree.clear()
 
+        # Enable context menu on the tree
+        self.doc_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.doc_tree.customContextMenuRequested.connect(self._on_tree_context_menu)
+
         categories = self._doc_loader.get_categories()
 
         for category in categories:
@@ -298,6 +302,7 @@ class HelpFrame(QWidget):
             cat_item.setText(0, category.name)
             cat_item.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
             cat_item.setExpanded(True)
+            cat_item.setData(0, Qt.ItemDataRole.UserRole + 1, category.name)  # Store category name
 
             # Set category icon from manifest
             cat_icon = get_icon(category.icon, size=16)
@@ -313,6 +318,37 @@ class HelpFrame(QWidget):
                 # Use same icon as category for entries
                 if cat_icon:
                     entry_item.setIcon(0, cat_icon)
+
+    def _on_tree_context_menu(self, position):
+        """Show context menu on tree items."""
+        item = self.doc_tree.itemAt(position)
+        if not item:
+            return
+
+        cat_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        if cat_name == "Manuel utilisateur":
+            from PySide6.QtWidgets import QMenu
+            from PySide6.QtGui import QAction
+            menu = QMenu(self)
+            open_web_action = QAction("Ouvrir le manuel dans le navigateur", self)
+            open_web_action.triggered.connect(self._open_manual_in_browser)
+            menu.addAction(open_web_action)
+            menu.exec(self.doc_tree.viewport().mapToGlobal(position))
+
+    def _open_manual_in_browser(self):
+        """Open the mkdocs manual site in the default browser."""
+        import webbrowser
+        from pathlib import Path
+        site_index = Path(__file__).parent.parent.parent.parent.parent / "docs" / "site" / "index.html"
+        if site_index.exists():
+            webbrowser.open(site_index.as_uri())
+        else:
+            from ..widgets.dialog_helper import DialogHelper
+            DialogHelper.warning(
+                "Le site du manuel n'est pas genere.\n"
+                "Executez 'uv run mkdocs build' pour le generer.",
+                parent=self
+            )
 
     def _on_tree_click(self, item: QTreeWidgetItem, column: int):
         """Handle tree item click."""

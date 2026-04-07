@@ -821,9 +821,90 @@ Un diagramme contient :
 | **Dialect DAX / Power BI** | Connexion aux datasets Power BI via endpoint XMLA, requetes DAX, exploration des tables/mesures | Moyenne-Haute | Necessite licence Power BI Pro/Premium + lib XMLA Python (pyadomd). Meme modele qu'un dialect SQL classique : connexion → schema → requetes → resultats tabulaires. Cible : profils DATA travaillant sur les deux mondes (SQL + Power BI) |
 | **Dependances entre scripts** | Champ `dependencies` dans le manifest pour referencer d'autres scripts. Cas d'usage principal : un script de logging embarque, reutilisable par tous les scripts metier, configure par projet (serveur de logs, table, projet). Au deploiement, DataForge embarque les dependances avec la configuration du projet cible | Moyenne | Compatible avec le logging centralise existant (SSIS, scripts SQL). Le script de logging serait un script embarque valide, livre avec DataForge |
 | **Diagrammes ER interactifs** | Visualisation des relations FK entre tables selectionnees. Details ci-dessous | Moyenne-Haute | Probablement le prochain step majeur apres la mise en forme SQL |
-| **Stockage partage & profils** | Reflexion transversale sur le partage de configuration (diagrammes, workspaces, saved queries) entre utilisateurs. Emplacement configurable par workspace (SharePoint, OneDrive, filer reseau). Gestion multi-comptes : un utilisateur peut travailler sur plusieurs contextes client avec des emplacements partages distincts. Concept de "profil de partage" rattache au workspace ou a la connexion DB | Haute | Impacte diagrammes ER, workspaces, saved queries. Non-intrusif (fichiers JSON sur filer, pas de table dans la base client). Compatible offline (sync OneDrive/SharePoint). A designer avant implementation des diagrammes ER |
+| **Partage de ressources workspace** | Specification detaillee ci-dessous (EVO-4) | Haute | Prochaine evolution majeure apres stabilisation des diagrammes ER |
 | **Support Oracle** | Nouveau dialect + loader Oracle | Moyenne | Pas de base de test disponible actuellement |
 | **Support MongoDB** | Nouveau dialect + loader MongoDB (NoSQL) | Moyenne | Pas de base de test disponible actuellement |
+
+---
+
+### EVO-4: Partage de Ressources Workspace
+
+**Objectif**: Permettre le partage de diagrammes ER, requetes sauvegardees et configurations entre les membres d'un workspace, via un dossier partage (OneDrive, SharePoint, filer reseau).
+
+**Priorite**: Haute (prochaine evolution majeure)
+
+**Principe**: Les ressources restent en local par defaut. L'utilisateur choisit explicitement ce qu'il partage via une action "Partager". Les elements partages sont stockes en fichiers JSON dans un dossier configure au niveau du workspace.
+
+#### Architecture
+
+**Fonctionnement local inchange** :
+- Les ressources (diagrammes, queries, connexions) sont stockees dans `_AppConfig/configuration.db` comme aujourd'hui
+- Les credentials restent dans le keyring local de chaque utilisateur
+
+**Partage optionnel par workspace** :
+- Chaque workspace peut definir un **chemin de partage** (OneDrive, SharePoint, filer reseau)
+- L'action **"Partager"** (clic droit sur un diagramme/query) ecrit un fichier JSON dans le dossier partage
+- OneDrive/SharePoint gere la synchronisation entre les membres — pas besoin de serveur
+
+**Structure du dossier partage** :
+```
+\\share\workspaces\Projet Alpha\
++-- diagrams\
+|   +-- datamart-incidents.json
+|   +-- datamart-rh.json
++-- queries\
+|   +-- ventes-mensuelles.json
+|   +-- rapport-clients.json
++-- connections\
+    +-- dwh-production.json       (connection string SANS credentials)
+```
+
+#### Parametres workspace
+
+| Parametre | Description | Defaut |
+|-----------|-------------|--------|
+| Chemin de partage | Dossier partage (UNC, OneDrive, local) | Vide (pas de partage) |
+| Publier auto | Comportement a la modification d'un element partage | Demander |
+
+Options de publication automatique : **Non** (re-partage manuel) / **Demander** (notification) / **Toujours** (auto)
+
+#### Affichage
+
+- Les elements partages sont affiches avec un **indicateur visuel** (couleur de la pastille de connexion DB associee) pour les distinguer des elements locaux
+- **Deduplication** : si un element existe en local ET en partage, seule la version partagee est affichee
+- **Notification de publication** : quand un element partage est modifie localement, une notification demande "Cet element est partage. Publier les modifications ?"
+
+#### Diagrammes dans le workspace
+
+Les diagrammes ER apparaissent dans l'arbre du workspace sous la connexion DB :
+```
+Workspace "Projet Alpha"
++-- Databases
+|   +-- DWH Production
+|   |   +-- Tables
+|   |   +-- Views
+|   |   +-- Diagrammes
+|   |       +-- Datamart Incidents    (indicateur partage)
+|   |       +-- Datamart RH           (indicateur partage)
++-- Queries
++-- RootFolders
+```
+
+Le double-clic sur un diagramme l'affiche dans un onglet du workspace (meme principe que les queries).
+
+#### Choix techniques
+
+- **JSON fichier par fichier** (pas de SQLite partage — risque de corruption sur reseau)
+- Un fichier par objet permet la synchro incrementale OneDrive/SharePoint
+- Conflits geres par OneDrive (copie de conflit, pas de corruption)
+- Pas de credentials dans les fichiers partages (keyring local uniquement)
+
+#### Points ouverts
+
+- [ ] Gestion des conflits : que faire si OneDrive cree une copie de conflit ?
+- [ ] Droit d'ecriture : qui peut publier/modifier les elements partages ?
+- [ ] Versionning : historique des modifications d'un element partage ?
+- [ ] Migration : comment migrer un workspace local vers un workspace partage ?
 
 ---
 

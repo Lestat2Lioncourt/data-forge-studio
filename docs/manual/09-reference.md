@@ -181,4 +181,4 @@ Pour sauvegarder toute votre configuration, copiez le dossier `_AppConfig/`. Pou
 
 ---
 
-[<< Personnaliser l'environnement](08-customize.md) | [Retour a la table des matieres](README.md)
+[<< Personnaliser l'environnement](08-customize.md) | [Suivant : Diagrammes ER >>](10-er-diagrams.md)
