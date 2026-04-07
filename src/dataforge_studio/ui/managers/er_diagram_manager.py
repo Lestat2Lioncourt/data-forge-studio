@@ -186,8 +186,8 @@ class ERDiagramManager(QWidget):
 
         # Create schema loader
         try:
-            loader = SchemaLoaderFactory.create_loader(
-                connection, db_conn.id, diagram.database_name or db_conn.name, db_conn.db_type
+            loader = SchemaLoaderFactory.create(
+                db_conn.db_type, connection, db_conn.id, diagram.database_name or db_conn.name
             )
         except (ValueError, KeyError) as e:
             DialogHelper.error(f"Cannot create schema loader: {e}", parent=self)
@@ -302,8 +302,8 @@ class ERDiagramManager(QWidget):
         config_db = get_config_db()
         available_tables = []
         try:
-            loader = SchemaLoaderFactory.create_loader(
-                connection, db_conn.id, db_conn.name, db_conn.db_type
+            loader = SchemaLoaderFactory.create(
+                db_conn.db_type, connection, db_conn.id, db_conn.name
             )
             tables = loader.load_tables()
             available_tables = [t.metadata.get('table', t.name) for t in tables]
@@ -348,8 +348,8 @@ class ERDiagramManager(QWidget):
             return
 
         try:
-            loader = SchemaLoaderFactory.create_loader(
-                conn, db_conn.id, db_conn.name, db_conn.db_type
+            loader = SchemaLoaderFactory.create(
+                db_conn.db_type, conn, db_conn.id, db_conn.name
             )
             tables = loader.load_tables()
             available = [t.metadata.get('table', t.name) for t in tables]
