@@ -899,6 +899,13 @@ Le double-clic sur un diagramme l'affiche dans un onglet du workspace (meme prin
 - Conflits geres par OneDrive (copie de conflit, pas de corruption)
 - Pas de credentials dans les fichiers partages (keyring local uniquement)
 
+#### Acces au dossier partage
+
+Si le dossier partage n'est pas accessible (permissions, chemin introuvable) :
+- L'app affiche une notification : "Le dossier partage n'est pas accessible. Contactez la personne qui vous a partage ce workspace pour obtenir l'acces."
+- Le workspace fonctionne normalement avec les ressources locales — seul le partage est desactive
+- Pas d'automatisation de demande d'acces (c'est un processus humain, variable selon l'infrastructure)
+
 #### Points ouverts
 
 - [ ] Gestion des conflits : que faire si OneDrive cree une copie de conflit ?
