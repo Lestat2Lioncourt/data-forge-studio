@@ -120,6 +120,7 @@ def main():
         'scripts': ("Chargement ScriptsManager...", 64),
         'jobs': ("Chargement JobsManager...", 70),
         'images': ("Chargement ImageLibraryManager...", 76),
+        'er_diagram': ("Chargement ER Diagrams...", 78),
         'workspaces': ("Chargement WorkspaceManager...", 80),
         'settings': ("Chargement SettingsFrame...", 84),
         'help': ("Chargement HelpFrame...", 88),
