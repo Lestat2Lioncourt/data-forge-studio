@@ -851,6 +851,51 @@ def _preparse_select_section(section: dict):
     section['parsed_columns'] = parsed_columns
 
 
+def _split_table_and_alias(table_part: str):
+    """Split 'table_name alias' respecting parentheses.
+
+    Handles cases like:
+    - 'sys.users u' → ('sys.users', 'u')
+    - 'sys.dm_exec_sql_text(r.sql_handle) t' → ('sys.dm_exec_sql_text(r.sql_handle)', 't')
+    - 'sys.dm_exec_input_buffer(s.session_id, NULL) ib' → ('sys.dm_exec_input_buffer(s.session_id, NULL)', 'ib')
+    """
+    table_part = table_part.strip()
+    if not table_part:
+        return table_part, None
+
+    # If no parens, simple split
+    if '(' not in table_part:
+        parts = table_part.split()
+        if len(parts) >= 2:
+            return parts[0], ' '.join(parts[1:])
+        return table_part, None
+
+    # Has parens — find the end of the last closing paren, then the alias after it
+    depth = 0
+    last_close = -1
+    in_single = False
+    for i, ch in enumerate(table_part):
+        if ch == "'" and not in_single:
+            in_single = True
+        elif ch == "'" and in_single:
+            in_single = False
+        elif not in_single:
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth == 0:
+                    last_close = i
+
+    if last_close >= 0 and last_close < len(table_part) - 1:
+        # There's content after the last closing paren — that's the alias
+        table_name = table_part[:last_close + 1].strip()
+        table_alias = table_part[last_close + 1:].strip()
+        return table_name, table_alias if table_alias else None
+
+    return table_part, None
+
+
 def _preparse_from_join_section(section: dict):
     """Pre-parse FROM/JOIN section to extract table, alias, and ON conditions.
     Detects subquery table sources (content starting with '(')."""
@@ -871,17 +916,8 @@ def _preparse_from_join_section(section: dict):
         table_part = all_content
         on_part = None
 
-    # Split table and alias
-    table_parts = table_part.split()
-    if len(table_parts) >= 2:
-        table_name = table_parts[0]
-        table_alias = ' '.join(table_parts[1:])
-    elif len(table_parts) == 1:
-        table_name = table_parts[0]
-        table_alias = None
-    else:
-        table_name = table_part
-        table_alias = None
+    # Split table and alias (respecting parentheses for function calls like APPLY)
+    table_name, table_alias = _split_table_and_alias(table_part)
 
     section['table_name'] = table_name
     section['table_alias'] = table_alias

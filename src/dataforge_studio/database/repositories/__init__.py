@@ -15,6 +15,7 @@ from .script_repository import ScriptRepository
 from .job_repository import JobRepository
 from .image_repository import ImageRootfolderRepository, SavedImageRepository
 from .user_preferences_repository import UserPreferencesRepository
+from .er_diagram_repository import ERDiagramRepository
 
 __all__ = [
     'BaseRepository',
@@ -28,4 +29,5 @@ __all__ = [
     'ImageRootfolderRepository',
     'SavedImageRepository',
     'UserPreferencesRepository',
+    'ERDiagramRepository',
 ]

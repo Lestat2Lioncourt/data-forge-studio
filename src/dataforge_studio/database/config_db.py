@@ -20,6 +20,7 @@ from .models import (
     Job,
     ImageRootfolder,
     SavedImage,
+    ERDiagram,
 )
 from .models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase, WorkspaceFTPRoot
 from .schema_manager import SchemaManager
@@ -35,6 +36,7 @@ from .repositories import (
     ImageRootfolderRepository,
     SavedImageRepository,
     UserPreferencesRepository,
+    ERDiagramRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,7 @@ class ConfigDatabase:
         self._image_rootfolder_repo = ImageRootfolderRepository(self._pool)
         self._image_repo = SavedImageRepository(self._pool)
         self._prefs_repo = UserPreferencesRepository(self._pool)
+        self._er_diagram_repo = ERDiagramRepository(self._pool)
 
     # ==================== Database Connections ====================
 
@@ -463,6 +466,27 @@ class ConfigDatabase:
 
     def get_image_physical_paths(self, rootfolder_id: str) -> List[str]:
         return self._image_repo.get_physical_paths(rootfolder_id)
+
+    # ==================== ER Diagrams ====================
+
+    def get_all_er_diagrams(self) -> List[ERDiagram]:
+        return self._er_diagram_repo.get_all_diagrams()
+
+    def get_er_diagrams_by_connection(self, connection_id: str) -> List[ERDiagram]:
+        return self._er_diagram_repo.get_by_connection(connection_id)
+
+    def get_er_diagram(self, diagram_id: str) -> Optional[ERDiagram]:
+        return self._er_diagram_repo.get_with_tables(diagram_id)
+
+    def save_er_diagram(self, diagram: ERDiagram) -> ERDiagram:
+        return self._er_diagram_repo.save(diagram)
+
+    def delete_er_diagram(self, diagram_id: str):
+        self._er_diagram_repo.delete_diagram(diagram_id)
+
+    def update_er_diagram_table_position(self, diagram_id: str, table_name: str,
+                                          pos_x: float, pos_y: float, schema_name: str = ""):
+        self._er_diagram_repo.update_table_position(diagram_id, table_name, pos_x, pos_y, schema_name)
 
 
 # Global configuration database instance

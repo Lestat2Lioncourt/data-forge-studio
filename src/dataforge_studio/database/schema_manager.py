@@ -35,7 +35,7 @@ class SchemaManager:
     CONFIG_DB_NAME = "Configuration Database"
 
     # Current schema version (increment when adding migrations)
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     def __init__(self, db_path: Path):
         """
@@ -320,6 +320,34 @@ class SchemaManager:
                 )
             """)
 
+            # ER Diagrams table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS er_diagrams (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    connection_id TEXT NOT NULL,
+                    database_name TEXT DEFAULT '',
+                    description TEXT DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE CASCADE
+                )
+            """)
+
+            # ER Diagram Tables (positions of tables in a diagram)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS er_diagram_tables (
+                    diagram_id TEXT NOT NULL,
+                    table_name TEXT NOT NULL,
+                    schema_name TEXT DEFAULT '',
+                    pos_x REAL DEFAULT 0.0,
+                    pos_y REAL DEFAULT 0.0,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (diagram_id, table_name, schema_name),
+                    FOREIGN KEY (diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
+                )
+            """)
+
             # Create indexes
             self._create_indexes(cursor)
 
@@ -343,6 +371,8 @@ class SchemaManager:
             "CREATE INDEX IF NOT EXISTS idx_job_project ON jobs(project_id)",
             "CREATE INDEX IF NOT EXISTS idx_image_category_name ON image_categories(category_name)",
             "CREATE INDEX IF NOT EXISTS idx_image_tag_name ON image_tags(tag_name)",
+            "CREATE INDEX IF NOT EXISTS idx_er_diagram_conn ON er_diagrams(connection_id)",
+            "CREATE INDEX IF NOT EXISTS idx_er_diagram_tables_diag ON er_diagram_tables(diagram_id)",
         ]
 
         for sql in indexes:
