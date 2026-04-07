@@ -163,21 +163,25 @@ class ERDiagramManager(QWidget):
 
         self._current_diagram = diagram
 
-        # Get connection and schema loader
+        # Get connection (auto-connect if needed)
         if not self._database_manager:
             DialogHelper.warning("Database Manager not available.", parent=self)
             return
 
-        connection = self._database_manager.connections.get(diagram.connection_id)
-        if not connection:
-            DialogHelper.warning(
-                f"Connection not active. Connect to the database first.",
-                parent=self
-            )
-            return
-
         db_conn = config_db.get_database_connection(diagram.connection_id)
         if not db_conn:
+            DialogHelper.warning("Connection configuration not found.", parent=self)
+            return
+
+        connection = self._database_manager.connections.get(diagram.connection_id)
+        if not connection:
+            connection = self._database_manager.reconnect_database(diagram.connection_id)
+        if not connection:
+            DialogHelper.warning(
+                f"Cannot connect to '{db_conn.name}'.\n"
+                "Connect to the database in the Database Manager first.",
+                parent=self
+            )
             return
 
         # Create schema loader
@@ -243,34 +247,73 @@ class ERDiagramManager(QWidget):
         if self._current_diagram:
             self._current_diagram.update_table_position(table_name, x, y)
 
+    def _get_active_connection(self):
+        """Get the currently selected connection from the combo, auto-connecting if needed.
+
+        Returns (connection, db_conn) or (None, None) if unavailable.
+        """
+        config_db = get_config_db()
+        conn_filter = self._conn_combo.currentData()
+
+        if conn_filter:
+            # Specific connection selected
+            db_conn = config_db.get_database_connection(conn_filter)
+            if not db_conn:
+                return None, None
+            connection = self._database_manager.connections.get(conn_filter) if self._database_manager else None
+            if not connection and self._database_manager:
+                # Try to auto-connect
+                connection = self._database_manager.reconnect_database(conn_filter)
+            return connection, db_conn
+
+        # No filter — use first active, or first configured
+        if self._database_manager:
+            for conn_id, conn in self._database_manager.connections.items():
+                db_conn = config_db.get_database_connection(conn_id)
+                if db_conn:
+                    return conn, db_conn
+
+        # Try first configured connection
+        all_conns = config_db.get_business_database_connections()
+        if all_conns and self._database_manager:
+            first = all_conns[0]
+            connection = self._database_manager.reconnect_database(first.id)
+            if connection:
+                return connection, first
+
+        return None, None
+
     def _new_diagram(self):
         """Create a new ER diagram."""
         if not self._database_manager:
             DialogHelper.warning("Database Manager not available.", parent=self)
             return
 
-        # Get available tables from active connections
+        connection, db_conn = self._get_active_connection()
+        if not connection or not db_conn:
+            DialogHelper.warning(
+                "No active connection found.\n"
+                "Connect to a database in the Database Manager first, "
+                "or select a connection in the filter above.",
+                parent=self
+            )
+            return
+
         config_db = get_config_db()
         available_tables = []
-        active_conn_id = None
-
-        # Use first active connection
-        for conn_id, conn in self._database_manager.connections.items():
-            db_conn = config_db.get_database_connection(conn_id)
-            if db_conn:
-                active_conn_id = conn_id
-                try:
-                    loader = SchemaLoaderFactory.create_loader(
-                        conn, db_conn.id, db_conn.name, db_conn.db_type
-                    )
-                    tables = loader.load_tables()
-                    available_tables = [t.metadata.get('table', t.name) for t in tables]
-                except Exception as e:
-                    logger.error(f"Error loading tables: {e}")
-                break
+        try:
+            loader = SchemaLoaderFactory.create_loader(
+                connection, db_conn.id, db_conn.name, db_conn.db_type
+            )
+            tables = loader.load_tables()
+            available_tables = [t.metadata.get('table', t.name) for t in tables]
+        except Exception as e:
+            logger.error(f"Error loading tables: {e}")
+            DialogHelper.error(f"Error loading tables: {e}", parent=self)
+            return
 
         if not available_tables:
-            DialogHelper.warning("No active connection with tables found.", parent=self)
+            DialogHelper.warning("No tables found in this connection.", parent=self)
             return
 
         dialog = NewDiagramDialog(available_tables, parent=self)
@@ -280,7 +323,7 @@ class ERDiagramManager(QWidget):
         # Create diagram
         diagram = ERDiagram(
             name=dialog.diagram_name,
-            connection_id=active_conn_id,
+            connection_id=db_conn.id,
             description=dialog.description,
         )
         for table in dialog.selected_tables:
