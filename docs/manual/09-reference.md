@@ -128,14 +128,21 @@ uv --system-certs sync
 uv --system-certs run python run.py
 ```
 
-Pour eviter de taper le flag a chaque commande, definissez la variable d'environnement :
-```bash
-# Windows (PowerShell)
-$env:UV_SYSTEM_CERTS = "1"
+Pour eviter de taper le flag a chaque commande, definissez la variable d'environnement de maniere permanente :
 
-# Permanent (ajoutez aux variables d'environnement systeme)
+**Windows** (PowerShell) :
+```powershell
 setx UV_SYSTEM_CERTS 1
+# Puis redemarrez le terminal
 ```
+
+**macOS / Linux** :
+```bash
+echo 'export UV_SYSTEM_CERTS=1' >> ~/.bashrc   # ou ~/.zshrc pour macOS
+source ~/.bashrc
+```
+
+Cela garantit aussi que les mises a jour automatiques fonctionneront derriere le proxy.
 
 ### L'application ne demarre pas
 

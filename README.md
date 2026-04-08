@@ -130,11 +130,24 @@ uv run python run.py
 
 > **Note**: `uv sync` automatically downloads and installs the correct Python version (3.10+) if not present on your system.
 
-> **Corporate network?** If `uv sync` fails with `invalid peer certificate: UnknownIssuer`, your corporate proxy intercepts TLS. Run once:
-> ```
-> setx UV_SYSTEM_CERTS 1
-> ```
-> Then restart your terminal and retry `uv sync`. This tells UV to use your system's certificates (including corporate ones).
+#### ⚠️ Corporate Network / Proxy
+
+If `uv sync` fails with `invalid peer certificate: UnknownIssuer`, your corporate proxy intercepts TLS. Set the `UV_SYSTEM_CERTS` environment variable permanently so UV uses your system's certificates:
+
+**Windows** (PowerShell, run once):
+```powershell
+setx UV_SYSTEM_CERTS 1
+# Restart your terminal, then retry: uv sync
+```
+
+**macOS / Linux** (add to your shell profile):
+```bash
+echo 'export UV_SYSTEM_CERTS=1' >> ~/.bashrc   # or ~/.zshrc for macOS
+source ~/.bashrc
+# Then retry: uv sync
+```
+
+This also ensures automatic updates work correctly behind a corporate proxy.
 
 ---
 
