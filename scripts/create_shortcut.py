@@ -246,9 +246,9 @@ exec "{venv_python}" run.py "$@"
     <key>CFBundleIdentifier</key>
     <string>com.dataforgestudio.app</string>
     <key>CFBundleVersion</key>
-    <string>0.6.9</string>
+    <string>0.6.10</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.6.9</string>
+    <string>0.6.10</string>
     <key>CFBundleExecutable</key>
     <string>DataForgeStudio</string>
     <key>CFBundleIconFile</key>
@@ -402,6 +402,13 @@ def main():
     print("=" * 60)
     if success:
         print("[OK] SUCCESS!")
+        # Hint about corporate proxy
+        if not os.environ.get("UV_SYSTEM_CERTS"):
+            print()
+            print("Note: Si vous etes derriere un proxy d'entreprise et que")
+            print("l'application ne demarre pas (erreur certificat), executez :")
+            print("  setx UV_SYSTEM_CERTS 1")
+            print("puis relancez l'application.")
     else:
         print("[X] FAILED - Check errors above")
     print("=" * 60)

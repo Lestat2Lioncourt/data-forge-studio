@@ -34,6 +34,14 @@
 
    UV telecharge automatiquement Python 3.10+ si necessaire, puis installe toutes les dependances.
 
+   > **En entreprise** : si `uv sync` echoue avec une erreur `invalid peer certificate: UnknownIssuer`, votre proxy d'entreprise intercepte le TLS. Utilisez :
+   > ```bash
+   > uv --system-certs sync
+   > uv --system-certs run python run.py
+   > ```
+   > Le flag `--system-certs` utilise les certificats du systeme (incluant ceux de l'entreprise).
+   > Pour eviter de le taper a chaque fois, definissez la variable d'environnement : `UV_SYSTEM_CERTS=1`
+
 3. **(Optionnel) Creer un raccourci bureau** :
 
    ```bash

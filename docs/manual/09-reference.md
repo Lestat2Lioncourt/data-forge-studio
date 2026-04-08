@@ -116,6 +116,27 @@ Les identifiants sont **automatiquement echappes** avec la syntaxe du moteur cib
 
 ## FAQ
 
+### L'installation echoue avec "invalid peer certificate"
+
+**Symptome** : `uv sync` echoue avec `invalid peer certificate: UnknownIssuer`.
+
+**Cause** : Le proxy d'entreprise intercepte le TLS avec un certificat interne que UV ne reconnait pas.
+
+**Solution** :
+```bash
+uv --system-certs sync
+uv --system-certs run python run.py
+```
+
+Pour eviter de taper le flag a chaque commande, definissez la variable d'environnement :
+```bash
+# Windows (PowerShell)
+$env:UV_SYSTEM_CERTS = "1"
+
+# Permanent (ajoutez aux variables d'environnement systeme)
+setx UV_SYSTEM_CERTS 1
+```
+
 ### L'application ne demarre pas
 
 **Symptome** : Erreur d'import PySide6.

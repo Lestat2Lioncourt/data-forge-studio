@@ -463,6 +463,9 @@ class SchemaManager:
             # Migration 7: Add 'color' column to database_connections
             self._migrate_database_connections_color(cursor, conn)
 
+            # Migration 8: Add 'shared_path' column to projects
+            self._migrate_projects_shared_path(cursor, conn)
+
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
 
@@ -634,6 +637,23 @@ class SchemaManager:
 
             conn.commit()
             logger.info("[OK] Migration complete: database_connections now supports color")
+
+    def _migrate_projects_shared_path(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 8: Add 'shared_path' column to projects if it doesn't exist."""
+        cursor.execute("PRAGMA table_info(projects)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'shared_path' not in columns:
+            logger.info("[MIGRATION] Adding 'shared_path' column to projects table...")
+            cursor.execute("ALTER TABLE projects ADD COLUMN shared_path TEXT DEFAULT ''")
+            conn.commit()
+            logger.info("[OK] Migration complete: projects now supports shared_path")
+
+        if 'shared_contact' not in columns:
+            logger.info("[MIGRATION] Adding 'shared_contact' column to projects table...")
+            cursor.execute("ALTER TABLE projects ADD COLUMN shared_contact TEXT DEFAULT ''")
+            conn.commit()
+            logger.info("[OK] Migration complete: projects now supports shared_contact")
 
     def _ensure_image_indexes(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Ensure image indexes exist (for fresh installs or post-migration)."""

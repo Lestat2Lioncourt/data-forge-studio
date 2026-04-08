@@ -1,9 +1,9 @@
-# DataForge Studio v0.6.9 🚀
+# DataForge Studio v0.6.10 🚀
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.10+-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.9-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.10-orange.svg)](CHANGELOG.md)
 
 **Multi-Datasource management tool with modern PySide6 interface**
 
@@ -130,6 +130,12 @@ uv run python run.py
 
 > **Note**: `uv sync` automatically downloads and installs the correct Python version (3.10+) if not present on your system.
 
+> **Corporate network?** If `uv sync` fails with `invalid peer certificate: UnknownIssuer`, your corporate proxy intercepts TLS. Run once:
+> ```
+> setx UV_SYSTEM_CERTS 1
+> ```
+> Then restart your terminal and retry `uv sync`. This tells UV to use your system's certificates (including corporate ones).
+
 ---
 
 ### SQL Server Drivers (Optional)
@@ -208,6 +214,7 @@ uv sync
 
 | Issue | Solution |
 |-------|----------|
+| Certificate error (`UnknownIssuer`) | Corporate proxy: `setx UV_SYSTEM_CERTS 1` then restart terminal |
 | PySide6 import error | `uv pip install --force-reinstall PySide6` |
 | ODBC driver not found | Install msodbcsql18 (see platform instructions above) |
 | Apple Silicon (M1/M2/M3) | Ensure arm64 packages: `uv sync --reinstall` |
@@ -372,7 +379,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📜 Changelog
 
-### v0.6.9 (2026-03-03) - SQL Formatter, Variables & Syntax Highlighting
+### v0.6.10 (2026-04-08) - ER Diagrams, Shared Workspaces, Corporate Proxy
+- Interactive ER Diagrams (tables, FK lines, drag, zoom, save, export PNG/SVG)
+- Workspace shared folder configuration (OneDrive, SharePoint, network share)
+- Corporate proxy support: UV_SYSTEM_CERTS documentation for certificate issues
+- SQL formatter: CTE hierarchy, = alias alignment, OUTER/CROSS APPLY
+- Auto-indent editor, tab to spaces, smart reconnect
+- Audit #7: score 8.6/10
+
+### v0.6.7 (2026-03-03) - SQL Formatter, Variables & Syntax Highlighting
 - SQL formatter: multi-statement support (split by ;, format individually)
 - SQL formatter: fix WHERE/AND keyword alignment
 - Session variables (DECLARE/SET @) persist across statements (single batch execution)

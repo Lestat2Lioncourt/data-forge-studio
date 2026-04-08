@@ -14,6 +14,8 @@ class Project:
     description: str
     is_default: bool = False
     auto_connect: bool = False  # Auto-connect all resources on startup
+    shared_path: str = ""  # Path to shared folder (OneDrive, SharePoint, network share)
+    shared_contact: str = ""  # Contact person for shared access (name, email)
     created_at: str = None
     updated_at: str = None
     last_used_at: str = None

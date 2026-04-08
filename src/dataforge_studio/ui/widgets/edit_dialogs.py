@@ -185,17 +185,20 @@ class EditWorkspaceDialog(QDialog):
     """Dialog for creating/editing Workspace name and description"""
 
     def __init__(self, parent=None, name: str = "", description: str = "",
-                 auto_connect: bool = False, is_new: bool = True):
+                 auto_connect: bool = False, shared_path: str = "",
+                 shared_contact: str = "", is_new: bool = True):
         super().__init__(parent)
 
         title = tr("new_workspace") if is_new else tr("edit_workspace")
         self.setWindowTitle(title)
         self.setMinimumWidth(500)
-        self.setMinimumHeight(280)
+        self.setMinimumHeight(350)
 
         self.name = name
         self.description = description
         self.auto_connect = auto_connect
+        self.shared_path = shared_path or ""
+        self.shared_contact = shared_contact or ""
 
         self._setup_ui()
 
@@ -216,6 +219,26 @@ class EditWorkspaceDialog(QDialog):
         self.description_edit.setPlaceholderText(tr("enter_description"))
         self.description_edit.setMaximumHeight(100)
         form_layout.addRow(tr("description") + ":", self.description_edit)
+
+        # Shared path field
+        from PySide6.QtWidgets import QHBoxLayout as QHBox
+        shared_layout = QHBox()
+        self.shared_path_edit = QLineEdit(self.shared_path)
+        self.shared_path_edit.setPlaceholderText("Chemin vers un dossier partage (OneDrive, SharePoint, reseau)...")
+        shared_layout.addWidget(self.shared_path_edit)
+
+        browse_btn = QPushButton("...")
+        browse_btn.setFixedWidth(30)
+        browse_btn.setToolTip("Parcourir...")
+        browse_btn.clicked.connect(self._browse_shared_path)
+        shared_layout.addWidget(browse_btn)
+
+        form_layout.addRow("Dossier partage :", shared_layout)
+
+        # Shared contact
+        self.shared_contact_edit = QLineEdit(self.shared_contact)
+        self.shared_contact_edit.setPlaceholderText("Nom ou email du responsable du partage")
+        form_layout.addRow("Contact partage :", self.shared_contact_edit)
 
         layout.addLayout(form_layout)
 
@@ -239,10 +262,22 @@ class EditWorkspaceDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
+    def _browse_shared_path(self):
+        """Browse for shared folder."""
+        from PySide6.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(
+            self, "Selectionner le dossier partage",
+            self.shared_path_edit.text() or ""
+        )
+        if path:
+            self.shared_path_edit.setText(path)
+
     def get_values(self) -> tuple:
-        """Return (name, description, auto_connect)"""
+        """Return (name, description, auto_connect, shared_path, shared_contact)"""
         return (
             self.name_edit.text().strip(),
             self.description_edit.toPlainText().strip(),
-            self.auto_connect_checkbox.isChecked()
+            self.auto_connect_checkbox.isChecked(),
+            self.shared_path_edit.text().strip(),
+            self.shared_contact_edit.text().strip()
         )

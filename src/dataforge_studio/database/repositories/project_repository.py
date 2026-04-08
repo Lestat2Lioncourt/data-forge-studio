@@ -42,15 +42,15 @@ class ProjectRepository(BaseRepository[Project]):
     def _get_insert_sql(self) -> str:
         return """
             INSERT INTO projects
-            (id, name, description, is_default, auto_connect, created_at, updated_at, last_used_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, description, is_default, auto_connect, shared_path, shared_contact, created_at, updated_at, last_used_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     def _get_update_sql(self) -> str:
         return """
             UPDATE projects
             SET name = ?, description = ?, is_default = ?, auto_connect = ?,
-                updated_at = ?, last_used_at = ?
+                shared_path = ?, shared_contact = ?, updated_at = ?, last_used_at = ?
             WHERE id = ?
         """
 
@@ -58,6 +58,8 @@ class ProjectRepository(BaseRepository[Project]):
         return (model.id, model.name, model.description,
                 1 if model.is_default else 0,
                 1 if model.auto_connect else 0,
+                model.shared_path or "",
+                model.shared_contact or "",
                 model.created_at, model.updated_at, model.last_used_at)
 
     def _model_to_update_tuple(self, model: Project) -> tuple:
@@ -65,6 +67,8 @@ class ProjectRepository(BaseRepository[Project]):
         return (model.name, model.description,
                 1 if model.is_default else 0,
                 1 if model.auto_connect else 0,
+                model.shared_path or "",
+                model.shared_contact or "",
                 model.updated_at, model.last_used_at, model.id)
 
     def get_all_projects(self, sort_by_usage: bool = True) -> List[Project]:

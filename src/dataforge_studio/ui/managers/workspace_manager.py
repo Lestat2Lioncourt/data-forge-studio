@@ -1248,13 +1248,15 @@ class WorkspaceManager(QWidget):
         from PySide6.QtWidgets import QDialog
         dialog = EditWorkspaceDialog(parent=self, is_new=True)
         if dialog.exec() == QDialog.Accepted:
-            name, description, auto_connect = dialog.get_values()
+            name, description, auto_connect, shared_path, shared_contact = dialog.get_values()
             if name:
                 ws = Workspace(
                     id=str(uuid.uuid4()),
                     name=name,
                     description=description,
-                    auto_connect=auto_connect
+                    auto_connect=auto_connect,
+                    shared_path=shared_path,
+                    shared_contact=shared_contact
                 )
                 if self.config_db.add_workspace(ws):
                     # If auto_connect enabled, disable on other workspaces
@@ -1294,16 +1296,20 @@ class WorkspaceManager(QWidget):
             name=ws.name,
             description=ws.description or "",
             auto_connect=getattr(ws, 'auto_connect', False),
+            shared_path=getattr(ws, 'shared_path', "") or "",
+            shared_contact=getattr(ws, 'shared_contact', "") or "",
             is_new=False
         )
 
         from PySide6.QtWidgets import QDialog
         if dialog.exec() == QDialog.Accepted:
-            name, description, auto_connect = dialog.get_values()
+            name, description, auto_connect, shared_path, shared_contact = dialog.get_values()
             if name:
                 ws.name = name
                 ws.description = description
                 ws.auto_connect = auto_connect
+                ws.shared_path = shared_path
+                ws.shared_contact = shared_contact
 
                 if self.config_db.update_workspace(ws):
                     # If auto_connect changed, update accordingly
