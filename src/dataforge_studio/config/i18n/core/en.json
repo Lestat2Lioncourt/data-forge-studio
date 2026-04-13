@@ -343,6 +343,8 @@
     "query_format_copied": "Copied",
     "no_query_to_format": "No query to format",
     "query_no_executed": "No query executed",
+    "datagrid_row_count": "{total} record(s)",
+    "datagrid_row_count_filtered": "{visible} / {total} record(s) displayed",
     "query_counting_rows": "⏳ Counting rows...",
     "query_cancelled": "Query cancelled by user",
     "query_executing": "⏳ Executing query...",

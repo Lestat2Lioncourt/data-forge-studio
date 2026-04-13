@@ -65,16 +65,19 @@ class CustomDataGridView(QWidget):
     selection_changed = Signal(list)
     edit_query_requested = Signal(str)  # Emitted when "Edit Query" is clicked on a Query column cell
 
-    def __init__(self, parent: Optional[QWidget] = None, show_toolbar: bool = True):
+    def __init__(self, parent: Optional[QWidget] = None, show_toolbar: bool = True,
+                 show_row_count: bool = True):
         """
         Initialize custom data grid.
 
         Args:
             parent: Parent widget (optional)
             show_toolbar: Whether to show the toolbar with export/copy buttons
+            show_row_count: Whether to show the row count status label at the bottom
         """
         super().__init__(parent)
         self.show_toolbar = show_toolbar
+        self.show_row_count = show_row_count
         self.active_sorts: List[Tuple[int, Qt.SortOrder]] = []  # List of (column_index, sort_order) for multi-column sort
         self.is_fullscreen = False
         self.fullscreen_dialog = None
@@ -150,6 +153,14 @@ class CustomDataGridView(QWidget):
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
 
         self._main_layout.addWidget(self.table)
+
+        # Row count status label (bottom)
+        if self.show_row_count:
+            self.row_count_label = QLabel("")
+            self.row_count_label.setStyleSheet("color: gray; padding: 2px 4px;")
+            self._main_layout.addWidget(self.row_count_label)
+        else:
+            self.row_count_label = None
 
         # Apply theme QSS for sort indicators (QHeaderView::down-arrow/up-arrow)
         try:
@@ -290,6 +301,8 @@ class CustomDataGridView(QWidget):
         if len(data) < 10000:
             self.autosize_columns()
 
+        self._update_row_count_label()
+
     def set_dataframe(self, df: "pd.DataFrame", auto_resize: bool = True):
         """
         Set grid data from a pandas DataFrame (optimized mode).
@@ -345,6 +358,8 @@ class CustomDataGridView(QWidget):
             # For virtual mode, just set reasonable default widths
             for col in range(len(df.columns)):
                 self._table_view.setColumnWidth(col, 120)
+
+        self._update_row_count_label()
 
     def _set_dataframe_standard(self, df: "pd.DataFrame", auto_resize: bool = True):
         """
@@ -412,6 +427,8 @@ class CustomDataGridView(QWidget):
             # For large datasets, set reasonable default widths
             for col in range(num_cols):
                 self.table.setColumnWidth(col, 100)
+
+        self._update_row_count_label()
 
     def _switch_to_virtual_mode(self):
         """Switch from QTableWidget to QTableView for virtual scrolling."""
@@ -556,6 +573,7 @@ class CustomDataGridView(QWidget):
             self.table.setRowCount(0)
         self.data = []
         self._dataframe = None
+        self._update_row_count_label()
 
     def autosize_columns(self, max_width: int = 300):
         """
@@ -936,6 +954,7 @@ class CustomDataGridView(QWidget):
             # No filters — show all rows
             for row in range(self.table.rowCount()):
                 self.table.setRowHidden(row, False)
+            self._update_row_count_label()
             return
 
         for row in range(self.table.rowCount()):
@@ -947,6 +966,31 @@ class CustomDataGridView(QWidget):
                     visible = False
                     break
             self.table.setRowHidden(row, not visible)
+        self._update_row_count_label()
+
+    def _update_row_count_label(self):
+        """Refresh the bottom row count label (total / filtered)."""
+        if not self.show_row_count or self.row_count_label is None:
+            return
+
+        if self._virtual_mode and self._table_model:
+            total = self._table_model.rowCount()
+            visible = total  # no row-hide filter in virtual mode
+        else:
+            total = self.table.rowCount()
+            if self._active_filters:
+                visible = sum(1 for r in range(total) if not self.table.isRowHidden(r))
+            else:
+                visible = total
+
+        total_s = f"{total:,}".replace(",", " ")
+        if visible != total:
+            visible_s = f"{visible:,}".replace(",", " ")
+            self.row_count_label.setText(
+                tr("datagrid_row_count_filtered", visible=visible_s, total=total_s)
+            )
+        else:
+            self.row_count_label.setText(tr("datagrid_row_count", total=total_s))
 
     def _update_filter_indicators(self):
         """Update column headers to show filter indicators (🔽)."""

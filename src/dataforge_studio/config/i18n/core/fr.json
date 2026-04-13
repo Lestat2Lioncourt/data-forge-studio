@@ -343,6 +343,8 @@
     "query_format_copied": "Copié",
     "no_query_to_format": "Aucune requête à formater",
     "query_no_executed": "Aucune requête exécutée",
+    "datagrid_row_count": "{total} enregistrement(s)",
+    "datagrid_row_count_filtered": "{visible} / {total} enregistrement(s) affichés",
     "query_counting_rows": "⏳ Comptage des lignes...",
     "query_cancelled": "Requête annulée par l'utilisateur",
     "query_executing": "⏳ Exécution de la requête...",
