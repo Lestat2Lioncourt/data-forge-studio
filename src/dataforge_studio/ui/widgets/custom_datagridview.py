@@ -157,7 +157,7 @@ class CustomDataGridView(QWidget):
         # Row count status label (bottom)
         if self.show_row_count:
             self.row_count_label = QLabel("")
-            self.row_count_label.setStyleSheet("color: gray; padding: 2px 4px;")
+            self.row_count_label.setStyleSheet("color: green; padding: 2px 4px;")
             self._main_layout.addWidget(self.row_count_label)
         else:
             self.row_count_label = None

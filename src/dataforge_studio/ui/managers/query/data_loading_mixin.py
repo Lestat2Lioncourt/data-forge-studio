@@ -70,6 +70,7 @@ class QueryDataLoadingMixin:
             tab_state.grid.data.extend(data)
         finally:
             table.setUpdatesEnabled(True)
+            tab_state.grid._update_row_count_label()
 
         self._update_overall_status()
 
@@ -443,3 +444,4 @@ class QueryDataLoadingMixin:
 
         finally:
             table.setUpdatesEnabled(True)
+            self.results_grid._update_row_count_label()
