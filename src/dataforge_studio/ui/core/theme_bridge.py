@@ -55,6 +55,9 @@ class ThemeBridge(BaseThemeManager):
         self._colors_cache: Dict[str, Dict[str, str]] = {}
         self._dark_mode: bool = True  # Current mode (True=dark, False=light)
 
+        # Bootstrap defaults into _AppConfig/ on first run (or after git pull into empty install)
+        self._bootstrap_defaults()
+
         # Load new system data
         self._load_palettes()
         self._load_dispositions()
@@ -62,6 +65,34 @@ class ThemeBridge(BaseThemeManager):
 
         # Load legacy custom themes (for backward compatibility)
         self._load_custom_themes()
+
+    def _bootstrap_defaults(self):
+        """Copy shipped theme defaults into _AppConfig/ when the user has none.
+
+        Prevents empty palette/disposition/theme combos on fresh installs
+        where _AppConfig/ is gitignored and thus empty after git clone.
+        """
+        import shutil
+        defaults_root = Path(__file__).parent.parent.parent / "config" / "theme_defaults"
+        if not defaults_root.exists():
+            return
+        for sub, target in (
+            ("palettes", PALETTES_PATH),
+            ("dispositions", DISPOSITIONS_PATH),
+            ("themes", CUSTOM_THEMES_PATH),
+        ):
+            src = defaults_root / sub
+            if not src.exists():
+                continue
+            target.mkdir(parents=True, exist_ok=True)
+            for f in src.glob("*.json"):
+                dst = target / f.name
+                if not dst.exists():
+                    try:
+                        shutil.copy2(f, dst)
+                        logger.info(f"Bootstrapped default {sub}/{f.name}")
+                    except OSError as e:
+                        logger.warning(f"Failed to bootstrap {sub}/{f.name}: {e}")
 
     def _load_palettes(self):
         """Load all palettes from _AppConfig/palettes/ directory."""

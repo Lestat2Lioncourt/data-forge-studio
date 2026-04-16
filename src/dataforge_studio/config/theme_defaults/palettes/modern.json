@@ -1,0 +1,20 @@
+{
+  "name": "Modern",
+  "colors": {
+    "primary": "#573eef",
+    "secondary": "#3e0d81",
+    "accent": "#f9d957",
+    "background": "#f0f0f0",
+    "surface": "#4a1a9e",
+    "border": "#3e0d81",
+    "text": "#ffffff",
+    "text_secondary": "#cdb8fa",
+    "icon": "#ffffff",
+    "info": "#99e5e8",
+    "warning": "#f9d957",
+    "error": "#ff997f",
+    "important": "#8727db",
+    "highlight": "#f9d957",
+    "muted": "#2d0a61"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Standard Sombre",
+  "disposition": "standard",
+  "palette": "sombre",
+  "overrides": {
+    "sql_string": "#9b59b6",
+    "topbar_bg": "#252525",
+    "topbar_fg": "#e0e0e0"
+  }
+}

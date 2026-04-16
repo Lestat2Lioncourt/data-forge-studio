@@ -1,0 +1,8 @@
+{
+  "name": "Standard Clair",
+  "disposition": "standard",
+  "palette": "clair",
+  "overrides": {
+    "topbar_bg": "#5500ff"
+  }
+}
