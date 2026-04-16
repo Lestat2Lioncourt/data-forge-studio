@@ -246,9 +246,9 @@ exec "{venv_python}" run.py "$@"
     <key>CFBundleIdentifier</key>
     <string>com.dataforgestudio.app</string>
     <key>CFBundleVersion</key>
-    <string>0.6.10</string>
+    <string>0.6.11</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.6.10</string>
+    <string>0.6.11</string>
     <key>CFBundleExecutable</key>
     <string>DataForgeStudio</string>
     <key>CFBundleIconFile</key>

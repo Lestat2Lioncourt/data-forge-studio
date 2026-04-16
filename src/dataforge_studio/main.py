@@ -27,7 +27,7 @@ def main():
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("DataForge Studio")
-    app.setApplicationVersion("0.6.10")
+    app.setApplicationVersion("0.6.11")
     app.setOrganizationName("DataForge")
 
     # Set application icon (for taskbar and desktop shortcut)
@@ -43,7 +43,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = 'dataforge.studio.v0610'
+            myappid = 'dataforge.studio.v0611'
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
@@ -58,6 +58,10 @@ def main():
     # =========================================================================
 
     splash.update_progress("Chargement des modules...", 2)
+
+    # Audit des icones (PNG sans SVG)
+    from .utils.icon_audit import audit_icons
+    audit_icons()
 
     # Load configuration database
     splash.update_progress("Connexion base de configuration...", 3)

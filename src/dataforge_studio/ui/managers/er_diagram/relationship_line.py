@@ -21,8 +21,10 @@ class _DragPoint(QGraphicsEllipseItem):
     def __init__(self, parent_line):
         super().__init__(-self.SIZE/2, -self.SIZE/2, self.SIZE, self.SIZE)
         self._parent_line = parent_line
-        self.setBrush(QBrush(QColor("#ff9800")))
-        self.setPen(QPen(QColor("#ffffff"), 1.5))
+        from ...core.theme_bridge import ThemeBridge
+        palette = ThemeBridge.get_instance().get_er_diagram_colors()
+        self.setBrush(QBrush(QColor(palette["line"])))
+        self.setPen(QPen(QColor(palette["header_fg"]), 1.5))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
@@ -63,10 +65,13 @@ class ERRelationshipLine(QGraphicsPathItem):
     for manual adjustment.
     """
 
-    LINE_COLOR = QColor("#ff9800")
-    LINE_COLOR_HOVER = QColor("#ffcc02")
     LINE_WIDTH = 2
     ARROW_SIZE = 8
+
+    @staticmethod
+    def _palette():
+        from ...core.theme_bridge import ThemeBridge
+        return ThemeBridge.get_instance().get_er_diagram_colors()
 
     def __init__(self, from_table: ERTableItem, from_column: str,
                  to_table: ERTableItem, to_column: str,
@@ -86,7 +91,6 @@ class ERRelationshipLine(QGraphicsPathItem):
 
         self.setZValue(0)
         self.setAcceptHoverEvents(True)
-        self.setToolTip(f"{from_table.table_name}.{from_column} → {to_table.table_name}.{to_column}")
 
         # Connect to position changes — reset custom midpoint when tables move
         from_table.signals.position_changed.connect(lambda *_: self._on_table_moved())
@@ -112,7 +116,7 @@ class ERRelationshipLine(QGraphicsPathItem):
             self._label.setPlainText(self.fk_name)
             font = QFont("Consolas", 7)
             self._label.setFont(font)
-            color = QColor("#aaaaaa") if self.is_dark else QColor("#666666")
+            color = QColor(self._palette()["popup_dim"])
             self._label.setDefaultTextColor(color)
             self._label.setZValue(0.5)  # Between lines (0) and tables (1)
             self.scene().addItem(self._label)
@@ -229,20 +233,34 @@ class ERRelationshipLine(QGraphicsPathItem):
             return 'left', 'right'
 
     def hoverEnterEvent(self, event):
-        """Show drag point on hover."""
+        """Show drag point + emit hover signal for the overlay popup."""
         self._hovered = True
         if self.scene():
             self._ensure_drag_point()
             if self._drag_point:
                 self._drag_point.setVisible(True)
+            palette = self._palette()
+            fk_color = palette["fk"]
+            pk_color = palette["pk"]
+            dim = palette["popup_dim"]
+            fk_label = f"<span style='color:{dim}'>{self.fk_name}</span>  " if self.fk_name else ""
+            html = (
+                f"{fk_label}"
+                f"<span style='color:{fk_color}'><b>{self.from_table.table_name}.{self.from_column}</b></span>"
+                f" <span style='color:{dim}'>&rarr;</span> "
+                f"<span style='color:{pk_color}'><b>{self.to_table.table_name}.{self.to_column}</b></span>"
+            )
+            self.scene().relation_hovered.emit(html)
         self.update()
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        """Hide drag point when not hovering (unless it's being dragged)."""
+        """Hide drag point + clear overlay popup."""
         self._hovered = False
         if self._drag_point and not self._drag_point.isUnderMouse():
             self._drag_point.setVisible(False)
+        if self.scene():
+            self.scene().relation_hovered.emit("")
         self.update()
         super().hoverLeaveEvent(event)
 
@@ -250,7 +268,8 @@ class ERRelationshipLine(QGraphicsPathItem):
         """Draw the relationship line with arrow."""
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        color = self.LINE_COLOR_HOVER if self._hovered else self.LINE_COLOR
+        palette = self._palette()
+        color = QColor(palette["line_hover"] if self._hovered else palette["line"])
         pen = QPen(color, self.LINE_WIDTH)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)

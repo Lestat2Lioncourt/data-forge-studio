@@ -38,6 +38,7 @@ Pour chaque score, donne la justification et l'evolution par rapport a l'audit p
 9. **Dependances** : deps inutilisees dans pyproject.toml (verifier imports reels)
 10. **Architecture** : imports circulaires, coexistence de systemes paralleles
 11. **Delegation des actions contextuelles** : verifier que tout composant affichant des objets (WorkspaceManager, ResourcesManager, ou tout autre consumer) delegue les actions contextuelles (menus clic droit) aux managers proprietaires via des methodes publiques `get_*_context_actions()`. Aucune logique d'action ne doit etre dupliquee en dehors du manager proprietaire de l'objet. Tout ajout d'action dans un manager doit etre automatiquement disponible partout ou l'objet est affiche
+12. **Conformite au theme (skin/pattern)** : detecter toutes les couleurs hardcodees (`QColor("#xxx")`, `setStyleSheet("color: #xxx")`, `"background-color: #xxx"`, etc.) qui devraient passer par les cles du theme via `theme_bridge`/`get_theme_colors()`. Les composants visuels (diagrammes ER, overlays, popups, custom paint) doivent reagir au changement de theme. Lister les fichiers contrevenants et la nature des couleurs (texte, fond, accent, bordure). Verifier que les nouveaux composants exposent un parametre `is_dark` ou se reabonnent a `ThemeBridge`
 
 ### Format attendu :
 
@@ -67,4 +68,4 @@ Pour chaque score, donne la justification et l'evolution par rapport a l'audit p
 
 ---
 
-*Derniere utilisation : 2026-04-02 (Audit #7)*
+*Derniere utilisation : 2026-04-15 (Audit #8)*

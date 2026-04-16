@@ -25,6 +25,8 @@ class TableItemSignals(QObject):
 class _TableWidget(QFrame):
     """Internal widget rendered inside the QGraphicsProxyWidget."""
 
+    ROW_HEIGHT = 17
+
     def __init__(self, table_name: str, columns: List[Dict],
                  pk_columns: set, fk_columns: set,
                  schema_name: str = "", is_dark: bool = True):
@@ -32,23 +34,16 @@ class _TableWidget(QFrame):
         self.table_name = table_name
         self.setObjectName("ERTableWidget")
 
-        # Colors
-        if is_dark:
-            bg = "#2d2d2d"
-            header_bg = "#0078d4"
-            border = "#555555"
-            text = "#cccccc"
-            pk_color = "#ffd700"
-            fk_color = "#00bcd4"
-            type_color = "#808080"
-        else:
-            bg = "#ffffff"
-            header_bg = "#0078d4"
-            border = "#cccccc"
-            text = "#333333"
-            pk_color = "#b8860b"
-            fk_color = "#00838f"
-            type_color = "#888888"
+        from ...core.theme_bridge import ThemeBridge
+        palette = ThemeBridge.get_instance().get_er_diagram_colors()
+        bg = palette["bg"]
+        header_bg = palette["header_bg"]
+        header_fg = palette["header_fg"]
+        border = palette["border"]
+        text = palette["text"]
+        pk_color = palette["pk"]
+        fk_color = palette["fk"]
+        type_color = palette["type"]
 
         self.setStyleSheet(f"""
             QFrame#ERTableWidget {{
@@ -58,7 +53,7 @@ class _TableWidget(QFrame):
             }}
             QLabel#tableHeader {{
                 background-color: {header_bg};
-                color: white;
+                color: {header_fg};
                 font-weight: bold;
                 font-family: Consolas;
                 font-size: 10px;
@@ -97,40 +92,66 @@ class _TableWidget(QFrame):
         self.column_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.column_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        for col in columns:
-            col_name = col['name']
-            col_type = col['type']
+        # Store for rebuild on toggle
+        self._columns = columns
+        self._pk_columns = pk_columns
+        self._fk_columns = fk_columns
+        self._pk_color = pk_color
+        self._fk_color = fk_color
+        self._text_color = text
+        self._show_types = True
 
-            if col_name in pk_columns:
-                prefix = "PK "
-                color = pk_color
-            elif col_name in fk_columns:
-                prefix = "FK "
-                color = fk_color
-            else:
-                prefix = "   "
-                color = text
-
-            item = QListWidgetItem(f"{prefix}{col_name}  ({col_type})")
-            item.setForeground(QColor(color))
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self.column_list.addItem(item)
+        self._populate_column_list()
 
         layout.addWidget(self.column_list)
 
         # Default size
-        self._calc_width(columns)
+        self._calc_width()
         self.setMinimumSize(160, 80)
 
-    def _calc_width(self, columns):
-        """Calculate width based on content."""
+    def _populate_column_list(self):
+        self.column_list.clear()
+        for col in self._columns:
+            col_name = col['name']
+            col_type = col['type']
+
+            if col_name in self._pk_columns:
+                prefix = "PK "
+                color = self._pk_color
+            elif col_name in self._fk_columns:
+                prefix = "FK "
+                color = self._fk_color
+            else:
+                prefix = "   "
+                color = self._text_color
+
+            text = f"{prefix}{col_name}  ({col_type})" if self._show_types else f"{prefix}{col_name}"
+            item = QListWidgetItem(text)
+            item.setForeground(QColor(color))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            item.setSizeHint(QSize(0, self.ROW_HEIGHT))
+            self.column_list.addItem(item)
+
+    def set_show_types(self, show: bool):
+        """Toggle display of column types (e.g. '(NVARCHAR(50))')."""
+        if show == self._show_types:
+            return
+        self._show_types = show
+        self._populate_column_list()
+        self._calc_width()
+
+    def _calc_width(self) -> int:
+        """Calculate width based on content and current display mode. Returns the final width."""
         font = QFont("Consolas", 9)
         fm = QFontMetrics(font)
-        max_w = fm.horizontalAdvance(self.table_name) + 40
-        for col in columns:
-            text = f"PK {col['name']}  ({col['type']})"
-            max_w = max(max_w, fm.horizontalAdvance(text) + 20)
-        self.setFixedWidth(max(180, min(max_w, 350)))
+        max_w = fm.horizontalAdvance(self.table_name) + 24
+        for col in self._columns:
+            text = f"PK {col['name']}  ({col['type']})" if self._show_types else f"PK {col['name']}"
+            max_w = max(max_w, fm.horizontalAdvance(text) + 12)
+        target = max(160, max_w)
+        self.setFixedWidth(target)
+        self._target_width = target
+        return target
 
 
 class ERTableItem(QGraphicsRectItem):
@@ -166,13 +187,18 @@ class ERTableItem(QGraphicsRectItem):
 
         # Determine initial height
         row_count = len(columns)
-        natural_height = 26 + row_count * 22 + 10
+        natural_height = 26 + row_count * _TableWidget.ROW_HEIGHT + 10
         initial_height = min(natural_height, self.DEFAULT_HEIGHT)
         initial_height = max(initial_height, self.MIN_HEIGHT)
 
-        self.width = self._table_widget.width()
+        # Use the computed target width (minimumWidth() gets clobbered by setMinimumSize)
+        self.width = self._table_widget._target_width
         self.height = initial_height
         self._table_widget.setFixedHeight(initial_height)
+
+        # Force widget to apply its fixed size before wrapping in proxy,
+        # otherwise proxy caches the default QWidget size (~640) and renders too wide.
+        self._table_widget.resize(self.width, initial_height)
 
         # Create proxy
         self._proxy = QGraphicsProxyWidget(self)
@@ -197,21 +223,35 @@ class ERTableItem(QGraphicsRectItem):
         self._resize_start_y = 0
         self._resize_start_height = 0
 
+    def set_show_types(self, show: bool):
+        """Toggle column type display and resize to match new content width."""
+        self._table_widget.set_show_types(show)
+        new_width = self._table_widget._target_width
+        if new_width != self.width:
+            self.prepareGeometryChange()
+            self.width = new_width
+            self._table_widget.resize(new_width, self.height)
+            self.setRect(0, 0, new_width, self.height)
+            self.signals.position_changed.emit(self.table_name, self.pos().x(), self.pos().y())
+
     def boundingRect(self):
         """Override to match exact widget size — prevents oversized selection."""
         return QRectF(0, 0, self.width, self.height)
 
     def paint(self, painter, option, widget=None):
         """Draw selection border and resize handle."""
+        from ...core.theme_bridge import ThemeBridge
+        palette = ThemeBridge.get_instance().get_er_diagram_colors()
+
         if self.isSelected():
-            painter.setPen(QPen(QColor("#0078d4"), 2, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(palette["header_bg"]), 2, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(QRectF(0, 0, self.width, self.height))
 
         # Resize handle (bottom-right triangle)
         m = self.RESIZE_MARGIN
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#888888"))
+        painter.setBrush(QColor(palette["popup_dim"]))
         from PySide6.QtGui import QPolygonF
         handle = QPolygonF([
             QPointF(self.width, self.height - m),

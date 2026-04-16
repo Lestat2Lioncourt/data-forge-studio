@@ -1,8 +1,75 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.10
+**Version**: 0.6.11
 **Objectif**: POC v0.9.xx / Production v1.0
-**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audits #6 & #7)
+**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audits #6, #7 & #8)
+
+---
+
+## Analyse Globale de la Solution (Audit #8 - 15/04/2026)
+
+### Scores sur 10
+
+| Critere | Score | Evol. | Justification |
+|---------|-------|-------|---------------|
+| **Structure de l'application** | 9.5/10 | = | 235 fichiers Python (63,792L, +488L). Package `er_diagram/` stabilise (5 modules + __init__). Workspace partage (EVO-4, `shared_path`). Refactor systeme d'icones: SVG-only, recolorisation runtime en memoire (suppression cache disque). Architecture modulaire preservee |
+| **Qualite du code** | 8/10 | -0.5 | 188 `except Exception` (stable), 0 bare `except:`, 74 `except+pass` (+5). 6 TODO. **Regression critere #12** (couleurs hardcodees dans ER Diagrams et handlers) — voir nouvelle section dediee. 0 `shell=True`, 0 `eval`/`exec`. Top fichiers stables (resources_manager 1811L) |
+| **Gestion de la securite** | 8/10 | = | Credentials via keyring. 0 `shell=True`, 0 `eval/exec`. 35 f-string SQL securisees. Smart reconnect. Workspace partage introduit un nouveau risque (acces concurrent fichiers JSON) — mitigation par detection shared_path au demarrage |
+| **Maintenabilite** | 8.5/10 | -0.5 | Tests stables (~201 tests, pas de nouveaux). **Couverture tests n'a pas progresse** (toujours ~25%, 9 fichiers tests). Script `icon_audit.py` ajoute (warning SVG manquant au demarrage). 11 `get_*_context_actions()`. Delegation conservee. Regression sur theme conformity pesera a terme |
+| **Fiabilite** | 8/10 | = | 483 `.connect()` vs 26 `.disconnect()` (ratio 18:1, Qt signals). 20 `deleteLater()`. Smart reconnect stable. ER Diagrams: resize auto-fit, zoom sauvegarde, hover popup FK overlay. Nouveau: row count label custom_datagridview (refresh fix sur batch load) |
+| **Performance** | 7.5/10 | = | Suppression cache disque light/dark icones — recolorisation runtime via QSvgRenderer en memoire (gain disque, leger cout CPU a l'affichage initial). QGraphicsScene ER Diagram performant. Pas d'async generalise |
+| **Extensibilite** | 9.5/10 | = | 11 plugins, 5 dialects DB, 4 themes. Workspace partage ouvre collaboration multi-utilisateur (EVO-4). ER Diagrams: hover popup overlay extensible, midpoints draggables, FK lines ameliorees |
+| **Documentation** | 8/10 | = | Manuel 10 chapitres + mkdocs. Corporate proxy docs par OS (Windows/macOS/Linux). Specs EVO-4 (shared workspace, shared folder access). Aucune doc API developpeur |
+| **UX/UI** | 9/10 | -0.5 | **ER Diagrams interactifs** (FK lines colorees PK/FK, midpoints draggables, zoom save, hover popup FK, resize auto-fit). Row count label dans CustomDataGridView (refresh unifie). **Regression sur coherence thematique** : 11 fichiers contiennent des couleurs hardcodees qui ne reagissent pas au changement de theme (er_diagram, log_panel, file_viewer, splash_screen) |
+
+**Score Global: 8.4/10** (-0.2 vs audit #7) — Progression fonctionnelle forte (ER Diagrams aboutis, workspace partage, refactor icones) mais introduction du critere #12 revele une dette visuelle: les nouveaux composants custom-paint ne passent pas par `theme_bridge`. 1 critere en hausse, 5 stables, 3 en baisse (Qualite code, Maintenabilite, UX).
+
+### Critere #12 (nouveau) - Conformite au theme
+
+**54 occurrences de `QColor("#...")` dans 13 fichiers**, **34 `background-color: #`**, **77 `color: #`**.
+
+**Fichiers contrevenants les plus problematiques** :
+
+| Fichier | Lignes concernees | Nature des couleurs | Impact |
+|---------|-------------------|---------------------|--------|
+| `ui/managers/er_diagram/table_item.py` | 37-51, 207, 214 | bg, header_bg, border, text, pk/fk/type color | Tables ER ne suivent pas le theme custom (seul dark/light branche via `if is_dark`) |
+| `ui/managers/er_diagram/relationship_line.py` | 24-25, 66-67, 114, 237-239 | FK line color, hover color, PK/FK text colors | Lignes FK hardcodees orange `#ff9800` / `#ffcc02`, non themables |
+| `ui/managers/er_diagram/scene.py` | 44 | background `#1e1e1e`/`#f5f5f5` | Scene bg bifurcation binaire dark/light au lieu de cle theme |
+| `ui/widgets/log_panel.py` | 79-83 | Couleurs niveaux log (INFO/WARNING/ERROR/IMPORTANT/DEBUG) | Non themable, lisibilite variable selon theme custom |
+| `ui/widgets/file_viewer_widget.py` | 517-522 | Idem (DEBUG/INFO/WARNING/ERROR/CRITICAL/SUCCESS) | Duplication avec log_panel + content_handlers/file_content_handler |
+| `ui/managers/content_handlers/file_content_handler.py` | 371-376 | Idem (meme palette) | **Triplicata** avec log_panel + file_viewer_widget |
+| `ui/core/splash_screen.py` | 69-251 (22 occurrences) | Splash screen complet | Acceptable (pre-theme init) mais non coherent si theme charge |
+| `ui/widgets/theme_preview.py` | 184, 186, 364 | Preview boutons fenetre | Acceptable (preview doit montrer palette fixe) |
+| `ui/widgets/color_property_row.py` | 87-88 | Icone gold `#FFD700` | Icone decorative acceptable |
+| `ui/managers/database/crud_mixin.py` / `base_connection_dialog.py` / `edit_dialogs.py` / `color_palette.py` | defaut `#3498db` / `#808080` | Color picker default | Acceptable (fallback user color) |
+
+**Pattern systemique** : les 3 palettes de log (log_panel, file_viewer_widget, file_content_handler) sont **triplees a l'identique** et devraient vivre dans `theme_bridge.get_log_level_colors()`.
+
+**Nouveaux composants sans `is_dark` / reabonnement `ThemeBridge`** : `er_diagram/scene.py` et `er_diagram/table_item.py` recoivent `is_dark` via constructeur mais ne se reabonnent pas a `ThemeBridge.theme_changed` — changement de theme a chaud ne met pas a jour le diagramme ouvert.
+
+### Historique des scores
+
+| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Audit #5 | Audit #6 | Audit #7 | Audit #8 | Tendance |
+|---------|----------|----------|----------|----------|----------|----------|----------|----------|----------|
+| Structure | 8 | 8 | 8.5 | 9 | 9 | 9 | 9.5 | 9.5 | = |
+| Qualite du code | 7 | 6.5 | 7 | 8 | 8 | 8.5 | 8.5 | 8 | ↓ |
+| Securite | 7 | 6.5 | 7 | 8 | 8 | 8 | 8 | 8 | = |
+| Maintenabilite | 7 | 6.5 | 7.5 | 8 | 8 | 8.5 | 9 | 8.5 | ↓ |
+| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | 8 | 8 | = |
+| Performance | 7 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | 7.5 | 7.5 | = |
+| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 9.5 | 9.5 | = |
+| Documentation | 7.5 | 7 | 7 | 7 | 7 | 7 | 8 | 8 | = |
+| UX/UI | 8 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 9.5 | 9 | ↓ |
+| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **7.9** | **8.2** | **8.6** | **8.4** | ↓ |
+
+### Plan de correctifs #12 (prioritaires)
+
+| Action | Fichiers | Effort | Priorite |
+|--------|----------|--------|----------|
+| Centraliser palette log dans `theme_bridge.get_log_level_colors()` | log_panel, file_viewer_widget, file_content_handler | 0.5j | P1 |
+| Abonner ER Diagram a `ThemeBridge.theme_changed` | er_diagram/scene.py, table_item.py, relationship_line.py | 1j | P1 |
+| Exposer cles theme `er_diagram.*` (bg, header_bg, border, text, pk, fk, line, line_hover) | theme_bridge + themes JSON + les 3 fichiers er_diagram | 1j | P1 |
+| Documenter la regle "pas de QColor/hex hardcode hors theme_bridge" | docs/DEVELOPMENT.md | 15min | P2 |
 
 ---
 
@@ -522,36 +589,37 @@ L'utilisateur cree un job via l'UI en selectionnant un script valide et en rempl
 
 | Metrique | Valeur | Evolution |
 |----------|--------|-----------|
-| Fichiers Python | 233 | +10 (ER Diagram package, tests) |
-| Lignes de code (src/) | 63,304 | +2,759 |
-| Fichiers de tests | 7 | = |
-| Lignes de tests | 1,463 | = |
-| Tests en echec | 0 (79 passed) | = |
-| Plugins | 10 | = |
-| Dialects DB | 5 (SQLite, PostgreSQL, SQL Server, MySQL/MariaDB, Access) | = |
-| Langues i18n | 2 (EN: 656 cles, FR: 656 cles) | +1 cle |
+| Fichiers Python | 235 | +2 |
+| Lignes de code (src/) | 63,792 | +488 |
+| Fichiers de tests | 9 | +2 |
+| Lignes de tests | ~1,500 | ~= |
+| Tests en echec | 0 | = |
+| Plugins | 11 | = |
+| Dialects DB | 5 | = |
+| Langues i18n | 2 (EN: 721L JSON, FR: 721L JSON) | ~= |
 | Themes | 4 | = |
-| Guides documentation | 24 | = |
-| Commits depuis Dec 2025 | ~177 | +20 |
-| `except Exception` generiques | 188 | +11 (ER Diagrams, smart reconnect) |
+| Commits depuis Dec 2025 | ~185 | +16 (depuis audit #7: 2fa0df3 → eb34617) |
+| `except Exception` generiques | 188 | = |
 | bare `except:` | 0 | = |
-| `except` + `pass` | 69 | +11 (nouvelles features) |
+| `except` + `pass` | 74 | +5 |
 | `shell=True` | 0 | = |
 | `eval()`/`exec()` | 0 | = |
 | f-string SQL | 35 (toutes securisees) | = |
-| `.connect()` / `.disconnect()` | 479 / 26 | ratio 18:1 (Qt signals) |
-| `deleteLater()` | 20 | +1 |
-| cleanup/closeEvent | 24 | +1 |
-| Fichiers > 500 lignes | 30 | +1 |
-| Fichiers > 1000 lignes | 8 | = |
-| Repositories actifs | 11 | +1 (ERDiagramRepository) |
+| `.connect()` / `.disconnect()` | 483 / 26 | ratio 18:1 |
+| `deleteLater()` | 18 | -2 |
+| cleanup/closeEvent | 24 | = |
+| Fichiers > 500 lignes | 30 | = |
+| Fichiers > 1000 lignes | 9 | +1 (custom_datagridview a 1452L) |
+| Repositories actifs | 11 | = |
 | TODO/FIXME | 6 | = |
-| Deps (pyproject.toml) | 15 | = (toutes utilisees) |
-| SVG icones | 37 (+ 15 PNG base conserves) | *(nouveau)* |
-| `get_*_context_actions()` publiques | 11 | +1 |
-| Plugins UI | 11 | +1 (ER Diagram) |
+| Deps (pyproject.toml) | 15 | = |
+| SVG icones | 37+ (SVG-only, recolorisation runtime) | = |
+| `get_*_context_actions()` publiques | 11 | = |
+| **QColor("#...") hardcodes** | **54 (13 fichiers)** | *(nouveau audit #8)* |
+| **background-color: # hardcodes** | **34 (12 fichiers)** | *(nouveau audit #8)* |
+| **color: # hardcodes** | **77 (20 fichiers)** | *(nouveau audit #8)* |
 
-*Statistiques mises a jour: 02 Avril 2026 (audit #7)*
+*Statistiques mises a jour: 15 Avril 2026 (audit #8)*
 
 ---
 
@@ -611,7 +679,16 @@ Avril 2026
 |-- FTP icon status dot (vert/rouge), mise a jour dynamique
 |-- Combined file view (CSV/Excel/JSON dans un grid)
 |-- Audit #6 (8.2/10) — maintenabilite, extensibilite, UX en hausse
-|-- v0.6.10 (actuel)
+|-- Audit #7 (8.6/10) — ER Diagrams, documentation doublee, smart reconnect
+|-- ER Diagrams interactifs avances (FK lines, midpoints draggables, zoom save, hover popup FK overlay, resize auto-fit)
+|-- Workspace partage (EVO-4, shared_path) + corporate proxy docs par OS
+|-- Refactor systeme icones: SVG-only, recolorisation runtime en memoire (suppression cache disque light/dark)
+|-- icon_audit.py ajoute (warning SVG manquant au demarrage)
+|-- Row count label dans CustomDataGridView (unifie + refresh sur batch load)
+|-- Audit #8 (8.4/10, -0.2) — introduction critere #12 theme conformity, revele 54 QColor/111 styles hardcodes, regression UX/Qualite/Maintenabilite
+|-- Centralization palette log (ThemeBridge.get_log_level_colors) + palette ER diagram (get_er_diagram_colors) + theme_changed observer
+|-- ER diagrams polish: hover popup themable, Ctrl+wheel zoom, Fit View button, Column Types toggle, content-driven table width
+|-- v0.6.11 (actuel)
 ```
 
 ### Projection (estimee)
@@ -646,9 +723,11 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.10.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.11.
 
-**Score global: 8.6/10** (+0.4 vs audit #6) — Progression majeure: ER Diagrams interactifs, documentation doublee (manuel + mkdocs), fiabilite en hausse (201 tests, smart reconnect). L'application evolue vers une plateforme DATA complete.
+**Score global (audit #8): 8.4/10** (-0.2 vs audit #7) — Progression fonctionnelle forte (ER Diagrams aboutis, workspace partage EVO-4, refactor icones SVG-only) mais introduction du critere #12 (conformite au theme) revele une dette visuelle: 54 `QColor("#...")`, 34 `background-color: #`, 77 `color: #` hardcodes dans le code. Les nouveaux composants custom-paint (ER Diagram) ne passent pas par `theme_bridge` et ne se reabonnent pas a `theme_changed`. Trois palettes de log sont triplees a l'identique (log_panel, file_viewer_widget, file_content_handler).
+
+**Score audit #7 (historique): 8.6/10** — Progression majeure: ER Diagrams, documentation doublee, smart reconnect.
 
 **Bilan des corrections realisees**:
 - ~~MySQL backend (dialect + loader + factories)~~ Done
@@ -671,6 +750,11 @@ DataForge Studio est une **application bien architecturee** avec un potentiel so
 5. ~~**Phase 4 (Theming Icons)**~~ **En cours** — Migration SVG done (v0.6.5), reste icon_color par contexte
 6. **Phase 3 (Scripts & Jobs)** — specification definie, implementation a planifier
 7. **Augmenter couverture tests** (15% → 25%) — P2
+
+**Actions prioritaires issues de l'audit #8** :
+1. **Centraliser palette log** dans `theme_bridge.get_log_level_colors()` et migrer log_panel + file_viewer_widget + file_content_handler (triplicata) — 0.5j, P1
+2. **Exposer les cles theme `er_diagram.*`** (bg, header_bg, border, text, pk, fk, line, line_hover) dans theme_bridge + themes JSON, et abonner scene/table_item/relationship_line a `ThemeBridge.theme_changed` pour refresh a chaud — 2j, P1
+3. **Documenter la regle** "pas de QColor/hex hardcode hors theme_bridge" dans DEVELOPMENT.md + pre-commit hook optionnel — 15min, P2
 
 **Prochaine etape majeure**: Phase 3 (Scripts & Jobs) — le modele est maintenant defini (cycle de vie pseudo→declare→valide→job, manifest type, hash SHA-256, import/export). C'est la fonctionnalite qui transforme l'outil d'un "explorateur de DB" en une "plateforme DATA complete".
 

@@ -34,11 +34,25 @@ class ZoomableGraphicsView(QGraphicsView):
     """QGraphicsView with mouse wheel zoom."""
 
     def wheelEvent(self, event: QWheelEvent):
-        factor = 1.15
-        if event.angleDelta().y() > 0:
-            self.scale(factor, factor)
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            factor = 1.15
+            if event.angleDelta().y() > 0:
+                self.scale(factor, factor)
+            else:
+                self.scale(1 / factor, 1 / factor)
+            event.accept()
         else:
-            self.scale(1 / factor, 1 / factor)
+            # Plain wheel → forward to scene (scrolls table columns or pans view)
+            super().wheelEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        scene = self.scene()
+        if scene is not None:
+            rect = scene.itemsBoundingRect()
+            if not rect.isEmpty():
+                self.fitInView(rect.adjusted(-50, -50, 50, 50),
+                               Qt.AspectRatioMode.KeepAspectRatio)
 
 
 class ERDiagramManager(QWidget):
@@ -55,9 +69,19 @@ class ERDiagramManager(QWidget):
         self._scene: Optional[ERDiagramScene] = None
         self._is_dark = True
         self._show_fk_names = False
+        self._show_column_types = True
 
         self._setup_ui()
         self._load_diagram_list()
+
+        from ..core.theme_bridge import ThemeBridge
+        ThemeBridge.get_instance().register_observer(self._on_theme_changed)
+
+    def _on_theme_changed(self, theme_colors: dict):
+        """Reload current diagram + refresh hover overlay to pick up new palette."""
+        self._apply_hover_label_style()
+        if self._current_diagram:
+            self._load_diagram(self._current_diagram.id)
 
     def set_database_manager(self, db_manager):
         """Set reference to DatabaseManager for connections and schema loading."""
@@ -74,11 +98,13 @@ class ERDiagramManager(QWidget):
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Add Tables", self._add_tables, icon="table")
         toolbar_builder.add_button("Save Positions", self._save_positions, icon="star")
+        toolbar_builder.add_button("Fit View", self._fit_view, icon="view")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Export PNG", self._export_png, icon="download")
         toolbar_builder.add_button("Export SVG", self._export_svg, icon="download")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("FK Names", self._toggle_fk_names, icon="view")
+        toolbar_builder.add_button("Column Types", self._toggle_column_types, icon="view")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Delete", self._delete_diagram, icon="delete")
 
@@ -112,6 +138,13 @@ class ERDiagramManager(QWidget):
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._view.setRenderHint(self._view.renderHints())
         self.splitter.addWidget(self._view)
+
+        # Hover popup overlay (centered top of view)
+        self._hover_label = QLabel(self._view)
+        self._apply_hover_label_style()
+        self._hover_label.setTextFormat(Qt.TextFormat.RichText)
+        self._hover_label.hide()
+        self._view.installEventFilter(self)
 
         self.splitter.setSizes([250, 750])
         self.splitter.setStretchFactor(0, 0)
@@ -250,6 +283,7 @@ class ERDiagramManager(QWidget):
             self._scene.auto_layout()
 
         self._view.setScene(self._scene)
+        self._scene.relation_hovered.connect(self._on_relation_hovered)
 
         # Restore zoom level or fit to view
         if diagram.zoom_level and diagram.zoom_level != 1.0 and has_positions:
@@ -258,6 +292,36 @@ class ERDiagramManager(QWidget):
         else:
             self._view.fitInView(self._scene.itemsBoundingRect().adjusted(-50, -50, 50, 50),
                                 Qt.AspectRatioMode.KeepAspectRatio)
+
+    def _apply_hover_label_style(self):
+        from ..core.theme_bridge import ThemeBridge
+        p = ThemeBridge.get_instance().get_er_diagram_colors()
+        self._hover_label.setStyleSheet(
+            f"background-color: {p['popup_bg']}; color: {p['popup_fg']};"
+            f" padding: 6px 12px; border-radius: 4px; border: 1px solid {p['popup_border']};"
+        )
+
+    def _on_relation_hovered(self, html: str):
+        """Show/hide hover popup for FK relationship at top-center of the view."""
+        if not html:
+            self._hover_label.hide()
+            return
+        self._hover_label.setText(html)
+        self._hover_label.adjustSize()
+        self._reposition_hover_label()
+        self._hover_label.show()
+        self._hover_label.raise_()
+
+    def _reposition_hover_label(self):
+        view_w = self._view.viewport().width()
+        x = max(0, (view_w - self._hover_label.width()) // 2)
+        self._hover_label.move(x, 8)
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if obj is self._view and event.type() == QEvent.Type.Resize and self._hover_label.isVisible():
+            self._reposition_hover_label()
+        return super().eventFilter(obj, event)
 
     def _on_table_moved(self, table_name: str, x: float, y: float):
         """Track table position changes (for save)."""
@@ -389,11 +453,14 @@ class ERDiagramManager(QWidget):
 
         try:
             loader = SchemaLoaderFactory.create(
-                db_conn.db_type, conn, db_conn.id, db_conn.name
+                db_conn.db_type, conn, db_conn.id, self._current_diagram.database_name or db_conn.name
             )
-            tables = loader.load_tables()
+            target_database = self._current_diagram.database_name or None
+            tables = loader.load_tables(target_database) if target_database else loader.load_tables()
             available = [t.metadata.get('table', t.name) for t in tables]
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to load tables for Add Tables dialog: {e}")
+            DialogHelper.error(f"Cannot load tables: {e}", parent=self)
             return
 
         already = self._current_diagram.get_table_names()
@@ -431,12 +498,29 @@ class ERDiagramManager(QWidget):
         config_db.save_er_diagram(self._current_diagram)
         DialogHelper.info("Diagram saved.", parent=self)
 
+    def _fit_view(self):
+        """Center and zoom to show all tables within the viewport."""
+        if not self._scene:
+            return
+        rect = self._scene.itemsBoundingRect()
+        if rect.isEmpty():
+            return
+        self._view.fitInView(rect.adjusted(-50, -50, 50, 50),
+                             Qt.AspectRatioMode.KeepAspectRatio)
+
     def _toggle_fk_names(self):
         """Toggle FK name labels on/off."""
         if not self._scene:
             return
         self._show_fk_names = not self._show_fk_names
         self._scene.set_show_fk_names(self._show_fk_names)
+
+    def _toggle_column_types(self):
+        """Toggle display of column types in tables (compact vs detailed)."""
+        if not self._scene:
+            return
+        self._show_column_types = not self._show_column_types
+        self._scene.set_show_column_types(self._show_column_types)
 
     def _export_png(self):
         """Export diagram to PNG."""

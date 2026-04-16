@@ -25,7 +25,7 @@ from ..utils.tree_helpers import (
 )
 from ...database.config_db import get_config_db, Workspace, Script
 from ...database.models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase
-from ...utils.image_loader import get_icon, get_database_icon, get_database_icon_with_dot, get_auto_color
+from ...utils.image_loader import get_icon, get_database_icon, get_database_icon_with_dot, get_auto_color, get_accent_color
 from ..utils.tree_item_builders import (
     get_database_display_icon, get_database_display_name,
     get_rootfolder_display_icon,
@@ -615,10 +615,14 @@ class WorkspaceManager(QWidget):
     def _create_category_item(self, parent: QTreeWidgetItem, name: str, icon_name: str, count: int) -> QTreeWidgetItem:
         """Create a category grouping item under a workspace."""
         cat_item = QTreeWidgetItem(parent)
-        icon = get_icon(icon_name, size=16)
+        icon = get_icon(icon_name, size=20)
         if icon:
             cat_item.setIcon(0, icon)
         cat_item.setText(0, f"{name} ({count})")
+        font = cat_item.font(0)
+        font.setBold(True)
+        font.setPointSize(font.pointSize() + 1)
+        cat_item.setFont(0, font)
         cat_item.setData(0, Qt.ItemDataRole.UserRole, {
             "type": "resource_category",
             "name": name

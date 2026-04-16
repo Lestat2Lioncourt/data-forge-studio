@@ -284,6 +284,23 @@ def _on_theme_changed(self, theme_colors: dict):
     pass
 ```
 
+### 5.2 Rule — No hardcoded colors
+
+**Forbidden** outside of `theme_bridge.py` and theme JSON files :
+- `QColor("#xxxxxx")` with a literal hex
+- `setStyleSheet("color: #xxxxxx")` or `"background-color: #xxxxxx"`
+- Any literal hex color in custom `paint()` methods
+
+**Required** : every color must come from a theme key. If the key doesn't exist yet, add it first to `themes.json` (both dark/light variants) and use `theme_colors.get("my_key")`.
+
+**Rationale** : hardcoded colors break theme switching and block future theme workshops. They are the single biggest source of UX regressions flagged in audit criterion #12.
+
+**Checklist for new visual components** :
+1. Declare your color keys in `themes.json` (ideally grouped by component prefix, e.g. `er_diagram_*`, `log_*`).
+2. Read them via `ThemeBridge.get_instance().get_theme_colors()`.
+3. Subscribe to `theme_changed` (observer pattern) and refresh on change.
+4. Never use `if is_dark: ... else: ...` branches for colors — the theme already encodes the distinction.
+
 ---
 
 ## 6. Workspace Integration

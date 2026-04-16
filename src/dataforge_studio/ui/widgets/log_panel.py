@@ -49,18 +49,9 @@ class LogPanel(QWidget):
         try:
             from ..core.theme_bridge import ThemeBridge
             theme = ThemeBridge.get_instance()
+            self.colors = {k: QColor(v) for k, v in theme.get_log_level_colors().items()}
+
             theme_colors = theme.get_theme_colors()
-
-            # Map log levels to theme colors
-            self.colors = {
-                "INFO": QColor(theme_colors.get("log_info", "#3498db")),
-                "WARNING": QColor(theme_colors.get("log_warning", "#f39c12")),
-                "ERROR": QColor(theme_colors.get("log_error", "#e74c3c")),
-                "IMPORTANT": QColor(theme_colors.get("log_important", "#9b59b6")),
-                "DEBUG": QColor(theme_colors.get("log_debug", "#808080"))
-            }
-
-            # Apply background from log_bg theme color
             log_bg = theme_colors.get("log_bg", "#2d2d2d")
             log_fg = theme_colors.get("normal_fg", "#ffffff")
             self.log_text.setStyleSheet(f"""
@@ -73,15 +64,9 @@ class LogPanel(QWidget):
                 }}
             """)
 
-        except Exception as e:
-            # Fallback to default colors if theme not available
-            self.colors = {
-                "INFO": QColor("#3498db"),
-                "WARNING": QColor("#f39c12"),
-                "ERROR": QColor("#e74c3c"),
-                "IMPORTANT": QColor("#9b59b6"),
-                "DEBUG": QColor("#808080")
-            }
+        except Exception:
+            from ..core.theme_bridge import ThemeBridge
+            self.colors = {k: QColor(v) for k, v in ThemeBridge._LOG_LEVEL_DEFAULTS.items()}
 
     def _register_theme_observer(self):
         """Register as observer for theme changes."""

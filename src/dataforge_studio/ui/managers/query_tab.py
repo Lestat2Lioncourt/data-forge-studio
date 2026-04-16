@@ -300,7 +300,7 @@ class QueryTab(
         self.format_btn.clicked.connect(self._run_format)
         self.format_btn.setFixedSize(40, 28)
         # Load themed Format icon
-        format_icon_path = self._get_themed_icon("Format.png")
+        format_icon_path = self._get_themed_icon("format.png")
         if format_icon_path:
             self.format_btn.setIcon(QIcon(str(format_icon_path)))
         else:

@@ -257,6 +257,81 @@ class ThemeBridge(BaseThemeManager):
 
         return colors
 
+    # Default log level colors — single source of truth.
+    # Overridable per theme via keys log_{level}_fg.
+    _LOG_LEVEL_DEFAULTS = {
+        "DEBUG": "#888888",
+        "INFO": "#ffffff",
+        "WARNING": "#ffa500",
+        "ERROR": "#ff4444",
+        "CRITICAL": "#ff4444",
+        "SUCCESS": "#4ade80",
+        "IMPORTANT": "#9b59b6",
+    }
+
+    # Default ER diagram colors — single source of truth.
+    # Overridable per theme via keys er_diagram_{suffix} (dark & light variants).
+    _ER_DIAGRAM_DEFAULTS_DARK = {
+        "bg": "#2d2d2d",
+        "header_bg": "#0078d4",
+        "header_fg": "#ffffff",
+        "border": "#555555",
+        "text": "#cccccc",
+        "type": "#808080",
+        "pk": "#ffd700",
+        "fk": "#00bcd4",
+        "line": "#ff9800",
+        "line_hover": "#ffcc02",
+        "scene_bg": "#1e1e1e",
+        "popup_bg": "rgba(30, 30, 30, 220)",
+        "popup_fg": "#e0e0e0",
+        "popup_border": "#555555",
+        "popup_dim": "#888888",
+    }
+    _ER_DIAGRAM_DEFAULTS_LIGHT = {
+        "bg": "#ffffff",
+        "header_bg": "#0078d4",
+        "header_fg": "#ffffff",
+        "border": "#cccccc",
+        "text": "#333333",
+        "type": "#888888",
+        "pk": "#b8860b",
+        "fk": "#00838f",
+        "line": "#ff9800",
+        "line_hover": "#e69500",
+        "scene_bg": "#f5f5f5",
+        "popup_bg": "rgba(250, 250, 250, 230)",
+        "popup_fg": "#1a1a1a",
+        "popup_border": "#cccccc",
+        "popup_dim": "#666666",
+    }
+
+    def get_er_diagram_colors(self) -> Dict[str, str]:
+        """
+        Return the ER diagram color palette for the current theme.
+        Keys: bg, header_bg, header_fg, border, text, type, pk, fk,
+              line, line_hover, scene_bg, popup_bg, popup_fg, popup_border, popup_dim.
+        Each theme may override via keys er_diagram_{suffix}.
+        """
+        colors = self.get_theme_colors()
+        is_dark = colors.get("is_dark", True)
+        defaults = self._ER_DIAGRAM_DEFAULTS_DARK if is_dark else self._ER_DIAGRAM_DEFAULTS_LIGHT
+        return {
+            key: colors.get(f"er_diagram_{key}", default)
+            for key, default in defaults.items()
+        }
+
+    def get_log_level_colors(self) -> Dict[str, str]:
+        """
+        Return {LEVEL: hex_color} for all log levels, using current theme.
+        Single source of truth — replaces duplicated dicts in log viewers.
+        """
+        colors = self.get_theme_colors()
+        return {
+            level: colors.get(f"log_{level.lower()}_fg", default)
+            for level, default in self._LOG_LEVEL_DEFAULTS.items()
+        }
+
     # ==================== NEW THEME SYSTEM (v2) API ====================
 
     def get_palettes(self) -> Dict[str, Palette]:

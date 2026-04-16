@@ -1,9 +1,9 @@
-# DataForge Studio v0.6.10 🚀
+# DataForge Studio v0.6.11 🚀
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.10+-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.10-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.11-orange.svg)](CHANGELOG.md)
 
 **Multi-Datasource management tool with modern PySide6 interface**
 
@@ -384,6 +384,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **sqlparse** - SQL formatting library
 
 ## 📜 Changelog
+
+### v0.6.11 (2026-04-16) - ER Diagrams polish, Theme centralization
+
+- ER Diagrams: hover popup (top-centered, themed), FK relation line colors via theme, auto fit-to-view on window resize, "Fit View" toolbar button, "Column Types" toggle, Ctrl+wheel zoom (plain wheel = pan/column scroll)
+- Row count label: refresh on background batch load, unified color with query status label
+- Icons: red "?" fallback for missing SVG, startup audit (`icon_audit.py`), SVG recoloring moved in-memory (no more light/dark disk cache)
+- ER diagram table sizing: content-driven width (no more upper cap), explicit widget resize before proxy wrap (no more oversized enveloppe)
+- Log level colors: centralized `ThemeBridge.get_log_level_colors()` removes triplicated palette from `log_panel`, `file_viewer_widget`, `file_content_handler`
+- ER diagrams fully themable: `get_er_diagram_colors()` + `theme_changed` observer → all palettes swap on theme switch
+- `docs/PATTERNS.md` §5.2: new rule forbidding hardcoded colors outside `theme_bridge.py`
+- Fix: `Format.png/svg` renamed lowercase; `add2`, `Refresh` icons cleaned / renamed
 
 ### v0.6.10 (2026-04-08) - ER Diagrams, Shared Workspaces, Corporate Proxy
 - Interactive ER Diagrams (tables, FK lines, drag, zoom, save, export PNG/SVG)

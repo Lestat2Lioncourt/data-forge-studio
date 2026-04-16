@@ -351,30 +351,13 @@ class FileContentHandler:
         self._update_file_details(file_path)
 
     def _get_log_colors(self) -> dict:
-        """Get themed colors for log levels."""
+        """Get themed colors for log levels (delegated to ThemeBridge)."""
         try:
             from ...core.theme_bridge import ThemeBridge
-            theme = ThemeBridge.get_instance()
-            theme_colors = theme.get_theme_colors()
-
-            return {
-                "DEBUG": QColor(theme_colors.get("log_debug_fg", "#888888")),
-                "INFO": QColor(theme_colors.get("log_info_fg", "#ffffff")),
-                "WARNING": QColor(theme_colors.get("log_warning_fg", "#ffa500")),
-                "ERROR": QColor(theme_colors.get("log_error_fg", "#ff4444")),
-                "CRITICAL": QColor(theme_colors.get("log_error_fg", "#ff4444")),
-                "SUCCESS": QColor(theme_colors.get("log_success_fg", "#4ade80")),
-            }
+            return {k: QColor(v) for k, v in ThemeBridge.get_instance().get_log_level_colors().items()}
         except Exception:
-            # Fallback colors
-            return {
-                "DEBUG": QColor("#888888"),
-                "INFO": QColor("#ffffff"),
-                "WARNING": QColor("#ffa500"),
-                "ERROR": QColor("#ff4444"),
-                "CRITICAL": QColor("#ff4444"),
-                "SUCCESS": QColor("#4ade80"),
-            }
+            from ...core.theme_bridge import ThemeBridge
+            return {k: QColor(v) for k, v in ThemeBridge._LOG_LEVEL_DEFAULTS.items()}
 
     def _update_file_details(self, file_path: Path):
         """Update the details panel with file info including encoding."""

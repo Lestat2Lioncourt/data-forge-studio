@@ -29,6 +29,9 @@ class ERDiagramScene(QGraphicsScene):
     # Signal emitted when a table position changes (for auto-save)
     table_moved = Signal(str, float, float)  # table_name, x, y
 
+    # Signal emitted when a relationship is hovered (HTML text, "" to hide)
+    relation_hovered = Signal(str)
+
     def __init__(self, is_dark: bool = True, parent=None):
         super().__init__(parent)
         self.is_dark = is_dark
@@ -38,8 +41,9 @@ class ERDiagramScene(QGraphicsScene):
         self._relationship_lines: List[ERRelationshipLine] = []
 
         # Background
-        bg = QColor("#1e1e1e") if is_dark else QColor("#f5f5f5")
-        self.setBackgroundBrush(bg)
+        from ...core.theme_bridge import ThemeBridge
+        palette = ThemeBridge.get_instance().get_er_diagram_colors()
+        self.setBackgroundBrush(QColor(palette["scene_bg"]))
 
     def add_table(self, table_name: str, columns: List[Dict],
                   pk_columns: List[str], fk_columns: List[str],
@@ -169,6 +173,11 @@ class ERDiagramScene(QGraphicsScene):
         """Show or hide FK names on all relationship lines."""
         for line in self._relationship_lines:
             line.set_show_label(show)
+
+    def set_show_column_types(self, show: bool):
+        """Show or hide column types in all tables."""
+        for item in self._table_items.values():
+            item.set_show_types(show)
 
     def clear_all(self):
         """Remove all items from the scene."""

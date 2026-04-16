@@ -27,6 +27,7 @@ class ImageLoader:
     # Theme state
     _is_dark_theme: bool = True
     _icon_color: str = "#e0e0e0"  # Default for dark theme
+    _accent_color: str = "#0078d7"
     _theme_initialized: bool = False
 
     def __init__(self):
@@ -59,6 +60,9 @@ class ImageLoader:
         cls._icon_color = theme_colors.get(
             'icon_color',
             theme_colors.get('frame_fg', theme_colors.get('text_primary', '#e0e0e0'))
+        )
+        cls._accent_color = theme_colors.get(
+            'accent', theme_colors.get('Accent', cls._accent_color)
         )
         cls._theme_initialized = True
         # Clear cache to force reload with new colors
@@ -104,7 +108,8 @@ class ImageLoader:
         return None
 
     def get_pixmap(self, image_name: str, width: Optional[int] = None,
-                   height: Optional[int] = None) -> Optional[QPixmap]:
+                   height: Optional[int] = None,
+                   color: Optional[str] = None) -> Optional[QPixmap]:
         """
         Get a QPixmap for an image, optionally scaled.
 
@@ -112,13 +117,14 @@ class ImageLoader:
             image_name: Name of the image file
             width: Target width (optional)
             height: Target height (optional)
+            color: Override icon color (hex). For themable SVGs only; ignored otherwise.
 
         Returns:
             QPixmap object, or None if image not found
         """
         # Include theme variant in cache key
         theme_key = "dark" if self._is_dark_theme else "light"
-        cache_key = f"{image_name}_{width}_{height}_{theme_key}"
+        cache_key = f"{image_name}_{width}_{height}_{theme_key}_{color or ''}"
 
         # Check cache
         if cache_key in self._images_cache:
@@ -132,7 +138,22 @@ class ImageLoader:
         # SVG: render at exact size via QSvgRenderer (crisp, no scaling artifacts)
         if str(image_path).endswith('.svg'):
             from PySide6.QtSvg import QSvgRenderer
-            renderer = QSvgRenderer(str(image_path))
+            # Recolor in memory if SVG is a themable base/ icon (skip missing.svg + legacy)
+            is_base_themable = (
+                image_path.parent == self.icons_dir / "base"
+                and image_path.name != "missing.svg"
+            )
+            if is_base_themable:
+                target_color = color or self._icon_color
+                content = image_path.read_text(encoding='utf-8')
+                content = content.replace('fill="#000000"', f'fill="{target_color}"')
+                content = content.replace("fill='#000000'", f"fill='{target_color}'")
+                content = content.replace('stroke="#000000"', f'stroke="{target_color}"')
+                content = content.replace("stroke='#000000'", f"stroke='{target_color}'")
+                from PySide6.QtCore import QByteArray
+                renderer = QSvgRenderer(QByteArray(content.encode('utf-8')))
+            else:
+                renderer = QSvgRenderer(str(image_path))
             if not renderer.isValid():
                 logger.warning(f"Invalid SVG file: {image_path}")
                 return None
@@ -176,18 +197,20 @@ class ImageLoader:
 
         return pixmap
 
-    def get_icon(self, image_name: str, size: int = 24) -> Optional[QIcon]:
+    def get_icon(self, image_name: str, size: int = 24,
+                 color: Optional[str] = None) -> Optional[QIcon]:
         """
         Get a QIcon for an image.
 
         Args:
             image_name: Name of the image file
             size: Icon size in pixels (default: 24)
+            color: Override icon color (hex). For themable SVGs only.
 
         Returns:
             QIcon object, or None if image not found
         """
-        pixmap = self.get_pixmap(image_name, width=size, height=size)
+        pixmap = self.get_pixmap(image_name, width=size, height=size, color=color)
 
         if pixmap:
             return QIcon(pixmap)
@@ -212,14 +235,19 @@ def get_image_path(image_name: str) -> Optional[Path]:
 
 
 def get_pixmap(image_name: str, width: Optional[int] = None,
-               height: Optional[int] = None) -> Optional[QPixmap]:
+               height: Optional[int] = None, color: Optional[str] = None) -> Optional[QPixmap]:
     """Get a QPixmap for an image."""
-    return get_image_loader().get_pixmap(image_name, width, height)
+    return get_image_loader().get_pixmap(image_name, width, height, color=color)
 
 
-def get_icon(image_name: str, size: int = 24) -> Optional[QIcon]:
+def get_icon(image_name: str, size: int = 24, color: Optional[str] = None) -> Optional[QIcon]:
     """Get a QIcon for an image."""
-    return get_image_loader().get_icon(image_name, size)
+    return get_image_loader().get_icon(image_name, size, color=color)
+
+
+def get_accent_color() -> str:
+    """Return the current theme's accent color (hex)."""
+    return ImageLoader._accent_color
 
 
 # ==================== Connection Color Utilities ====================

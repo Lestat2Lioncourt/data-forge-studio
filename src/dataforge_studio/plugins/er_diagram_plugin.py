@@ -17,7 +17,7 @@ class ERDiagramPlugin(BasePlugin):
             id="er_diagram",
             name="ER Diagrams",
             description="Interactive Entity-Relationship diagrams with FK visualization",
-            icon="tables.png",
+            icon="diagram.png",
             category=PluginCategory.RESOURCE,
             order=15,  # After database (10)
             show_in_sidebar=True,

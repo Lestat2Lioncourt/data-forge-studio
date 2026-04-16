@@ -263,6 +263,8 @@ def recolor_svg_icon(icon_name: str, target_color: str, theme_variant: str) -> O
         svg_content = base_path.read_text(encoding='utf-8')
         recolored = svg_content.replace('fill="#000000"', f'fill="{target_color}"')
         recolored = recolored.replace("fill='#000000'", f"fill='{target_color}'")
+        recolored = recolored.replace('stroke="#000000"', f'stroke="{target_color}"')
+        recolored = recolored.replace("stroke='#000000'", f"stroke='{target_color}'")
 
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path.write_text(recolored, encoding='utf-8')
@@ -309,28 +311,21 @@ def get_themed_icon_path(icon_name: str, is_dark_theme: bool, icon_color: str) -
         Path to the icon file (themed, generated, or fallback)
     """
     base_name = Path(icon_name).stem
-    theme_variant = "dark" if is_dark_theme else "light"
 
-    # 1. Try SVG first (preferred — no PIL dependency, scalable)
+    # 1. Try SVG in base/ — recolorisation runtime in image_loader (no disk cache)
     svg_base = ICONS_PATH / "base" / f"{base_name}.svg"
     if svg_base.exists():
-        themed_path = recolor_svg_icon(f"{base_name}.svg", icon_color, theme_variant)
-        if themed_path:
-            _generate_other_variant(f"{base_name}.svg", is_dark_theme, recolor_svg_icon)
-            return themed_path
+        return str(svg_base)
 
-    # 2. Fallback PNG in base/ (transition period)
-    png_base = ICONS_PATH / "base" / f"{base_name}.png"
-    if png_base.exists():
-        themed_path = recolor_icon(f"{base_name}.png", icon_color, theme_variant)
-        if themed_path:
-            _generate_other_variant(f"{base_name}.png", is_dark_theme, recolor_icon)
-            return themed_path
-
-    # 3. Fallback legacy images/
+    # 2. Fallback legacy images/ (DB logos, colored assets — not recolored)
     for ext in ('.svg', '.png'):
         legacy_path = ASSETS_PATH / f"{base_name}{ext}"
         if legacy_path.exists():
             return str(legacy_path)
+
+    # 3. Missing icon: return red "?" placeholder so the gap is visible
+    missing = ICONS_PATH / "base" / "missing.svg"
+    if missing.exists():
+        return str(missing)
 
     return None

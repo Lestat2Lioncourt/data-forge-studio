@@ -45,10 +45,6 @@ htmlcov/
 # Data files (not in repo)
 data/
 
-# Themed icon caches (generated at runtime)
-src/dataforge_studio/ui/assets/icons/dark/
-src/dataforge_studio/ui/assets/icons/light/
-
 # Generated documentation site
 docs/site/
 
