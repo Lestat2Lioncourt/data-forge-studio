@@ -1,6 +1,6 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.11
+**Version**: 0.6.12
 **Objectif**: POC v0.9.xx / Production v1.0
 **Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audits #6, #7 & #8)
 
@@ -700,7 +700,9 @@ Avril 2026
 |-- Audit #8 (8.4/10, -0.2) — introduction critere #12 theme conformity, revele 54 QColor/111 styles hardcodes, regression UX/Qualite/Maintenabilite
 |-- Centralization palette log (ThemeBridge.get_log_level_colors) + palette ER diagram (get_er_diagram_colors) + theme_changed observer
 |-- ER diagrams polish: hover popup themable, Ctrl+wheel zoom, Fit View button, Column Types toggle, content-driven table width
-|-- v0.6.11 (actuel)
+|-- v0.6.11
+|-- Fix: bootstrap theme defaults on fresh installs (palettes/dispositions/themes combos empty)
+|-- v0.6.12 (actuel)
 ```
 
 ### Projection (estimee)
@@ -735,7 +737,7 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.11.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.12.
 
 **Score global (audit #8): 8.4/10** (-0.2 vs audit #7) — Progression fonctionnelle forte (ER Diagrams aboutis, workspace partage EVO-4, refactor icones SVG-only) mais introduction du critere #12 (conformite au theme) revele une dette visuelle: 54 `QColor("#...")`, 34 `background-color: #`, 77 `color: #` hardcodes dans le code. Les nouveaux composants custom-paint (ER Diagram) ne passent pas par `theme_bridge` et ne se reabonnent pas a `theme_changed`. Trois palettes de log sont triplees a l'identique (log_panel, file_viewer_widget, file_content_handler).
 

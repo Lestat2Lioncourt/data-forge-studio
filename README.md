@@ -1,9 +1,9 @@
-# DataForge Studio v0.6.11 🚀
+# DataForge Studio v0.6.12 🚀
 
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PySide6](https://img.shields.io/badge/PySide6-6.10+-green.svg)](https://pypi.org/project/PySide6/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.11-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.12-orange.svg)](CHANGELOG.md)
 
 **Multi-Datasource management tool with modern PySide6 interface**
 
@@ -384,6 +384,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **sqlparse** - SQL formatting library
 
 ## 📜 Changelog
+
+### v0.6.12 (2026-04-16) - Fix: Ship theme defaults
+
+- Fix: empty theme combo on fresh installs (palettes/dispositions/themes folder was gitignored and never populated). Now ships 3 palettes, 1 disposition, 3 themes as bundled defaults. ThemeBridge bootstraps them into `_AppConfig/` on first launch if missing.
 
 ### v0.6.11 (2026-04-16) - ER Diagrams polish, Theme centralization
 
