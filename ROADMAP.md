@@ -26,26 +26,24 @@
 
 ### Critere #12 (nouveau) - Conformite au theme
 
-**54 occurrences de `QColor("#...")` dans 13 fichiers**, **34 `background-color: #`**, **77 `color: #`**.
+**54 occurrences de `QColor("#...")` dans 13 fichiers**, **34 `background-color: #`**, **77 `color: #`** à l'audit #8. Après v0.6.11, les blocs les plus critiques (palette log + ER diagrams) ont été resolus.
 
-**Fichiers contrevenants les plus problematiques** :
+**Statut des fichiers contrevenants** :
 
-| Fichier | Lignes concernees | Nature des couleurs | Impact |
-|---------|-------------------|---------------------|--------|
-| `ui/managers/er_diagram/table_item.py` | 37-51, 207, 214 | bg, header_bg, border, text, pk/fk/type color | Tables ER ne suivent pas le theme custom (seul dark/light branche via `if is_dark`) |
-| `ui/managers/er_diagram/relationship_line.py` | 24-25, 66-67, 114, 237-239 | FK line color, hover color, PK/FK text colors | Lignes FK hardcodees orange `#ff9800` / `#ffcc02`, non themables |
-| `ui/managers/er_diagram/scene.py` | 44 | background `#1e1e1e`/`#f5f5f5` | Scene bg bifurcation binaire dark/light au lieu de cle theme |
-| `ui/widgets/log_panel.py` | 79-83 | Couleurs niveaux log (INFO/WARNING/ERROR/IMPORTANT/DEBUG) | Non themable, lisibilite variable selon theme custom |
-| `ui/widgets/file_viewer_widget.py` | 517-522 | Idem (DEBUG/INFO/WARNING/ERROR/CRITICAL/SUCCESS) | Duplication avec log_panel + content_handlers/file_content_handler |
-| `ui/managers/content_handlers/file_content_handler.py` | 371-376 | Idem (meme palette) | **Triplicata** avec log_panel + file_viewer_widget |
-| `ui/core/splash_screen.py` | 69-251 (22 occurrences) | Splash screen complet | Acceptable (pre-theme init) mais non coherent si theme charge |
-| `ui/widgets/theme_preview.py` | 184, 186, 364 | Preview boutons fenetre | Acceptable (preview doit montrer palette fixe) |
-| `ui/widgets/color_property_row.py` | 87-88 | Icone gold `#FFD700` | Icone decorative acceptable |
-| `ui/managers/database/crud_mixin.py` / `base_connection_dialog.py` / `edit_dialogs.py` / `color_palette.py` | defaut `#3498db` / `#808080` | Color picker default | Acceptable (fallback user color) |
+| Fichier | Nature | Statut v0.6.11 |
+|---------|--------|----------------|
+| `ui/managers/er_diagram/table_item.py` | bg, header_bg, border, text, pk/fk/type | ✅ **Resolu** — `get_er_diagram_colors()` |
+| `ui/managers/er_diagram/relationship_line.py` | FK line + hover + PK/FK text | ✅ **Resolu** — palette centrale |
+| `ui/managers/er_diagram/scene.py` | scene_bg | ✅ **Resolu** — palette centrale |
+| `ui/widgets/log_panel.py` | INFO/WARNING/ERROR/IMPORTANT/DEBUG | ✅ **Resolu** — `get_log_level_colors()` |
+| `ui/widgets/file_viewer_widget.py` | DEBUG/INFO/WARNING/ERROR/CRITICAL/SUCCESS | ✅ **Resolu** — `get_log_level_colors()` |
+| `ui/managers/content_handlers/file_content_handler.py` | palette log triplicata | ✅ **Resolu** — `get_log_level_colors()` |
+| `ui/core/splash_screen.py` | 22 occ. pre-theme init | Acceptable (pre-init theme) |
+| `ui/widgets/theme_preview.py` | Preview boutons fenetre | Acceptable (preview fige) |
+| `ui/widgets/color_property_row.py` | Icone gold `#FFD700` | Acceptable (decoratif) |
+| `ui/managers/database/crud_mixin.py` / `base_connection_dialog.py` / `edit_dialogs.py` / `color_palette.py` | Color picker default | Acceptable (fallback utilisateur) |
 
-**Pattern systemique** : les 3 palettes de log (log_panel, file_viewer_widget, file_content_handler) sont **triplees a l'identique** et devraient vivre dans `theme_bridge.get_log_level_colors()`.
-
-**Nouveaux composants sans `is_dark` / reabonnement `ThemeBridge`** : `er_diagram/scene.py` et `er_diagram/table_item.py` recoivent `is_dark` via constructeur mais ne se reabonnent pas a `ThemeBridge.theme_changed` — changement de theme a chaud ne met pas a jour le diagramme ouvert.
+**Apres v0.6.11** : composants ER diagram s'abonnent a `ThemeBridge.theme_changed` (via `er_diagram_manager._on_theme_changed`), changement de theme a chaud rafraichit les diagrammes ouverts. Le re-scan exhaustif des `QColor` residuels reste à planifier (P1.5 — estimation 1-2j).
 
 ### Historique des scores
 
@@ -64,12 +62,15 @@
 
 ### Plan de correctifs #12 (prioritaires)
 
-| Action | Fichiers | Effort | Priorite |
-|--------|----------|--------|----------|
-| Centraliser palette log dans `theme_bridge.get_log_level_colors()` | log_panel, file_viewer_widget, file_content_handler | 0.5j | P1 |
-| Abonner ER Diagram a `ThemeBridge.theme_changed` | er_diagram/scene.py, table_item.py, relationship_line.py | 1j | P1 |
-| Exposer cles theme `er_diagram.*` (bg, header_bg, border, text, pk, fk, line, line_hover) | theme_bridge + themes JSON + les 3 fichiers er_diagram | 1j | P1 |
-| Documenter la regle "pas de QColor/hex hardcode hors theme_bridge" | docs/DEVELOPMENT.md | 15min | P2 |
+| Action | Fichiers | Effort | Priorite | Statut |
+|--------|----------|--------|----------|--------|
+| Centraliser palette log dans `theme_bridge.get_log_level_colors()` | log_panel, file_viewer_widget, file_content_handler | 0.5j | P1 | ✅ **Done (v0.6.11)** |
+| Abonner ER Diagram a `ThemeBridge.theme_changed` | er_diagram_manager.py | 1j | P1 | ✅ **Done (v0.6.11)** |
+| Exposer cles theme `er_diagram.*` via `get_er_diagram_colors()` | theme_bridge + er_diagram/* + er_diagram_manager | 1j | P1 | ✅ **Done (v0.6.11)** via defaults (themes JSON peut override) |
+| Documenter la regle "pas de QColor/hex hardcode hors theme_bridge" | docs/PATTERNS.md §5.2 | 15min | P2 | ✅ **Done (v0.6.11)** |
+| Ajouter clefs `er_diagram_*` dans themes.json (override possible) | `templates/window/themes.json` | 1h | P2 | À faire |
+| Auditer les `QColor("#xxx")` restants (54 occ. audit #8) dans autres composants | `src/dataforge_studio/` | 1-2j | P2 | À faire |
+| Enrichir l'audit automatique: scanner `setStyleSheet` avec couleurs | script d'audit | 2h | P3 | À faire |
 
 ---
 
@@ -121,6 +122,8 @@
    - Architecture Palette/Disposition separee
    - Themes personnalisables via JSON
    - Generation QSS dynamique
+   - *(v0.6.11)* Palettes log et ER diagram centralisees dans ThemeBridge, reactives a `theme_changed`
+   - *(v0.6.11)* Regle anti-hardcode documentee dans `docs/PATTERNS.md` §5.2
 
 3. **Support multi-base de donnees**
    - 5 dialects implementes (SQLite, PostgreSQL, SQL Server, MySQL, Access)
@@ -200,6 +203,12 @@
 
 13. ~~**query_tab.py reste volumineux**~~ **CORRIGE (audit #4)** — 2061→417L, 6 mixins dans query/ subpackage
 
+14. **Conformite theme a acheverau scan global** *(audit #8, critere #12 — partiellement corrige en v0.6.11)*
+    - ✅ Palettes log (3 consumers) : centralisees
+    - ✅ Palette ER diagram (4 fichiers) : centralisee + `theme_changed` observer
+    - ⚠️ Reste a auditer ~40 occurrences de `QColor("#...")` dans divers composants (P1.5)
+    - ⚠️ `themes.json` : ajouter les cles `er_diagram_*` pour permettre l'override par theme (actuellement seules les defaults dark/light sont utilisees)
+
 ---
 
 ## Risques Identifies
@@ -256,6 +265,9 @@
 | Supprimer deps inutilisees | pyproject.toml | 10min | **Done** |
 | Fixer test_theme_patch.py | tests/test_theme_patch.py | 15min | **Done** |
 | Ajouter cleanup aux managers | workspace, image_library, queries, scripts, settings | 1j | **Done** |
+| ~~Centraliser palette log (audit #12)~~ | ~~theme_bridge, 3 consumers~~ | ~~0.5j~~ | **Done** (v0.6.11) |
+| ~~Centraliser palette ER diagram + theme_changed observer~~ | ~~theme_bridge, er_diagram/*, manager~~ | ~~2j~~ | **Done** (v0.6.11) |
+| Balayer les `QColor("#xxx")` hardcodes residuels (54 occ. audit #8) | divers ui/ | 1-2j | **Todo** (P1.5) |
 
 ### P1.5 - Important (v1.0)
 
