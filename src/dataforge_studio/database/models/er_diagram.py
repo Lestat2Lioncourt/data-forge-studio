@@ -52,6 +52,7 @@ class ERDiagram:
     database_name: str = ""
     description: str = ""
     zoom_level: float = 1.0
+    show_column_types: bool = True
     tables: List[ERDiagramTable] = field(default_factory=list)
     fk_midpoints: List[ERDiagramFKMidpoint] = field(default_factory=list)
     created_at: str = ""

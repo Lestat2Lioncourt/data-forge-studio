@@ -45,6 +45,7 @@ class DataForgeMainWindow:
         self._last_resource_view = "database"  # Track last resource view for "Resources" menu
         self._current_workspace_id: Optional[str] = None  # Active workspace filter
         self._pending_update = False  # Flag for update on quit
+        self._pending_update_relaunch = False  # Also relaunch app after update
 
         # Setup UI
         self._setup_menu_bar()
@@ -476,6 +477,7 @@ class DataForgeMainWindow:
 
             # Add custom buttons
             btn_update_quit = msg.addButton(tr("update_on_quit"), QMessageBox.ButtonRole.AcceptRole)
+            btn_update_relaunch = msg.addButton(tr("update_and_relaunch"), QMessageBox.ButtonRole.AcceptRole)
             btn_open = msg.addButton(tr("open_github"), QMessageBox.ButtonRole.ActionRole)
             btn_later = msg.addButton(tr("remind_later"), QMessageBox.ButtonRole.RejectRole)
 
@@ -485,6 +487,12 @@ class DataForgeMainWindow:
             if clicked == btn_update_quit:
                 self._pending_update = True
                 self.window.status_bar.set_message(tr("status_update_on_quit"))
+            elif clicked == btn_update_relaunch:
+                self._pending_update = True
+                self._pending_update_relaunch = True
+                self.window.status_bar.set_message(tr("status_update_on_quit"))
+                # Close the window now — update runs, app restarts automatically
+                self.window.close()
             elif clicked == btn_open:
                 QDesktopServices.openUrl(QUrl(url))
             else:
@@ -936,6 +944,20 @@ class DataForgeMainWindow:
         if sys.platform == 'win32':
             # Windows: use a .bat script to avoid nested quote issues in cmd /k
             bat_path = project_root / '_update.bat'
+            if self._pending_update_relaunch:
+                end_success = (
+                    'echo.\n'
+                    'echo Update complete! Relaunching DataForge Studio...\n'
+                    'start "" /b cmd /c uv run python run.py\n'
+                    '(del "%~f0") & exit /b 0'
+                )
+            else:
+                end_success = (
+                    'echo.\n'
+                    'echo Update complete! Press any key to close.\n'
+                    'pause\n'
+                    '(del "%~f0") & exit /b 0'
+                )
             bat_content = f'''@echo off
 cd /d "{project_root}"
 echo Updating DataForge Studio...
@@ -947,10 +969,7 @@ git pull origin main
 if errorlevel 1 goto :failed
 uv sync
 if errorlevel 1 goto :failed
-echo.
-echo Update complete! Press any key to close.
-pause
-(del "%~f0") & exit /b 0
+{end_success}
 
 :failed
 echo.

@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QPushButton, QFileDialog, QLabel,
     QComboBox
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QWheelEvent
+from PySide6.QtCore import Qt, Signal, QPointF
+from PySide6.QtGui import QWheelEvent, QKeyEvent, QAction
 
 from ..widgets.toolbar_builder import ToolbarBuilder
 from ..widgets.dialog_helper import DialogHelper
@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 
 
 class ZoomableGraphicsView(QGraphicsView):
-    """QGraphicsView with mouse wheel zoom."""
+    """QGraphicsView with mouse wheel zoom and delete support."""
+
+    delete_requested = Signal(list)  # list of table_name strings
 
     def wheelEvent(self, event: QWheelEvent):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -44,6 +46,137 @@ class ZoomableGraphicsView(QGraphicsView):
         else:
             # Plain wheel → forward to scene (scrolls table columns or pans view)
             super().wheelEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            from .er_diagram.table_item import ERTableItem
+            names = [
+                item.table_name for item in self.scene().selectedItems()
+                if isinstance(item, ERTableItem)
+            ] if self.scene() else []
+            if names:
+                self.delete_requested.emit(names)
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        """Pan on empty canvas + unfreeze safety net."""
+        if self.scene() and hasattr(self.scene(), 'unfreeze_all_tables'):
+            self.scene().unfreeze_all_tables()
+        # Start pan if clicking on empty canvas (no item under cursor)
+        if event.button() == Qt.MouseButton.LeftButton and not self.itemAt(event.pos()):
+            self._panning = True
+            self._pan_start = event.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if getattr(self, '_panning', False):
+            delta = event.pos() - self._pan_start
+            self._pan_start = event.pos()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if getattr(self, '_panning', False):
+            self._panning = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):
+        from PySide6.QtWidgets import QMenu
+        from .er_diagram.table_item import ERTableItem
+        from .er_diagram.relationship_line import ERRelationshipLine, _DragPoint
+        item = self.itemAt(event.pos())
+
+        # Right-click on drag point → delete segment
+        if isinstance(item, _DragPoint):
+            line = item._parent_line
+            seg_idx = item._seg_index
+            n_segs = len(line._vertices) - 1
+            if n_segs > 1:
+                menu = QMenu(self)
+                action = QAction(tr("er_delete_segment"), self)
+                action.triggered.connect(lambda: self._delete_segment(line, seg_idx))
+                menu.addAction(action)
+                menu.exec(event.globalPos())
+                event.accept()
+                return
+
+        # Right-click on FK line → delete segment (find closest segment)
+        orig = item
+        while item and not isinstance(item, (ERTableItem, ERRelationshipLine)):
+            item = item.parentItem()
+        if isinstance(item, ERRelationshipLine):
+            n_segs = len(item._vertices) - 1
+            if n_segs > 1:
+                # Find closest segment to click position
+                scene_pos = self.mapToScene(event.pos())
+                seg_idx = self._find_closest_segment(item, scene_pos)
+                menu = QMenu(self)
+                action = QAction(tr("er_delete_segment"), self)
+                action.triggered.connect(lambda: self._delete_segment(item, seg_idx))
+                menu.addAction(action)
+                menu.exec(event.globalPos())
+                event.accept()
+                return
+
+        if isinstance(orig, ERTableItem) or (item and isinstance(item, ERTableItem)):
+            tbl = orig if isinstance(orig, ERTableItem) else item
+            # Walk up to find ERTableItem
+            while tbl and not isinstance(tbl, ERTableItem):
+                tbl = tbl.parentItem()
+            if isinstance(tbl, ERTableItem):
+                menu = QMenu(self)
+                action = QAction(tr("er_remove_table"), self)
+                action.triggered.connect(lambda: self.delete_requested.emit([tbl.table_name]))
+                menu.addAction(action)
+                menu.exec(event.globalPos())
+                event.accept()
+                return
+        super().contextMenuEvent(event)
+
+    def _find_closest_segment(self, line, scene_pos):
+        """Find the segment index closest to a scene position."""
+        import math
+        best_idx, best_dist = 0, float('inf')
+        for i in range(len(line._vertices) - 1):
+            a, b = line._vertices[i], line._vertices[i + 1]
+            mid = QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
+            dist = math.sqrt((mid.x() - scene_pos.x()) ** 2 + (mid.y() - scene_pos.y()) ** 2)
+            if dist < best_dist:
+                best_dist = dist
+                best_idx = i
+        return best_idx
+
+    def _delete_segment(self, line, seg_idx):
+        """Delete a segment by removing the shared vertex, merging adjacent segments."""
+        verts = line._vertices
+        n = len(verts)
+        if n <= 2:
+            return  # Can't delete if only 1 segment
+
+        # Remove the vertex at the END of the segment (seg_idx + 1)
+        # unless it's the last vertex (to_pt), then remove seg_idx
+        if seg_idx + 1 >= n - 1:
+            # Last segment — remove vertex before to_pt
+            if seg_idx > 0:
+                del verts[seg_idx]
+        elif seg_idx == 0:
+            # First segment — remove vertex after from_pt
+            if len(verts) > 2:
+                del verts[1]
+        else:
+            # Middle segment — remove the shared vertex
+            del verts[seg_idx + 1]
+
+        line._rebuild_path()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -97,7 +230,7 @@ class ERDiagramManager(QWidget):
         toolbar_builder.add_button("New Diagram", self._new_diagram, icon="add")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Add Tables", self._add_tables, icon="table")
-        toolbar_builder.add_button("Save Positions", self._save_positions, icon="star")
+        toolbar_builder.add_button("Save Diagram", self._save_positions, icon="star")
         toolbar_builder.add_button("Fit View", self._fit_view, icon="view")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Export PNG", self._export_png, icon="download")
@@ -135,8 +268,9 @@ class ERDiagramManager(QWidget):
 
         # Right: graphics view
         self._view = ZoomableGraphicsView()
-        self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self._view.setDragMode(QGraphicsView.DragMode.NoDrag)
         self._view.setRenderHint(self._view.renderHints())
+        self._view.delete_requested.connect(self._remove_tables_from_diagram)
         self.splitter.addWidget(self._view)
 
         # Hover popup overlay (centered top of view)
@@ -229,9 +363,24 @@ class ERDiagramManager(QWidget):
             DialogHelper.error(f"Cannot create schema loader: {e}", parent=self)
             return
 
-        # Load metadata
+        # Load metadata — retry once if FK query returns empty (cold connection issue)
         table_names = diagram.get_table_names()
         foreign_keys = loader.load_foreign_keys(table_names, diagram.database_name)
+        if not foreign_keys and table_names:
+            logger.warning("FK query returned empty — retrying after reconnect")
+            connection = self._database_manager.reconnect_database(diagram.connection_id)
+            if connection:
+                try:
+                    loader = SchemaLoaderFactory.create(
+                        db_conn.db_type, connection, db_conn.id,
+                        diagram.database_name or db_conn.name
+                    )
+                    foreign_keys = loader.load_foreign_keys(table_names, diagram.database_name)
+                except Exception as e:
+                    logger.error(f"FK retry failed: {e}")
+        logger.info(f"FK loaded: {len(foreign_keys)} entries")
+        for fk in foreign_keys:
+            logger.info(f"  FK: {fk.fk_name} | {fk.from_table}.{fk.from_column} -> {fk.to_table}.{fk.to_column}")
         primary_keys = loader.load_primary_keys(table_names, diagram.database_name)
 
         # Build PK/FK lookup
@@ -284,6 +433,11 @@ class ERDiagramManager(QWidget):
 
         self._view.setScene(self._scene)
         self._scene.relation_hovered.connect(self._on_relation_hovered)
+
+        # Restore column types toggle
+        self._show_column_types = diagram.show_column_types
+        if not self._show_column_types:
+            self._scene.set_show_column_types(False)
 
         # Restore zoom level or fit to view
         if diagram.zoom_level and diagram.zoom_level != 1.0 and has_positions:
@@ -436,8 +590,15 @@ class ERDiagramManager(QWidget):
         # Save
         config_db.save_er_diagram(diagram)
 
-        # Reload list and select
+        # Reload list and select the new diagram
+        self._diagram_list.blockSignals(True)
         self._load_diagram_list()
+        for i in range(self._diagram_list.count()):
+            item = self._diagram_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == diagram.id:
+                self._diagram_list.setCurrentItem(item)
+                break
+        self._diagram_list.blockSignals(False)
         self._load_diagram(diagram.id)
 
     def _add_tables(self):
@@ -490,13 +651,24 @@ class ERDiagramManager(QWidget):
             ERDiagramFKMidpoint(**mp) for mp in midpoints_data
         ]
 
-        # Save zoom level
+        # Save zoom level + column types toggle
         transform = self._view.transform()
         self._current_diagram.zoom_level = transform.m11()
+        self._current_diagram.show_column_types = self._show_column_types
 
         config_db = get_config_db()
         config_db.save_er_diagram(self._current_diagram)
         DialogHelper.info("Diagram saved.", parent=self)
+
+    def _remove_tables_from_diagram(self, table_names: list):
+        """Remove selected tables from the diagram (not from the database)."""
+        if not self._current_diagram or not self._scene:
+            return
+        for name in table_names:
+            self._scene.remove_table(name)
+            self._current_diagram.remove_table(name)
+        config_db = get_config_db()
+        config_db.save_er_diagram(self._current_diagram)
 
     def _fit_view(self):
         """Center and zoom to show all tables within the viewport."""

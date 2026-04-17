@@ -329,6 +329,7 @@ class SchemaManager:
                     database_name TEXT DEFAULT '',
                     description TEXT DEFAULT '',
                     zoom_level REAL DEFAULT 1.0,
+                    show_column_types INTEGER DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE CASCADE
@@ -465,6 +466,9 @@ class SchemaManager:
 
             # Migration 8: Add 'shared_path' column to projects
             self._migrate_projects_shared_path(cursor, conn)
+
+            # Migration 9: Add missing columns to er_diagrams (zoom_level + show_column_types)
+            self._migrate_er_diagrams_columns(cursor, conn)
 
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
@@ -654,6 +658,23 @@ class SchemaManager:
             cursor.execute("ALTER TABLE projects ADD COLUMN shared_contact TEXT DEFAULT ''")
             conn.commit()
             logger.info("[OK] Migration complete: projects now supports shared_contact")
+
+    def _migrate_er_diagrams_columns(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 9: Add missing columns to er_diagrams (zoom_level, show_column_types)."""
+        cursor.execute("PRAGMA table_info(er_diagrams)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if 'zoom_level' not in columns:
+            logger.info("[MIGRATION] Adding 'zoom_level' column to er_diagrams table...")
+            cursor.execute("ALTER TABLE er_diagrams ADD COLUMN zoom_level REAL DEFAULT 1.0")
+            conn.commit()
+            logger.info("[OK] Migration complete: er_diagrams now supports zoom_level")
+
+        if 'show_column_types' not in columns:
+            logger.info("[MIGRATION] Adding 'show_column_types' column to er_diagrams table...")
+            cursor.execute("ALTER TABLE er_diagrams ADD COLUMN show_column_types INTEGER DEFAULT 1")
+            conn.commit()
+            logger.info("[OK] Migration complete: er_diagrams now supports show_column_types")
 
     def _ensure_image_indexes(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Ensure image indexes exist (for fresh installs or post-migration)."""

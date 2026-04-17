@@ -3,7 +3,7 @@ ER Diagram Scene - QGraphicsScene orchestrating tables and relationships.
 """
 
 from typing import Dict, List, Optional, Any
-from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtWidgets import QGraphicsScene, QGraphicsItem
 from PySide6.QtGui import QColor
 from PySide6.QtCore import Signal, QObject
 
@@ -87,22 +87,62 @@ class ERDiagramScene(QGraphicsScene):
         self.removeItem(item)
 
     def add_relationships(self, foreign_keys: List[ForeignKeyInfo]):
-        """Add FK relationship lines for the given foreign keys."""
+        """Add FK relationship lines, grouping composite FKs into one line per FK name."""
+        # Group by (fk_name, from_table, to_table) to merge composite FKs
+        from collections import OrderedDict
+        groups: OrderedDict = OrderedDict()
         for fk in foreign_keys:
-            from_item = self._table_items.get(fk.from_table)
-            to_item = self._table_items.get(fk.to_table)
+            key = (fk.fk_name or f"{fk.from_table}.{fk.from_column}", fk.from_table, fk.to_table)
+            if key not in groups:
+                groups[key] = []
+            pair = (fk.from_column, fk.to_column)
+            if pair not in groups[key]:
+                groups[key].append(pair)
+
+        for (fk_name, from_tbl, to_tbl), pairs in groups.items():
+            from_item = self._table_items.get(from_tbl)
+            to_item = self._table_items.get(to_tbl)
 
             if from_item and to_item:
                 line = ERRelationshipLine(
                     from_table=from_item,
-                    from_column=fk.from_column,
+                    from_column=pairs[0][0],
                     to_table=to_item,
-                    to_column=fk.to_column,
-                    fk_name=fk.fk_name,
-                    is_dark=self.is_dark
+                    to_column=pairs[0][1],
+                    fk_name=fk_name,
+                    is_dark=self.is_dark,
+                    column_pairs=pairs
                 )
                 self.addItem(line)
                 self._relationship_lines.append(line)
+
+        self._compute_line_offsets()
+
+    def _compute_line_offsets(self):
+        """Spread FK lines connecting the same table/side to avoid overlap."""
+        from collections import defaultdict
+        SPREAD = 12  # pixels between adjacent FK lines
+
+        # Group lines by (table, side) — each line appears twice (from + to)
+        table_side_lines: dict = defaultdict(list)
+        for line in self._relationship_lines:
+            from_side, to_side = line._auto_sides()
+            table_side_lines[(id(line.from_table), from_side)].append(('from', line))
+            table_side_lines[(id(line.to_table), to_side)].append(('to', line))
+
+        # Assign offsets within each group
+        for (_table_id, _side), entries in table_side_lines.items():
+            n = len(entries)
+            for i, (role, line) in enumerate(entries):
+                offset = (i - (n - 1) / 2) * SPREAD
+                if role == 'from':
+                    line._from_offset = offset
+                else:
+                    line._to_offset = offset
+
+        # Refresh all paths with new offsets
+        for line in self._relationship_lines:
+            line._rebuild_path()
 
     def auto_layout(self):
         """Arrange tables in a grid layout."""
@@ -136,37 +176,46 @@ class ERDiagramScene(QGraphicsScene):
         """Get a table item by name."""
         return self._table_items.get(table_name)
 
+    def unfreeze_all_tables(self):
+        """Safety reset — ensure all tables are movable (fixes stuck state after drag bug)."""
+        for item in self._table_items.values():
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+
     def get_fk_midpoints(self) -> list:
-        """Get custom midpoints for all FK lines that have been manually adjusted.
+        """Get waypoints for all FK lines that have been manually adjusted.
 
         Returns:
-            List of dicts with from_table, from_column, to_table, to_column, mid_x, mid_y
+            List of dicts with from_table, from_column, to_table, to_column, mid_x, mid_y.
+            For backward compat, saves the middle waypoint (best representative).
         """
         midpoints = []
         for line in self._relationship_lines:
-            if line._custom_mid:
+            wps = line.get_waypoints()
+            if wps:
+                # Save middle waypoint as representative
+                mid_wp = wps[len(wps) // 2]
                 midpoints.append({
                     'from_table': line.from_table.table_name,
                     'from_column': line.from_column,
                     'to_table': line.to_table.table_name,
                     'to_column': line.to_column,
-                    'mid_x': line._custom_mid.x(),
-                    'mid_y': line._custom_mid.y(),
+                    'mid_x': mid_wp.x(),
+                    'mid_y': mid_wp.y(),
                 })
         return midpoints
 
     def set_fk_midpoint(self, from_table: str, from_column: str,
                         to_table: str, to_column: str,
                         mid_x: float, mid_y: float):
-        """Restore a custom midpoint for a FK line."""
+        """Restore a waypoint for a FK line (backward compat — single midpoint)."""
         for line in self._relationship_lines:
             if (line.from_table.table_name == from_table and
                 line.from_column == from_column and
                 line.to_table.table_name == to_table and
                 line.to_column == to_column):
+                # Insert the saved midpoint as a waypoint
                 from PySide6.QtCore import QPointF
-                line._custom_mid = QPointF(mid_x, mid_y)
-                line.update_path()
+                line.set_waypoints([QPointF(mid_x, mid_y)])
                 return
 
     def set_show_fk_names(self, show: bool):

@@ -640,7 +640,11 @@
     "no_update_available": "You are running the latest version.",
     "open_github": "View on GitHub",
     "update_on_quit": "Update on Quit",
+    "update_and_relaunch": "Update and Relaunch",
     "remind_later": "Remind Later",
+
+    "er_remove_table": "Remove from diagram",
+    "er_delete_segment": "Delete this segment",
 
     "help_topics": "Topics",
     "help_search_placeholder": "Search documentation...",

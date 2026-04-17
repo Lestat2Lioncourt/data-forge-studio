@@ -640,7 +640,11 @@
     "no_update_available": "Vous utilisez la dernière version.",
     "open_github": "Voir sur GitHub",
     "update_on_quit": "Mettre à jour en quittant",
+    "update_and_relaunch": "Mettre à jour et relancer",
     "remind_later": "Rappeler plus tard",
+
+    "er_remove_table": "Retirer du diagramme",
+    "er_delete_segment": "Supprimer ce segment",
 
     "help_topics": "Rubriques",
     "help_search_placeholder": "Rechercher dans la documentation...",

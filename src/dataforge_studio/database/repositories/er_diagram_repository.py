@@ -25,31 +25,34 @@ class ERDiagramRepository(BaseRepository[ERDiagram]):
         # Tables and midpoints are loaded separately
         data['tables'] = []
         data['fk_midpoints'] = []
+        data['show_column_types'] = bool(data.get('show_column_types', 1))
         return ERDiagram(**data)
 
     def _get_insert_sql(self) -> str:
         return """
             INSERT INTO er_diagrams
-            (id, name, connection_id, database_name, description, zoom_level, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, connection_id, database_name, description, zoom_level, show_column_types, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     def _get_update_sql(self) -> str:
         return """
             UPDATE er_diagrams
             SET name = ?, connection_id = ?, database_name = ?,
-                description = ?, zoom_level = ?, updated_at = ?
+                description = ?, zoom_level = ?, show_column_types = ?, updated_at = ?
             WHERE id = ?
         """
 
     def _model_to_insert_tuple(self, model: ERDiagram) -> tuple:
         return (model.id, model.name, model.connection_id, model.database_name,
-                model.description, model.zoom_level, model.created_at, model.updated_at)
+                model.description, model.zoom_level, int(model.show_column_types),
+                model.created_at, model.updated_at)
 
     def _model_to_update_tuple(self, model: ERDiagram) -> tuple:
         model.updated_at = datetime.now().isoformat()
         return (model.name, model.connection_id, model.database_name,
-                model.description, model.zoom_level, model.updated_at, model.id)
+                model.description, model.zoom_level, int(model.show_column_types),
+                model.updated_at, model.id)
 
     def _load_tables(self, diagram_id: str) -> List[ERDiagramTable]:
         """Load tables for a diagram."""

@@ -83,6 +83,7 @@ class _TableWidget(QFrame):
         header.setObjectName("tableHeader")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setFixedHeight(26)
+        header.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(header)
 
         # Column list (scrollable)
@@ -325,8 +326,8 @@ class ERTableItem(QGraphicsRectItem):
         # Find column index
         for i, col in enumerate(self.columns):
             if col['name'] == column_name:
-                # 26px header + index * ~22px row height + half row
-                cy = 26 + i * 22 + 11
+                rh = _TableWidget.ROW_HEIGHT
+                cy = 26 + i * rh + rh // 2
                 # Clamp to visible area
                 cy = min(cy, self.height - 5)
                 cy = max(cy, 26)
