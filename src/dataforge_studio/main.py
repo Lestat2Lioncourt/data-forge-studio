@@ -87,6 +87,9 @@ def main():
     splash.update_progress(f"Application theme: {saved_theme}...", 12)
     global_qss = theme_bridge.generate_global_qss(saved_theme)
     app.setStyleSheet(global_qss)
+    # Refresh splash palette now that the theme is resolved
+    if hasattr(splash, "apply_theme"):
+        splash.apply_theme()
 
     # Create main window
     splash.update_progress("Creation fenetre principale...", 18)

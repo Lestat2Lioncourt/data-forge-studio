@@ -66,6 +66,9 @@ class _DragPoint(QGraphicsEllipseItem):
     def mouseReleaseEvent(self, event):
         self._unfreeze_tables()
         self._parent_line._on_drag_release()
+        if self.scene():
+            for view in self.scene().views():
+                view.viewport().update()
         super().mouseReleaseEvent(event)
 
     def ungrabMouse(self):
@@ -88,7 +91,7 @@ class ERRelationshipLine(QGraphicsPathItem):
     """
 
     LINE_WIDTH = 2
-    ARROW_SIZE = 8
+    ARROW_SIZE = 10
 
     @staticmethod
     def _palette():
@@ -111,6 +114,9 @@ class ERRelationshipLine(QGraphicsPathItem):
         self._vertices: List[QPointF] = []  # Full path: [from_pt, wp..., to_pt]
         self._drag_points: list = []
         self._repositioning = False
+        self._from_side: Optional[str] = None  # None = use auto
+        self._to_side: Optional[str] = None
+        self._user_modified = False  # True after user drag/split — only then save waypoints
         self._hovered = False
         self._label: Optional[QGraphicsTextItem] = None
         self._show_label = False
@@ -130,37 +136,76 @@ class ERRelationshipLine(QGraphicsPathItem):
     # =====================================================================
 
     def _auto_sides(self):
-        """Auto-compute best connection sides based on relative table positions."""
+        """Auto-compute best connection sides.
+
+        - Tables well-aligned on Y (centers close): parallel horizontal
+        - Tables well-aligned on X: parallel vertical
+        - Otherwise (diagonal layout): perpendicular sides (L-path)
+        """
         fp = self.from_table.scenePos()
         tp = self.to_table.scenePos()
         fw, fh = self.from_table.width, self.from_table.height
-        tw = self.to_table.width
+        tw, th = self.to_table.width, self.to_table.height
 
         dx = (tp.x() + tw / 2) - (fp.x() + fw / 2)
-        dy = (tp.y() + self.to_table.height / 2) - (fp.y() + fh / 2)
+        dy = (tp.y() + th / 2) - (fp.y() + fh / 2)
 
-        h_overlap = not (fp.x() + fw < tp.x() or tp.x() + tw < fp.x())
-        if h_overlap and abs(dy) > abs(dx):
+        # Alignment thresholds: centers within 30% of the larger table's dimension
+        y_aligned = abs(dy) < max(fh, th) * 0.3
+        x_aligned = abs(dx) < max(fw, tw) * 0.3
+
+        if y_aligned and not x_aligned:
+            return ('right', 'left') if dx > 0 else ('left', 'right')
+        if x_aligned and not y_aligned:
             return ('bottom', 'top') if dy > 0 else ('top', 'bottom')
-        return ('right', 'left') if dx > 0 else ('left', 'right')
+        # Diagonal or both-aligned: perpendicular sides
+        from_side = 'right' if dx > 0 else 'left'
+        to_side = 'top' if dy > 0 else 'bottom'
+        return from_side, to_side
 
     def _exit_vector(self, side):
         vecs = {'left': (-GAP, 0), 'right': (GAP, 0), 'top': (0, -GAP), 'bottom': (0, GAP)}
         return vecs[side]
 
+    def _get_sides(self):
+        """Get effective sides (manual overrides or auto)."""
+        auto_f, auto_t = self._auto_sides()
+        return (self._from_side or auto_f, self._to_side or auto_t)
+
     def _init_vertices(self):
         """Generate initial vertices for auto-routing."""
-        from_side, to_side = self._auto_sides()
+        from_side, to_side = self._get_sides()
         fp = self.from_table.get_connection_point(from_side)
         tp = self.to_table.get_connection_point(to_side)
+
+        f_horiz = from_side in ('left', 'right')
+        t_horiz = to_side in ('left', 'right')
+
+        # Direct straight segment if parallel sides and ranges overlap
+        ftop = self.from_table.scenePos()
+        ttop = self.to_table.scenePos()
+        fh, th = self.from_table.height, self.to_table.height
+        fw, tw = self.from_table.width, self.to_table.width
+        MARGIN = 10
+        if f_horiz and t_horiz:
+            y_start = max(ftop.y(), ttop.y()) + MARGIN
+            y_end = min(ftop.y() + fh, ttop.y() + th) - MARGIN
+            if y_start < y_end:
+                common_y = (y_start + y_end) / 2
+                self._vertices = [QPointF(fp.x(), common_y), QPointF(tp.x(), common_y)]
+                return
+        elif not f_horiz and not t_horiz:
+            x_start = max(ftop.x(), ttop.x()) + MARGIN
+            x_end = min(ftop.x() + fw, ttop.x() + tw) - MARGIN
+            if x_start < x_end:
+                common_x = (x_start + x_end) / 2
+                self._vertices = [QPointF(common_x, fp.y()), QPointF(common_x, tp.y())]
+                return
 
         dx_f, dy_f = self._exit_vector(from_side)
         dx_t, dy_t = self._exit_vector(to_side)
         stub_f = QPointF(fp.x() + dx_f, fp.y() + dy_f)
         stub_t = QPointF(tp.x() + dx_t, tp.y() + dy_t)
-
-        f_horiz = from_side in ('left', 'right')
-        t_horiz = to_side in ('left', 'right')
 
         if f_horiz and t_horiz:
             mid_x = (stub_f.x() + stub_t.x()) / 2
@@ -175,28 +220,107 @@ class ERRelationshipLine(QGraphicsPathItem):
                               QPointF(stub_t.x(), mid_y),
                               stub_t, tp]
         else:
+            # Mixed sides (perpendicular) — minimal 2-segment L, no stubs needed
+            # The corner is the point where the perpendicular axes meet
             if f_horiz:
-                self._vertices = [fp, stub_f,
-                                  QPointF(stub_t.x(), stub_f.y()),
-                                  stub_t, tp]
+                corner = QPointF(tp.x(), fp.y())
             else:
-                self._vertices = [fp, stub_f,
-                                  QPointF(stub_f.x(), stub_t.y()),
-                                  stub_t, tp]
+                corner = QPointF(fp.x(), tp.y())
+            self._vertices = [fp, corner, tp]
+
+        # Merge collinear segments to simplify path
+        self._merge_collinear()
+
+    def rebuild_intermediates(self, mid_ratio: float = 0.5):
+        """Regenerate intermediate vertices between current vertices[0] and vertices[-1]
+        using the current sides. Keeps endpoints fixed (from distribution).
+
+        mid_ratio: for Z-paths (parallel sides), where to place the mid segment along
+        the perpendicular axis. 0=near source, 1=near target. Used to stagger lines.
+        """
+        if len(self._vertices) < 2:
+            return
+        from_side, to_side = self._get_sides()
+        fp = self._vertices[0]
+        tp = self._vertices[-1]
+
+        f_horiz = from_side in ('left', 'right')
+        t_horiz = to_side in ('left', 'right')
+
+        dx_f, dy_f = self._exit_vector(from_side)
+        dx_t, dy_t = self._exit_vector(to_side)
+        stub_f = QPointF(fp.x() + dx_f, fp.y() + dy_f)
+        stub_t = QPointF(tp.x() + dx_t, tp.y() + dy_t)
+
+        if f_horiz and t_horiz:
+            # Direct horizontal when Y matches
+            if abs(fp.y() - tp.y()) < 1:
+                self._vertices = [fp, tp]
+                self._merge_collinear()
+                return
+            mid_x = stub_f.x() + (stub_t.x() - stub_f.x()) * mid_ratio
+            self._vertices = [fp, stub_f,
+                              QPointF(mid_x, stub_f.y()),
+                              QPointF(mid_x, stub_t.y()),
+                              stub_t, tp]
+        elif not f_horiz and not t_horiz:
+            # Direct vertical when X matches
+            if abs(fp.x() - tp.x()) < 1:
+                self._vertices = [fp, tp]
+                self._merge_collinear()
+                return
+            mid_y = stub_f.y() + (stub_t.y() - stub_f.y()) * mid_ratio
+            self._vertices = [fp, stub_f,
+                              QPointF(stub_f.x(), mid_y),
+                              QPointF(stub_t.x(), mid_y),
+                              stub_t, tp]
+        else:
+            if f_horiz:
+                corner = QPointF(tp.x(), fp.y())
+            else:
+                corner = QPointF(fp.x(), tp.y())
+            self._vertices = [fp, corner, tp]
+
+        self._merge_collinear()
 
     def set_waypoints(self, waypoints: List[QPointF]):
-        """Restore waypoints (loaded from DB). Replaces intermediate vertices."""
+        """Restore waypoints (loaded from DB). Replaces intermediate vertices.
+        Preserves the endpoints already placed by auto-layout distribution
+        (each fact-edge anchor is unique) instead of collapsing to the edge
+        center — otherwise several restored lines stack on the same anchor.
+        """
         if not waypoints:
             return
-        from_side, to_side = self._auto_sides()
-        fp = self.from_table.get_connection_point(from_side)
-        tp = self.to_table.get_connection_point(to_side)
+        from_side, to_side = self._get_sides()
+        if len(self._vertices) >= 2:
+            fp = self._vertices[0]
+            tp = self._vertices[-1]
+        else:
+            fp = self.from_table.get_connection_point(from_side)
+            tp = self.to_table.get_connection_point(to_side)
+
+        # Align first waypoint with fp for orthogonality
+        first_wp = waypoints[0]
+        if from_side in ('left', 'right'):
+            waypoints[0] = QPointF(first_wp.x(), fp.y())
+        else:
+            waypoints[0] = QPointF(fp.x(), first_wp.y())
+
+        # Align last waypoint with tp
+        last_wp = waypoints[-1]
+        if to_side in ('left', 'right'):
+            waypoints[-1] = QPointF(last_wp.x(), tp.y())
+        else:
+            waypoints[-1] = QPointF(tp.x(), last_wp.y())
+
         self._vertices = [fp] + waypoints + [tp]
+        self._user_modified = True
         self._rebuild_path()
 
     def get_waypoints(self) -> List[QPointF]:
-        """Return intermediate waypoints (for save). Excludes from_pt/to_pt."""
-        if len(self._vertices) <= 2:
+        """Return intermediate waypoints (for save). Excludes from_pt/to_pt.
+        Returns empty if path is auto-generated (let load recreate from init)."""
+        if not self._user_modified or len(self._vertices) <= 2:
             return []
         return list(self._vertices[1:-1])
 
@@ -267,6 +391,7 @@ class ERRelationshipLine(QGraphicsPathItem):
         """Called during drag — move the segment's two vertices."""
         if seg_index >= len(self._vertices) - 1:
             return
+        self._user_modified = True
         a = self._vertices[seg_index]
         b = self._vertices[seg_index + 1]
         horiz = self._is_horizontal(seg_index)
@@ -329,12 +454,43 @@ class ERRelationshipLine(QGraphicsPathItem):
     # =====================================================================
 
     def _on_table_moved(self):
-        """Recompute from_pt / to_pt when tables move; keep waypoints."""
+        """Recompute path when tables move.
+
+        - If user hasn't modified the path: regenerate entirely via _init_vertices.
+          Then the scene will redistribute anchors via _compute_line_offsets.
+        - If user has modified: preserve waypoints but realign adjacent ones for orthogonality.
+        """
         if len(self._vertices) < 2:
             return
-        from_side, to_side = self._auto_sides()
-        self._vertices[0] = self.from_table.get_connection_point(from_side)
-        self._vertices[-1] = self.to_table.get_connection_point(to_side)
+
+        if not self._user_modified:
+            self._init_vertices()
+            self._rebuild_path()
+            # Trigger scene-wide redistribution (once per drag event, done synchronously)
+            if self.scene() and hasattr(self.scene(), '_compute_line_offsets'):
+                self.scene()._compute_line_offsets()
+            return
+
+        from_side, to_side = self._get_sides()
+        new_fp = self.from_table.get_connection_point(from_side)
+        new_tp = self.to_table.get_connection_point(to_side)
+
+        # Align adjacent waypoints to maintain orthogonality after table move
+        if len(self._vertices) > 2:
+            first_wp = self._vertices[1]
+            if from_side in ('left', 'right'):
+                self._vertices[1] = QPointF(first_wp.x(), new_fp.y())
+            else:
+                self._vertices[1] = QPointF(new_fp.x(), first_wp.y())
+
+            last_wp = self._vertices[-2]
+            if to_side in ('left', 'right'):
+                self._vertices[-2] = QPointF(last_wp.x(), new_tp.y())
+            else:
+                self._vertices[-2] = QPointF(new_tp.x(), last_wp.y())
+
+        self._vertices[0] = new_fp
+        self._vertices[-1] = new_tp
         self._rebuild_path()
 
     # =====================================================================
@@ -407,7 +563,11 @@ class ERRelationshipLine(QGraphicsPathItem):
         palette = self._palette()
         color = QColor(palette["line_hover"] if self._hovered else palette["line"])
 
-        pen = QPen(color, self.LINE_WIDTH)
+        # Line width: single FK = normal, multi-FK (2+) = max for immediate visual identification
+        n_pairs = len(self.column_pairs)
+        width = self.LINE_WIDTH if n_pairs <= 1 else self.LINE_WIDTH + 2
+
+        pen = QPen(color, width)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -417,7 +577,7 @@ class ERRelationshipLine(QGraphicsPathItem):
         if path.elementCount() >= 2:
             # Circle at source (FK origin)
             first = QPointF(path.elementAt(0).x, path.elementAt(0).y)
-            r = self.ARROW_SIZE * 0.4
+            r = self.ARROW_SIZE * 0.5
             painter.setPen(QPen(color, self.LINE_WIDTH))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(first, r, r)
@@ -428,6 +588,31 @@ class ERRelationshipLine(QGraphicsPathItem):
             prev = QPointF(path.elementAt(path.elementCount() - 2).x,
                            path.elementAt(path.elementCount() - 2).y)
             self._draw_arrow(painter, prev, last, color)
+
+            # Badge with count when multiple FKs are grouped on this line
+            if n_pairs >= 2 and hasattr(self, '_mid_seg_center'):
+                self._draw_count_badge(painter, self._mid_seg_center, n_pairs, color, palette)
+
+    def _draw_count_badge(self, painter: QPainter, center: QPointF, count: int,
+                          color: QColor, palette: dict):
+        """Draw a small circular badge with the FK count on the middle of the line."""
+        from PySide6.QtGui import QFont as _QFont
+        badge_bg = QColor(palette["popup_bg"].split(',')[0].replace('rgba(', '').strip()
+                         if 'rgba' in palette["popup_bg"] else palette["popup_bg"])
+        # Use a subtle fill: blend the popup bg with line color
+        badge_bg = QColor(palette["scene_bg"])
+        r = 8
+        painter.setBrush(badge_bg)
+        painter.setPen(QPen(color, 1.2))
+        painter.drawEllipse(center, r, r)
+        # Text
+        painter.setPen(QPen(color, 1))
+        font = _QFont("Segoe UI", 7)
+        font.setBold(True)
+        painter.setFont(font)
+        from PySide6.QtCore import QRectF as _QRectF
+        rect = _QRectF(center.x() - r, center.y() - r, 2 * r, 2 * r)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(count))
 
     def _draw_arrow(self, painter: QPainter, from_pt: QPointF, to_pt: QPointF, color: QColor):
         dx = to_pt.x() - from_pt.x()

@@ -44,6 +44,7 @@ class QueryResultTabsMixin:
             tab_name = tr("query_results_tab", index=len(self._result_tabs) + 1)
 
         grid = CustomDataGridView(show_toolbar=True)
+        grid.set_export_default_name(tab_name)
 
         # Connect "Edit Query" signal for Query column cells
         grid.edit_query_requested.connect(self._on_edit_query_requested)

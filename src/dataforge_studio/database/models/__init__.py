@@ -14,7 +14,7 @@ from .ftp_root import FTPRoot, FTPProtocol
 from .script import Script
 from .job import Job
 from .image import ImageRootfolder, SavedImage
-from .er_diagram import ERDiagram, ERDiagramTable, ERDiagramFKMidpoint
+from .er_diagram import ERDiagram, ERDiagramTable, ERDiagramFKMidpoint, ERDiagramGroup
 
 __all__ = [
     "DatabaseConnection",
@@ -31,4 +31,6 @@ __all__ = [
     "SavedImage",
     "ERDiagram",
     "ERDiagramTable",
+    "ERDiagramFKMidpoint",
+    "ERDiagramGroup",
 ]

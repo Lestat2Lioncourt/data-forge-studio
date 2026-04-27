@@ -78,6 +78,7 @@ class CustomDataGridView(QWidget):
         super().__init__(parent)
         self.show_toolbar = show_toolbar
         self.show_row_count = show_row_count
+        self._export_default_name = ""  # base filename suggested in export dialogs (no extension)
         self.active_sorts: List[Tuple[int, Qt.SortOrder]] = []  # List of (column_index, sort_order) for multi-column sort
         self.is_fullscreen = False
         self.fullscreen_dialog = None
@@ -112,6 +113,10 @@ class CustomDataGridView(QWidget):
             self.export_csv_btn = QPushButton(tr("export_csv"))
             self.export_csv_btn.clicked.connect(self._export_csv)
             toolbar_layout.addWidget(self.export_csv_btn)
+
+            self.export_excel_btn = QPushButton(tr("export_excel"))
+            self.export_excel_btn.clicked.connect(self._export_excel)
+            toolbar_layout.addWidget(self.export_excel_btn)
 
             self.copy_btn = QPushButton(tr("copy"))
             self.copy_btn.clicked.connect(self._copy_to_clipboard)
@@ -1017,14 +1022,50 @@ class CustomDataGridView(QWidget):
             if col < self.table.columnCount():
                 self.table.resizeColumnToContents(col)
 
+    # ------------------------------------------------------------------
+    # Export defaults / paths
+    # ------------------------------------------------------------------
+    def set_export_default_name(self, name: str):
+        """Set a default base filename suggested in export dialogs (no extension)."""
+        self._export_default_name = name or ""
+
+    def _suggested_export_path(self, extension: str) -> str:
+        """Build a suggested file path: last-used folder + default name + extension."""
+        import re
+        from pathlib import Path
+        try:
+            from ...config.user_preferences import UserPreferences
+            folder = UserPreferences.instance().get("export_last_folder", "") or ""
+        except Exception:
+            folder = ""
+        base = self._export_default_name or "data"
+        # Strip filesystem-unsafe characters
+        base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", base).strip().rstrip(".") or "data"
+        if not extension.startswith("."):
+            extension = "." + extension
+        if folder and Path(folder).is_dir():
+            return str(Path(folder) / (base + extension))
+        return base + extension
+
+    def _remember_export_folder(self, file_path: str):
+        """Persist the folder containing file_path as the last export folder."""
+        from pathlib import Path
+        try:
+            from ...config.user_preferences import UserPreferences
+            UserPreferences.instance().set("export_last_folder", str(Path(file_path).parent))
+        except Exception:
+            pass
+
     def _export_csv(self):
         """Export data to CSV file."""
+        suggested = self._suggested_export_path(".csv")
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export CSV", "", "CSV Files (*.csv);;All Files (*)"
+            self, "Export CSV", suggested, "CSV Files (*.csv);;All Files (*)"
         )
 
         if not file_path:
             return
+        self._remember_export_folder(file_path)
 
         try:
             with open(file_path, 'w', newline='', encoding='utf-8') as f:
@@ -1044,6 +1085,59 @@ class CustomDataGridView(QWidget):
                     row_data = self.get_row_data(row)
                     writer.writerow(row_data)
 
+            from ..widgets.dialog_helper import DialogHelper
+            DialogHelper.info(f"Data exported successfully to:\n{file_path}", "Export Complete", self)
+
+        except Exception as e:
+            from ..widgets.dialog_helper import DialogHelper
+            DialogHelper.error("Export failed", "Export Error", self, details=str(e))
+
+    def _export_excel(self):
+        """Export data to an .xlsx file using openpyxl."""
+        suggested = self._suggested_export_path(".xlsx")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Excel", suggested, "Excel Files (*.xlsx);;All Files (*)"
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".xlsx"):
+            file_path += ".xlsx"
+        self._remember_export_folder(file_path)
+
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill
+            from openpyxl.utils import get_column_letter
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Data"
+
+            # Headers
+            if self._virtual_mode and self._table_model:
+                headers = self._table_model.get_columns()
+            else:
+                headers = [self.table.horizontalHeaderItem(i).text()
+                           for i in range(self.table.columnCount())]
+            ws.append(list(headers))
+            header_font = Font(bold=True, color="FFFFFF")
+            header_fill = PatternFill(fill_type="solid", start_color="0078D4", end_color="0078D4")
+            for col_idx in range(1, len(headers) + 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.font = header_font
+                cell.fill = header_fill
+
+            # Data rows
+            row_count = self.get_row_count()
+            for row in range(row_count):
+                ws.append(list(self.get_row_data(row)))
+
+            # Freeze header + auto-filter
+            ws.freeze_panes = "A2"
+            if row_count > 0 and headers:
+                ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{row_count + 1}"
+
+            wb.save(file_path)
             from ..widgets.dialog_helper import DialogHelper
             DialogHelper.info(f"Data exported successfully to:\n{file_path}", "Export Complete", self)
 

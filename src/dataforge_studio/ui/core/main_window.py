@@ -61,9 +61,53 @@ class DataForgeMainWindow:
         # Apply initial theme (uses current_theme set by generate_global_qss)
         self.theme_bridge.apply_theme(self.window, self.theme_bridge.current_theme)
 
+        # Restore last-used window geometry if available
+        self._restore_window_geometry()
+
         # Apply debug borders if enabled in preferences
         if self.user_prefs.get("objects_borders", False):
             self._add_debug_borders()
+
+    def _restore_window_geometry(self):
+        """Restore window size from user preferences. Resize targets the outer
+        ResizeWrapper (that's the actual on-screen widget when easy_resize=True).
+        Maximized state is deferred to show() because toggle_maximize needs a
+        screen assigned, which only happens after show()."""
+        self._pending_maximized = False
+        try:
+            self._pending_maximized = bool(self.user_prefs.get("window_maximized", False))
+            width = self.user_prefs.get("window_width", None)
+            height = self.user_prefs.get("window_height", None)
+            if isinstance(width, int) and isinstance(height, int) and width > 200 and height > 150:
+                # Seed the wrapper with the last normal size — toggle_maximize() in
+                # ResizeWrapper snapshots this as `_resize_start_geometry` for restore.
+                self.wrapper.resize(width, height)
+        except Exception:
+            pass
+
+    def _save_window_geometry(self):
+        """Persist the current window size / maximized state. When `easy_resize=True`
+        the maximize button is wired to the OUTER `ResizeWrapper`, so that's the
+        object whose `_is_maximized` flag reflects the visible maximized state.
+        """
+        try:
+            is_max = (bool(getattr(self.wrapper, "_is_maximized", False))
+                      or bool(getattr(self.window, "_is_maximized", False))
+                      or self.wrapper.isMaximized())
+            if is_max:
+                self.user_prefs.set("window_maximized", True)
+                # Preserve last normal size (restored when user un-maximizes)
+                normal = getattr(self.wrapper, "_resize_start_geometry", None)
+                if normal is not None and normal.width() > 0 and normal.height() > 0:
+                    self.user_prefs.set("window_width", int(normal.width()))
+                    self.user_prefs.set("window_height", int(normal.height()))
+            else:
+                self.user_prefs.set("window_maximized", False)
+                size = self.wrapper.size()
+                self.user_prefs.set("window_width", int(size.width()))
+                self.user_prefs.set("window_height", int(size.height()))
+        except Exception:
+            pass
 
     def _setup_menu_bar(self):
         """Setup menu bar with dropdowns."""
@@ -83,10 +127,8 @@ class DataForgeMainWindow:
         # Resources menu - direct button (opens unified resource view)
         menu_bar.add_menu_item("view", tr("menu_view"), lambda: self._switch_frame("resources"))
 
-        # Options menu
-        menu_bar.add_menu_with_submenu("options", tr("option"), [
-            (tr("menu_preferences"), lambda: self._switch_frame("options"))
-        ])
+        # Options — direct button (opens preferences frame)
+        menu_bar.add_menu_item("options", tr("option"), lambda: self._switch_frame("options"))
 
         # Tools menu
         from pathlib import Path
@@ -808,6 +850,14 @@ class DataForgeMainWindow:
         """Show the window."""
         self.wrapper.show()
 
+        # When easy_resize=True, the maximize button is wired to wrapper.toggle_maximize,
+        # so the WRAPPER is the object whose geometry controls the visible window.
+        # Trigger AFTER show() so wrapper.screen() is assigned.
+        if getattr(self, "_pending_maximized", False):
+            toggle = getattr(self.wrapper, "toggle_maximize", None)
+            if callable(toggle) and not getattr(self.wrapper, "_is_maximized", False):
+                toggle()
+
         # Auto-connect workspace connections after window is shown
         from PySide6.QtCore import QTimer
         QTimer.singleShot(500, self._auto_connect_startup)
@@ -895,6 +945,9 @@ class DataForgeMainWindow:
         This ensures background threads are stopped properly.
         """
         import threading
+
+        # Save window geometry before anything else (cheap op, no threads involved)
+        self._save_window_geometry()
 
         # Disconnect signals first to prevent callbacks during cleanup
         self._disconnect_signals()

@@ -54,9 +54,9 @@ class _TableWidget(QFrame):
             QLabel#tableHeader {{
                 background-color: {header_bg};
                 color: {header_fg};
-                font-weight: bold;
-                font-family: Consolas;
-                font-size: 10px;
+                font-weight: 600;
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 11px;
                 padding: 4px 8px;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
@@ -64,12 +64,12 @@ class _TableWidget(QFrame):
             QListWidget {{
                 background-color: {bg};
                 border: none;
-                font-family: Consolas;
-                font-size: 9px;
+                font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+                font-size: 10px;
                 color: {text};
             }}
             QListWidget::item {{
-                padding: 1px 4px;
+                padding: 1px 6px;
             }}
         """)
 
@@ -143,7 +143,7 @@ class _TableWidget(QFrame):
 
     def _calc_width(self) -> int:
         """Calculate width based on content and current display mode. Returns the final width."""
-        font = QFont("Consolas", 9)
+        font = QFont("Segoe UI", 9)
         fm = QFontMetrics(font)
         max_w = fm.horizontalAdvance(self.table_name) + 24
         for col in self._columns:
@@ -165,7 +165,8 @@ class ERTableItem(QGraphicsRectItem):
 
     DEFAULT_HEIGHT = 200
     MIN_HEIGHT = 80
-    RESIZE_MARGIN = 8
+    MIN_WIDTH = 140
+    RESIZE_MARGIN = 10
 
     def __init__(self, table_name: str, columns: List[Dict], pk_columns: List[str],
                  fk_columns: List[str], schema_name: str = "", is_dark: bool = True):
@@ -220,9 +221,23 @@ class ERTableItem(QGraphicsRectItem):
         self.setZValue(1)
 
         # Resize state
-        self._resizing = False
-        self._resize_start_y = 0
-        self._resize_start_height = 0
+        self._resize_mode = None  # None | 'v' | 'h' | 'both'
+        self._resize_start_pos = None
+        self._resize_start_size = None
+
+    def set_size(self, width: float, height: float):
+        """Apply a specific width/height (used when restoring persisted size)."""
+        width = max(self.MIN_WIDTH, float(width))
+        height = max(self.MIN_HEIGHT, float(height))
+        self.prepareGeometryChange()
+        self.width = width
+        self.height = height
+        self._table_widget.setMinimumSize(0, 0)
+        self._table_widget.setMaximumSize(16777215, 16777215)
+        self._table_widget.setFixedSize(int(width), int(height))
+        self._table_widget._target_width = int(width)
+        self._proxy.resize(int(width), int(height))
+        self.setRect(0, 0, width, height)
 
     def set_show_types(self, show: bool):
         """Toggle column type display and resize to match new content width."""
@@ -236,8 +251,16 @@ class ERTableItem(QGraphicsRectItem):
             self.signals.position_changed.emit(self.table_name, self.pos().x(), self.pos().y())
 
     def boundingRect(self):
-        """Override to match exact widget size — prevents oversized selection."""
-        return QRectF(0, 0, self.width, self.height)
+        """Include a small margin for resize grip areas (bottom + right)."""
+        m = self.RESIZE_MARGIN
+        return QRectF(0, 0, self.width + m, self.height + m)
+
+    def shape(self):
+        """Shape covers the widget area + resize grip strips so clicks hit the item."""
+        from PySide6.QtGui import QPainterPath
+        path = QPainterPath()
+        path.addRect(QRectF(0, 0, self.width + self.RESIZE_MARGIN, self.height + self.RESIZE_MARGIN))
+        return path
 
     def paint(self, painter, option, widget=None):
         """Draw selection border and resize handle."""
@@ -262,50 +285,79 @@ class ERTableItem(QGraphicsRectItem):
         painter.drawPolygon(handle)
 
     def hoverMoveEvent(self, event):
-        """Change cursor near resize handle."""
-        if self._is_near_resize_handle(event.pos()):
+        """Change cursor near resize edges (bottom, right, corner)."""
+        mode = self._resize_mode_at(event.pos())
+        if mode == 'both':
             self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))
+        elif mode == 'v':
+            self.setCursor(QCursor(Qt.CursorShape.SizeVerCursor))
+        elif mode == 'h':
+            self.setCursor(QCursor(Qt.CursorShape.SizeHorCursor))
         else:
             self.unsetCursor()
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
-        """Start resize if clicking on resize handle."""
-        if event.button() == Qt.MouseButton.LeftButton and self._is_near_resize_handle(event.pos()):
-            self._resizing = True
-            self._resize_start_y = event.scenePos().y()
-            self._resize_start_height = self.height
-            event.accept()
-            return
+        """Start resize if clicking on the bottom, right, or corner grip area."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            mode = self._resize_mode_at(event.pos())
+            if mode:
+                self._resize_mode = mode
+                self._resize_start_pos = event.scenePos()
+                self._resize_start_size = (self.width, self.height)
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         """Handle resize dragging."""
-        if self._resizing:
-            delta_y = event.scenePos().y() - self._resize_start_y
-            new_height = max(self.MIN_HEIGHT, self._resize_start_height + delta_y)
+        if self._resize_mode:
+            dx = event.scenePos().x() - self._resize_start_pos.x()
+            dy = event.scenePos().y() - self._resize_start_pos.y()
+            w0, h0 = self._resize_start_size
+            new_w, new_h = w0, h0
+            if self._resize_mode in ('h', 'both'):
+                new_w = max(self.MIN_WIDTH, w0 + dx)
+            if self._resize_mode in ('v', 'both'):
+                new_h = max(self.MIN_HEIGHT, h0 + dy)
             self.prepareGeometryChange()
-            self.height = new_height
-            self._table_widget.setFixedHeight(int(new_height))
-            self.setRect(0, 0, self.width, new_height)
+            self.width = new_w
+            self.height = new_h
+            # Update the inner widget + proxy so the visible frame follows
+            self._table_widget.setMinimumSize(0, 0)  # release previous fixed constraints
+            self._table_widget.setMaximumSize(16777215, 16777215)
+            self._table_widget.setFixedSize(int(new_w), int(new_h))
+            self._table_widget._target_width = int(new_w)
+            self._proxy.resize(int(new_w), int(new_h))
+            self.setRect(0, 0, new_w, new_h)
             self.signals.position_changed.emit(self.table_name, self.pos().x(), self.pos().y())
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        """End resize."""
-        if self._resizing:
-            self._resizing = False
+        """End resize + force full viewport repaint to clear paint artifacts."""
+        if self._resize_mode:
+            self._resize_mode = None
             event.accept()
-            return
-        super().mouseReleaseEvent(event)
+        else:
+            super().mouseReleaseEvent(event)
+        if self.scene():
+            for view in self.scene().views():
+                view.viewport().update()
 
-    def _is_near_resize_handle(self, pos: QPointF) -> bool:
-        """Check if position is near the resize handle."""
-        r = self.rect()
-        m = self.RESIZE_MARGIN * 2
-        return (pos.x() > r.right() - m and pos.y() > r.bottom() - m)
+    def _resize_mode_at(self, pos: QPointF) -> Optional[str]:
+        """Return 'both', 'v', 'h', or None based on grip zone under pos."""
+        m = self.RESIZE_MARGIN
+        near_right = (self.width - m) < pos.x() <= self.width + m
+        near_bottom = (self.height - m) < pos.y() <= self.height + m
+        if near_right and near_bottom:
+            return 'both'
+        if near_bottom and 0 <= pos.x() <= self.width + m:
+            return 'v'
+        if near_right and 0 <= pos.y() <= self.height + m:
+            return 'h'
+        return None
 
     def get_connection_point(self, side: str) -> QPointF:
         """Get connection point on a specific side of the table."""

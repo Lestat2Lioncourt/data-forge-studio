@@ -330,6 +330,7 @@ class SchemaManager:
                     description TEXT DEFAULT '',
                     zoom_level REAL DEFAULT 1.0,
                     show_column_types INTEGER DEFAULT 1,
+                    group_fks INTEGER DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE CASCADE
@@ -358,9 +359,10 @@ class SchemaManager:
                     from_column TEXT NOT NULL,
                     to_table TEXT NOT NULL,
                     to_column TEXT NOT NULL,
+                    seq INTEGER NOT NULL DEFAULT 0,
                     mid_x REAL NOT NULL,
                     mid_y REAL NOT NULL,
-                    PRIMARY KEY (diagram_id, from_table, from_column, to_table, to_column),
+                    PRIMARY KEY (diagram_id, from_table, from_column, to_table, to_column, seq),
                     FOREIGN KEY (diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
                 )
             """)
@@ -469,6 +471,15 @@ class SchemaManager:
 
             # Migration 9: Add missing columns to er_diagrams (zoom_level + show_column_types)
             self._migrate_er_diagrams_columns(cursor, conn)
+
+            # Migration 10: Add seq column to fk_midpoints for multi-waypoint support
+            self._migrate_fk_midpoints_seq(cursor, conn)
+
+            # Migration 11: Create er_diagram_groups table for visual grouping frames
+            self._migrate_create_er_diagram_groups(cursor, conn)
+
+            # Migration 12: Add width/height columns to er_diagram_tables
+            self._migrate_er_diagram_tables_size(cursor, conn)
 
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
@@ -659,6 +670,66 @@ class SchemaManager:
             conn.commit()
             logger.info("[OK] Migration complete: projects now supports shared_contact")
 
+    def _migrate_er_diagram_tables_size(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 12: Add width/height columns to er_diagram_tables (0 = auto)."""
+        cursor.execute("PRAGMA table_info(er_diagram_tables)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'width' not in columns:
+            logger.info("[MIGRATION] Adding 'width' column to er_diagram_tables...")
+            cursor.execute("ALTER TABLE er_diagram_tables ADD COLUMN width REAL NOT NULL DEFAULT 0")
+        if 'height' not in columns:
+            logger.info("[MIGRATION] Adding 'height' column to er_diagram_tables...")
+            cursor.execute("ALTER TABLE er_diagram_tables ADD COLUMN height REAL NOT NULL DEFAULT 0")
+        conn.commit()
+
+    def _migrate_create_er_diagram_groups(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 11: Create er_diagram_groups table for visual grouping frames."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS er_diagram_groups (
+                id TEXT PRIMARY KEY,
+                diagram_id TEXT NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                x REAL NOT NULL DEFAULT 0,
+                y REAL NOT NULL DEFAULT 0,
+                width REAL NOT NULL DEFAULT 300,
+                height REAL NOT NULL DEFAULT 200,
+                color TEXT NOT NULL DEFAULT '#B3E5FC',
+                FOREIGN KEY (diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
+            )
+        """)
+        conn.commit()
+
+    def _migrate_fk_midpoints_seq(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """Migration 10: Add 'seq' column to er_diagram_fk_midpoints for multi-waypoint support."""
+        cursor.execute("PRAGMA table_info(er_diagram_fk_midpoints)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'seq' not in columns:
+            logger.info("[MIGRATION] Rebuilding er_diagram_fk_midpoints with seq column...")
+            cursor.execute("ALTER TABLE er_diagram_fk_midpoints RENAME TO er_diagram_fk_midpoints_old")
+            cursor.execute("""
+                CREATE TABLE er_diagram_fk_midpoints (
+                    diagram_id TEXT NOT NULL,
+                    from_table TEXT NOT NULL,
+                    from_column TEXT NOT NULL,
+                    to_table TEXT NOT NULL,
+                    to_column TEXT NOT NULL,
+                    seq INTEGER NOT NULL DEFAULT 0,
+                    mid_x REAL NOT NULL,
+                    mid_y REAL NOT NULL,
+                    PRIMARY KEY (diagram_id, from_table, from_column, to_table, to_column, seq),
+                    FOREIGN KEY (diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO er_diagram_fk_midpoints
+                (diagram_id, from_table, from_column, to_table, to_column, seq, mid_x, mid_y)
+                SELECT diagram_id, from_table, from_column, to_table, to_column, 0, mid_x, mid_y
+                FROM er_diagram_fk_midpoints_old
+            """)
+            cursor.execute("DROP TABLE er_diagram_fk_midpoints_old")
+            conn.commit()
+            logger.info("[OK] Migration complete: fk_midpoints now supports multiple waypoints")
+
     def _migrate_er_diagrams_columns(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Migration 9: Add missing columns to er_diagrams (zoom_level, show_column_types)."""
         cursor.execute("PRAGMA table_info(er_diagrams)")
@@ -675,6 +746,12 @@ class SchemaManager:
             cursor.execute("ALTER TABLE er_diagrams ADD COLUMN show_column_types INTEGER DEFAULT 1")
             conn.commit()
             logger.info("[OK] Migration complete: er_diagrams now supports show_column_types")
+
+        if 'group_fks' not in columns:
+            logger.info("[MIGRATION] Adding 'group_fks' column to er_diagrams table...")
+            cursor.execute("ALTER TABLE er_diagrams ADD COLUMN group_fks INTEGER DEFAULT 1")
+            conn.commit()
+            logger.info("[OK] Migration complete: er_diagrams now supports group_fks")
 
     def _ensure_image_indexes(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """Ensure image indexes exist (for fresh installs or post-migration)."""

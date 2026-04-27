@@ -575,18 +575,35 @@ class DatabaseConnectionMixin:
         Cleanup all resources - stop background loaders in query tabs.
         Called when the application is closing.
         """
+        import warnings
+
         # Cancel all pending connection workers first
         for worker_id, worker in list(self._pending_workers.items()):
             try:
                 worker.cancel()
-                # Disconnect signals to prevent callbacks after cleanup
-                worker.connection_success.disconnect()
-                worker.connection_error.disconnect()
-                worker.status_update.disconnect()
-                worker.quit()
-                worker.wait(1000)  # Wait max 1 second
             except Exception:
-                pass  # Ignore errors during shutdown
+                pass
+            # Disconnect signals — silence PySide's RuntimeWarning when a signal
+            # has no connections (happens for short-lived auto-connect workers).
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                for sig in (worker.connection_success,
+                            worker.connection_error,
+                            worker.status_update):
+                    try:
+                        sig.disconnect()
+                    except (RuntimeError, TypeError):
+                        pass
+            try:
+                worker.quit()
+                # Blocking DB connect calls don't check _cancelled and don't
+                # react to quit(); fall back to terminate() so we don't leak
+                # a running QThread past app shutdown.
+                if not worker.wait(1500):
+                    worker.terminate()
+                    worker.wait(500)
+            except Exception:
+                pass
         self._pending_workers.clear()
 
         # Cleanup all query tabs (stop background threads)

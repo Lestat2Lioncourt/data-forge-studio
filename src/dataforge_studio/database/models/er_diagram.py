@@ -13,22 +13,42 @@ import uuid
 
 @dataclass
 class ERDiagramTable:
-    """A table included in an ER diagram with its visual position."""
+    """A table included in an ER diagram with its visual position and size."""
     table_name: str
     schema_name: str = ""
     pos_x: float = 0.0
     pos_y: float = 0.0
+    width: float = 0.0   # 0 → auto (use widget's natural width)
+    height: float = 0.0  # 0 → auto
 
 
 @dataclass
 class ERDiagramFKMidpoint:
-    """Custom midpoint position for a FK relationship line."""
+    """Custom waypoint on a FK relationship line (multiple per FK allowed, ordered by seq)."""
     from_table: str
     from_column: str
     to_table: str
     to_column: str
     mid_x: float
     mid_y: float
+    seq: int = 0
+
+
+@dataclass
+class ERDiagramGroup:
+    """Visual grouping frame around tables (pastel background + title)."""
+    id: str = ""
+    name: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 300.0
+    height: float = 200.0
+    color: str = "#B3E5FC"  # default pastel blue
+    diagram_id: str = ""
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = str(uuid.uuid4())
 
 
 @dataclass
@@ -53,8 +73,10 @@ class ERDiagram:
     description: str = ""
     zoom_level: float = 1.0
     show_column_types: bool = True
+    group_fks: bool = True
     tables: List[ERDiagramTable] = field(default_factory=list)
     fk_midpoints: List[ERDiagramFKMidpoint] = field(default_factory=list)
+    groups: List[ERDiagramGroup] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
 
@@ -94,6 +116,16 @@ class ERDiagram:
             if t.table_name == table_name and t.schema_name == schema_name:
                 t.pos_x = pos_x
                 t.pos_y = pos_y
+                self.updated_at = datetime.now().isoformat()
+                return
+
+    def update_table_size(self, table_name: str, width: float, height: float,
+                          schema_name: str = ""):
+        """Update the visual size of a table (0 = auto)."""
+        for t in self.tables:
+            if t.table_name == table_name and t.schema_name == schema_name:
+                t.width = width
+                t.height = height
                 self.updated_at = datetime.now().isoformat()
                 return
 
