@@ -637,6 +637,7 @@
 
     "update_available_title": "Update Available",
     "update_available_text": "A new version ({version}) is available!",
+    "update_standalone_warning": "Auto-update is not available on this install (standalone, no git checkout).\n\nIf you have access to GitHub, click \"Open on GitHub\" to download the latest release.\nOtherwise, contact the person who provided this build to ask for an updated standalone version.",
     "update_check_title": "Check for Updates",
     "no_update_available": "You are running the latest version.",
     "open_github": "View on GitHub",

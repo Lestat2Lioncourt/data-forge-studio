@@ -37,6 +37,8 @@ class DataFrameTableModel(QAbstractTableModel):
         self._columns: List[str] = []
         self._row_count: int = 0
         self._col_count: int = 0
+        # Column indices currently filtered (for header indicator decoration)
+        self._filtered_columns: set = set()
 
     def set_dataframe(self, df: "pd.DataFrame") -> None:
         """
@@ -128,12 +130,24 @@ class DataFrameTableModel(QAbstractTableModel):
 
         if orientation == Qt.Orientation.Horizontal:
             if 0 <= section < len(self._columns):
-                return self._columns[section]
+                label = self._columns[section]
+                if section in self._filtered_columns:
+                    label = f"{label} \U0001f50d"
+                return label
         else:
             # Row numbers (1-based for user display)
             return str(section + 1)
 
         return None
+
+    def set_filtered_columns(self, indices) -> None:
+        """Mark columns that have an active filter so headerData appends a 🔍."""
+        new_set = set(int(i) for i in indices)
+        if new_set == self._filtered_columns:
+            return
+        self._filtered_columns = new_set
+        if self._col_count > 0:
+            self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, self._col_count - 1)
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         """Return item flags (read-only)."""

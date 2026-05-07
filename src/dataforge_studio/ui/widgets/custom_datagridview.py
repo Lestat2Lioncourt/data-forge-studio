@@ -954,14 +954,22 @@ class CustomDataGridView(QWidget):
         self._update_filter_indicators()
 
     def _apply_filters(self):
-        """Apply all active filters by showing/hiding rows."""
+        """Apply all active column filters. Single entry point that works for
+        both standard mode (QTableWidget, hide rows) and virtual mode
+        (QTableView + DataFrameTableModel, push a filtered DataFrame)."""
+        if self._virtual_mode and self._table_model is not None:
+            self._apply_filters_virtual()
+        else:
+            self._apply_filters_standard()
+        self._update_row_count_label()
+        self._update_filter_indicators()
+
+    def _apply_filters_standard(self):
+        """Standard mode: hide rows that don't match every active filter."""
         if not self._active_filters:
-            # No filters — show all rows
             for row in range(self.table.rowCount()):
                 self.table.setRowHidden(row, False)
-            self._update_row_count_label()
             return
-
         for row in range(self.table.rowCount()):
             visible = True
             for col, filter_text in self._active_filters.items():
@@ -971,7 +979,25 @@ class CustomDataGridView(QWidget):
                     visible = False
                     break
             self.table.setRowHidden(row, not visible)
-        self._update_row_count_label()
+
+    def _apply_filters_virtual(self):
+        """Virtual mode: push a filtered subset of the source DataFrame to the model.
+        The grid's `_dataframe` stays unfiltered (kept as the source of truth);
+        only the view's model is replaced with the filtered slice."""
+        if self._dataframe is None:
+            return
+        if not self._active_filters:
+            self._table_model.set_dataframe(self._dataframe)
+            return
+        import pandas as pd
+        df = self._dataframe
+        mask = pd.Series(True, index=df.index)
+        for col_idx, filter_text in self._active_filters.items():
+            if 0 <= col_idx < len(df.columns):
+                col_name = df.columns[col_idx]
+                col_str = df[col_name].astype(str)
+                mask &= col_str.str.contains(filter_text, case=False, regex=False, na=False)
+        self._table_model.set_dataframe(df[mask])
 
     def _update_row_count_label(self):
         """Refresh the bottom row count label (total / filtered)."""
@@ -979,8 +1005,12 @@ class CustomDataGridView(QWidget):
             return
 
         if self._virtual_mode and self._table_model:
-            total = self._table_model.rowCount()
-            visible = total  # no row-hide filter in virtual mode
+            # In virtual mode the model holds the filtered subset. The grid's
+            # _dataframe is the unfiltered source of truth, so use its length
+            # as the "total".
+            total = (len(self._dataframe) if self._dataframe is not None
+                     else self._table_model.rowCount())
+            visible = self._table_model.rowCount()
         else:
             total = self.table.rowCount()
             if self._active_filters:
@@ -998,7 +1028,13 @@ class CustomDataGridView(QWidget):
             self.row_count_label.setText(tr("datagrid_row_count", total=total_s))
 
     def _update_filter_indicators(self):
-        """Update column headers to show filter indicators (🔽)."""
+        """Update column headers to show filter indicators (🔍).
+        Standard mode: rewrites header item text. Virtual mode: tells the
+        DataFrameTableModel which columns are filtered so its headerData
+        appends the icon."""
+        if self._virtual_mode and self._table_model is not None:
+            self._table_model.set_filtered_columns(self._active_filters.keys())
+            return
         for col_idx in range(self.table.columnCount()):
             header_item = self.table.horizontalHeaderItem(col_idx)
             if not header_item:

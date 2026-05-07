@@ -637,6 +637,7 @@
 
     "update_available_title": "Mise à jour disponible",
     "update_available_text": "Une nouvelle version ({version}) est disponible !",
+    "update_standalone_warning": "La mise à jour automatique n'est pas disponible sur cette installation (standalone, sans dépôt git).\n\nSi tu as accès à GitHub, clique sur \"Voir sur GitHub\" pour télécharger la dernière version.\nSinon, contacte la personne qui t'a fourni cette installation pour obtenir une version standalone actualisée.",
     "update_check_title": "Vérifier les mises à jour",
     "no_update_available": "Vous utilisez la dernière version.",
     "open_github": "Voir sur GitHub",

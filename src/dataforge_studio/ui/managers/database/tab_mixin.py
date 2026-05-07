@@ -150,9 +150,8 @@ class DatabaseTabMixin:
             target_database=target_database
         )
 
-        # Connect signals
+        # Connect signals (detach is wired centrally in _add_query_tab_to_widget)
         query_tab.query_saved.connect(self.query_saved.emit)
-        query_tab.detach_requested.connect(self._detach_query_tab)
 
         # Add to tab widget (target or own)
         tw = target_tab_widget or self.tab_widget
@@ -163,7 +162,14 @@ class DatabaseTabMixin:
         return query_tab
 
     def _add_query_tab_to_widget(self, tw: QTabWidget, query_tab, tab_name: str, db_conn=None):
-        """Add a query tab to a tab widget and set color dot icon if connection has a color."""
+        """Add a query tab to a tab widget. Single entry point that also wires the
+        detach signal — every code path that opens a QueryTab funnels through here,
+        so the detach button works regardless of how the tab was created.
+        Idempotent: re-attaching a tab after detach won't double-connect the signal.
+        """
+        if not getattr(query_tab, '_detach_wired', False):
+            query_tab.detach_requested.connect(self._detach_query_tab)
+            query_tab._detach_wired = True
         index = tw.addTab(query_tab, tab_name)
         tw.setCurrentIndex(index)
         if db_conn and getattr(db_conn, 'color', None):

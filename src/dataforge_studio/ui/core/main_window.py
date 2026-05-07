@@ -489,6 +489,12 @@ class DataForgeMainWindow:
         about_dialog = AboutDialog(parent=self.window)
         about_dialog.show()
 
+    def _is_git_install(self) -> bool:
+        """Whether this install is a git checkout (.git folder present at project root)."""
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent.parent.parent
+        return (project_root / ".git").exists()
+
     def _check_updates(self, cached_result=None, silent=False):
         """Check for updates from GitHub.
 
@@ -506,30 +512,40 @@ class DataForgeMainWindow:
 
         if result:
             version, url, notes = result
+            is_git = self._is_git_install()
+
             # Update available
             msg = QMessageBox(self.window)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle(tr("update_available_title"))
-            msg.setText(tr("update_available_text").format(version=version))
+            if is_git:
+                msg.setText(tr("update_available_text").format(version=version))
+            else:
+                # Standalone install — git-based auto-update can't run
+                msg.setText(tr("update_available_text").format(version=version)
+                            + "\n\n" + tr("update_standalone_warning"))
 
             # Truncate notes if too long
             if len(notes) > 500:
                 notes = notes[:500] + "..."
             msg.setDetailedText(notes)
 
-            # Add custom buttons
-            btn_update_quit = msg.addButton(tr("update_on_quit"), QMessageBox.ButtonRole.AcceptRole)
-            btn_update_relaunch = msg.addButton(tr("update_and_relaunch"), QMessageBox.ButtonRole.AcceptRole)
+            # Show auto-update buttons only on a git install
+            btn_update_quit = None
+            btn_update_relaunch = None
+            if is_git:
+                btn_update_quit = msg.addButton(tr("update_on_quit"), QMessageBox.ButtonRole.AcceptRole)
+                btn_update_relaunch = msg.addButton(tr("update_and_relaunch"), QMessageBox.ButtonRole.AcceptRole)
             btn_open = msg.addButton(tr("open_github"), QMessageBox.ButtonRole.ActionRole)
             btn_later = msg.addButton(tr("remind_later"), QMessageBox.ButtonRole.RejectRole)
 
             msg.exec()
 
             clicked = msg.clickedButton()
-            if clicked == btn_update_quit:
+            if clicked is not None and clicked is btn_update_quit:
                 self._pending_update = True
                 self.window.status_bar.set_message(tr("status_update_on_quit"))
-            elif clicked == btn_update_relaunch:
+            elif clicked is not None and clicked is btn_update_relaunch:
                 self._pending_update = True
                 self._pending_update_relaunch = True
                 self.window.status_bar.set_message(tr("status_update_on_quit"))
@@ -1013,6 +1029,26 @@ class DataForgeMainWindow:
                 )
             bat_content = f'''@echo off
 cd /d "{project_root}"
+if not exist ".git\\" (
+    echo.
+    echo ============================================
+    echo   AUTO-UPDATE NOT AVAILABLE
+    echo ============================================
+    echo.
+    echo This install is standalone (no .git folder).
+    echo Auto-update only works on git-based installs.
+    echo.
+    echo If you have access to GitHub, download the latest release from:
+    echo   https://github.com/Lestat2Lioncourt/data-forge-studio
+    echo.
+    echo Otherwise, contact the person who provided this build
+    echo to ask for an updated standalone version.
+    echo.
+    echo ============================================
+    echo.
+    pause
+    (del "%~f0") ^& exit /b 1
+)
 echo Updating DataForge Studio...
 echo.
 git config --global --add safe.directory "{str(project_root).replace(chr(92), '/')}"
