@@ -140,7 +140,8 @@ echo ============================================
 echo   UPDATE COMPLETE
 echo ============================================
 echo.
-echo You can now relaunch DataForge Studio.
-echo.
-pause
-exit /b 0
+echo Relaunching DataForge Studio...
+:: Launch in a fresh detached console so this script can exit cleanly
+start "" /b cmd /c uv run python run.py
+:: Self-delete and exit
+(del "%~f0") ^& exit /b 0
