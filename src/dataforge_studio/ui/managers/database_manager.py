@@ -101,6 +101,9 @@ class DatabaseManager(
         toolbar_builder.add_button(tr("menu_new_connection"), self._new_connection)
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Import", self._import_connections, icon="import.png")
+        toolbar_builder.add_separator()
+        toolbar_builder.add_button(tr("export_all_results_excel"), self._export_all_results_excel,
+                                   icon="download.png")
 
         self.toolbar = toolbar_builder.build()
         layout.addWidget(self.toolbar)

@@ -40,6 +40,10 @@ class QueriesManager(HierarchicalManagerView):
 
     # Signal emitted when query execution is requested (emits SavedQuery object)
     query_execute_requested = Signal(object)
+    # Signal emitted when a batch of queries should be executed in one go
+    # (used by "Execute all queries in this category" — DB manager handles
+    # connection-error dedup so unreachable DBs don't fire one dialog per query).
+    queries_batch_execute_requested = Signal(list, str)  # queries, category_name
 
     def __init__(self, parent=None):
         self._db_names = {}  # Cache for database names
@@ -183,6 +187,24 @@ class QueriesManager(HierarchicalManagerView):
         add_action = QAction(tr("btn_add_query"), self)
         add_action.triggered.connect(self._add_query)
         menu.addAction(add_action)
+
+        menu.addSeparator()
+
+        exec_all_action = QAction(tr("queries_exec_all_in_category"), self)
+        exec_all_action.triggered.connect(lambda: self._execute_all_in_category(category_name))
+        menu.addAction(exec_all_action)
+
+    def _execute_all_in_category(self, category_name: str):
+        """Open and execute every saved query that belongs to `category_name`.
+        Delegates to the DB manager's batch helper (via `queries_batch_execute_requested`
+        routed by MainWindow) so a missing VPN / unreachable database produces
+        a single warning instead of one error dialog per query."""
+        config_db = get_config_db()
+        queries = [q for q in config_db.get_all_saved_queries()
+                   if (q.category or "No category") == category_name]
+        if not queries:
+            return
+        self.queries_batch_execute_requested.emit(queries, category_name)
 
     def _build_item_context_menu(self, menu: QMenu, query: SavedQuery):
         """Build context menu for a query."""

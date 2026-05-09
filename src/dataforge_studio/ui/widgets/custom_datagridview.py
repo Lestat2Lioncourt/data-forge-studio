@@ -1059,6 +1059,51 @@ class CustomDataGridView(QWidget):
                 self.table.resizeColumnToContents(col)
 
     # ------------------------------------------------------------------
+    # Public read-back: data with current filter + sort applied
+    # ------------------------------------------------------------------
+    def get_displayed_dataframe(self):
+        """Return the user-visible data as a pandas DataFrame: source data
+        with the current column filters and sort order applied. Returns None
+        only if the grid is truly empty.
+
+        The grid is fed via two paths:
+        - `set_dataframe(df)` → `self._dataframe` populated
+        - `set_data(list-of-lists)` → only `self.data` + `self.columns` populated
+          (this is the path query results take)
+        Both are handled here so exports work regardless of how data was loaded.
+        """
+        try:
+            import pandas as pd
+        except Exception:
+            return None
+        if self._dataframe is not None:
+            df = self._dataframe
+        elif self.data and self.columns:
+            df = pd.DataFrame(self.data, columns=list(self.columns))
+        else:
+            return None
+        if self._active_filters:
+            try:
+                import pandas as pd
+                mask = pd.Series(True, index=df.index)
+                for col_idx, filter_text in self._active_filters.items():
+                    if 0 <= col_idx < len(df.columns):
+                        col_str = df[df.columns[col_idx]].astype(str)
+                        mask &= col_str.str.contains(filter_text, case=False, regex=False, na=False)
+                df = df[mask]
+            except Exception:
+                pass
+        if self.active_sorts:
+            try:
+                cols = [df.columns[c] for c, _ in self.active_sorts if c < len(df.columns)]
+                ascending = [order == Qt.SortOrder.AscendingOrder for _, order in self.active_sorts]
+                if cols:
+                    df = df.sort_values(by=cols, ascending=ascending, na_position='last')
+            except (TypeError, KeyError):
+                pass
+        return df
+
+    # ------------------------------------------------------------------
     # Export defaults / paths
     # ------------------------------------------------------------------
     def set_export_default_name(self, name: str):
@@ -1163,15 +1208,28 @@ class CustomDataGridView(QWidget):
                 cell.font = header_font
                 cell.fill = header_fill
 
-            # Data rows
+            # Data rows — track max length per column to autosize at the end
+            max_lens = [len(str(h)) for h in headers]
             row_count = self.get_row_count()
             for row in range(row_count):
-                ws.append(list(self.get_row_data(row)))
+                row_data = list(self.get_row_data(row))
+                ws.append(row_data)
+                for i, v in enumerate(row_data):
+                    if v is None or i >= len(max_lens):
+                        continue
+                    length = len(str(v))
+                    if length > max_lens[i]:
+                        max_lens[i] = length
 
             # Freeze header + auto-filter
             ws.freeze_panes = "A2"
             if row_count > 0 and headers:
                 ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{row_count + 1}"
+
+            # Autosize columns: clamp to a reasonable [8, 60] character window
+            for i, mlen in enumerate(max_lens):
+                width = min(max(mlen + 2, 8), 60)
+                ws.column_dimensions[get_column_letter(i + 1)].width = width
 
             wb.save(file_path)
             from ..widgets.dialog_helper import DialogHelper

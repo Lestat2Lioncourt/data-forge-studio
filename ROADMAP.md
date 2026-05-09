@@ -1,6 +1,6 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.13
+**Version**: 0.6.14
 **Objectif**: POC v0.9.xx / Production v1.0
 **Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audits #6, #7 & #8)
 
@@ -44,6 +44,32 @@
 | `ui/managers/database/crud_mixin.py` / `base_connection_dialog.py` / `edit_dialogs.py` / `color_palette.py` | Color picker default | Acceptable (fallback utilisateur) |
 
 **Apres v0.6.11** : composants ER diagram s'abonnent a `ThemeBridge.theme_changed` (via `er_diagram_manager._on_theme_changed`), changement de theme a chaud rafraichit les diagrammes ouverts. Le re-scan exhaustif des `QColor` residuels reste à planifier (P1.5 — estimation 1-2j).
+
+### Critere #13 (IMPORTANT) - Centralisation des actions de menu contextuel ressources / workspace
+
+**Constat (audit informel v0.6.13)** : les menus contextuels d'une même ressource divergent selon la vue où ils sont affichés.
+
+| Ressource | Vue Resources (`QueriesManager`) | Vue Workspace (`WorkspaceManager`) |
+|-----------|----------------------------------|------------------------------------|
+| Query (item) | Execute / Edit / Delete / Workspaces submenu | Execute (via `get_query_context_actions`) + Remove from Workspace |
+| Query category | Add query / Execute all (ajout v0.6.13) | rien — j'ai dû dupliquer "Execute all" inline |
+| Script, Job, Database, Table, View, Procedure, Function | Menus différents par vue | partiellement centralisés via `get_*_context_actions` du DB manager |
+
+**Pattern partiel actuel** : `context_menu_mixin.py` du DB manager expose `get_query_context_actions`, `get_database_context_actions`, `get_table_context_actions`, `get_procedure_context_actions`, `get_function_context_actions`. Utilisé par `WorkspaceManager._on_tree_context_menu` mais PAS par `QueriesManager`. La centralisation s'arrête au niveau item, jamais au niveau catégorie.
+
+**Cible** :
+- Étendre les `get_*_context_actions` à TOUS les types de ressources (queries, scripts, jobs, databases, etc.) dans un endroit central (DB manager / une centralisation dédiée).
+- Ajouter les variantes `get_*_category_context_actions(category_name, items, parent, target_tab_widget, workspace_id)` pour les actions au niveau catégorie.
+- Les vues (Resources / Workspace) deviennent des **assembleurs** : elles appellent les providers + ajoutent leurs actions spécifiques contextuelles (ex. "Remove from Workspace").
+- **Comportement contextuel à respecter** : certaines actions sont **interdites dans la vue Workspace** (ex. Delete query/script/job — la suppression ne doit se faire QUE dans la vue Resources). Deux options :
+  - (a) Filtrer ces actions à l'assemblage (plus simple)
+  - (b) Les afficher grisées avec un tooltip "Suppression disponible uniquement dans la vue Ressources"
+  - (c) Les laisser actives mais déclencher un message d'avertissement au clic
+  - → Reco (a) ou (b) — éviter (c) qui pollue l'UX.
+
+**Effort estimé** : 1-2j (centralisation + tests d'invariant menus identiques entre vues).
+
+**Impact audit** : actuellement note pénalisée sur Maintenabilité (duplication) + UX (incohérence inter-vues). Cible une remontée Maintenabilité 8.5→9 et UX cohérente.
 
 ### Historique des scores
 
@@ -702,7 +728,7 @@ Avril 2026
 |-- ER diagrams polish: hover popup themable, Ctrl+wheel zoom, Fit View button, Column Types toggle, content-driven table width
 |-- v0.6.11
 |-- Fix: bootstrap theme defaults on fresh installs (palettes/dispositions/themes combos empty)
-|-- v0.6.13 (actuel)
+|-- v0.6.14 (actuel)
 ```
 
 ### Projection (estimee)
@@ -737,7 +763,7 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.13.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.14.
 
 **Score global (audit #8): 8.4/10** (-0.2 vs audit #7) — Progression fonctionnelle forte (ER Diagrams aboutis, workspace partage EVO-4, refactor icones SVG-only) mais introduction du critere #12 (conformite au theme) revele une dette visuelle: 54 `QColor("#...")`, 34 `background-color: #`, 77 `color: #` hardcodes dans le code. Les nouveaux composants custom-paint (ER Diagram) ne passent pas par `theme_bridge` et ne se reabonnent pas a `theme_changed`. Trois palettes de log sont triplees a l'identique (log_panel, file_viewer_widget, file_content_handler).
 

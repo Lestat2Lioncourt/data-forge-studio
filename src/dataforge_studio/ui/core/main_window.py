@@ -287,6 +287,10 @@ class DataForgeMainWindow:
         # Connect queries manager execution signal to open query in DatabaseManager
         if self.queries_manager:
             self.queries_manager.query_execute_requested.connect(self._on_execute_saved_query)
+            if hasattr(self.queries_manager, 'queries_batch_execute_requested'):
+                self.queries_manager.queries_batch_execute_requested.connect(
+                    self._on_execute_saved_queries_batch
+                )
 
         # Clear stacked widget and add all views
         while self.stacked_widget.count() > 0:
@@ -393,6 +397,13 @@ class DataForgeMainWindow:
         if self.queries_manager:
             try:
                 self.queries_manager.query_execute_requested.disconnect(self._on_execute_saved_query)
+            except Exception:
+                pass
+            try:
+                if hasattr(self.queries_manager, 'queries_batch_execute_requested'):
+                    self.queries_manager.queries_batch_execute_requested.disconnect(
+                        self._on_execute_saved_queries_batch
+                    )
             except Exception:
                 pass
 
@@ -1050,12 +1061,34 @@ if not exist ".git\\" (
     (del "%~f0") ^& exit /b 1
 )
 echo Updating DataForge Studio...
+echo Waiting for previous instance to release file handles...
+:: Pause briefly so python.exe / Qt resources fully exit before git
+:: touches the .git folder (avoids "Unlink of file pack-*.idx failed"
+:: caused by handle locks from the closing app or antivirus scans).
+timeout /t 3 /nobreak >nul
 echo.
 git config --global --add safe.directory "{str(project_root).replace(chr(92), '/')}"
 git reset --hard
 git checkout main
+
+:: Retry loop for `git pull` — Windows file locks (AV, indexer, leftover
+:: handles) sometimes prevent git from removing pack files on the first
+:: try. We retry up to 3 times with growing delay; -c core.askPass=true
+:: + GIT_TERMINAL_PROMPT=0 prevents the interactive "try again?" prompt.
+set GIT_TERMINAL_PROMPT=0
+set _PULL_TRY=0
+:retry_pull
 git pull origin main
-if errorlevel 1 goto :failed
+if not errorlevel 1 goto :pull_ok
+set /a _PULL_TRY+=1
+if %_PULL_TRY% GEQ 3 goto :failed
+echo.
+echo Pull failed (attempt %_PULL_TRY%/3) — retrying in 5 seconds...
+echo Close any other application using this folder if the issue persists.
+timeout /t 5 /nobreak >nul
+goto :retry_pull
+:pull_ok
+
 uv sync
 if errorlevel 1 goto :failed
 {end_success}
@@ -1130,3 +1163,23 @@ pause
 
         # Delegate to DatabaseManager's execute_saved_query method
         self.database_manager.execute_saved_query(saved_query)
+
+    def _on_execute_saved_queries_batch(self, saved_queries, category_name):
+        """Handle batch execute (Execute all queries in this category) from QueriesManager.
+        Routes to the DB manager's batch helper that dedupes connection errors
+        per database — avoids one timeout-and-dialog per query when a DB is down."""
+        from ..widgets.dialog_helper import DialogHelper
+        if not self.database_manager:
+            DialogHelper.warning("Database Manager not available.", parent=self.window)
+            return
+        if not saved_queries:
+            return
+        self._switch_frame("database")
+        result = self.database_manager.execute_saved_queries_batch(saved_queries)
+        try:
+            executed = result.get("executed", 0)
+            self.window.status_bar.set_message(
+                tr("queries_exec_all_done", count=executed, name=category_name)
+            )
+        except Exception:
+            pass

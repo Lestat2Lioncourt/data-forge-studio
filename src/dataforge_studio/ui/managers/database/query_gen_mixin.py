@@ -611,3 +611,85 @@ class DatabaseQueryGenMixin:
             DialogHelper.error(f"Error executing query: {e}", parent=self)
 
         logger.info(f"Executed saved query: {saved_query.name}")
+
+    def execute_saved_queries_batch(self, queries: list, target_tab_widget=None,
+                                    workspace_id: str = None) -> dict:
+        """Execute several saved queries in one go, deduping connection errors.
+
+        When the user kicks off "execute all queries in this category" without
+        a working VPN, every query would otherwise wait for its own DB ping
+        timeout AND show its own error dialog. This helper groups queries by
+        target db_id, attempts to (re)connect to each unique database ONCE,
+        and skips the queries whose database is unreachable — emitting a single
+        summary dialog at the end listing the failed databases.
+
+        Returns:
+            {"executed": int, "skipped": int, "failed_dbs": [(name, count), ...]}
+        """
+        # Group queries by db_id (preserves first-seen order)
+        from collections import OrderedDict
+        groups: "OrderedDict[str, list]" = OrderedDict()
+        no_target = []
+        for q in queries:
+            db_id = getattr(q, "target_database_id", None)
+            if not db_id:
+                no_target.append(q)
+                continue
+            groups.setdefault(db_id, []).append(q)
+
+        executed = 0
+        skipped = 0
+        failed_dbs = []  # list of (db_name, skipped_count)
+
+        for db_id, db_queries in groups.items():
+            db_conn = self._get_connection_by_id(db_id)
+            db_name = db_conn.name if db_conn else db_id
+
+            # Resolve / reconnect ONCE per database
+            connection = self.connections.get(db_id)
+            if not connection and db_conn:
+                try:
+                    connection = self.reconnect_database(db_id)
+                except Exception as e:
+                    logger.warning(f"Batch: reconnect to '{db_name}' failed: {e}")
+                    connection = None
+
+            if not connection or not db_conn:
+                # All queries pointing to this DB are skipped without retrying
+                failed_dbs.append((db_name, len(db_queries)))
+                skipped += len(db_queries)
+                continue
+
+            # DB is reachable — execute every query of this group. The inner
+            # call reuses the live connection and bypasses the reconnect path.
+            for q in db_queries:
+                try:
+                    self.execute_saved_query(
+                        q, target_tab_widget=target_tab_widget, workspace_id=workspace_id
+                    )
+                    executed += 1
+                except Exception as e:
+                    logger.error(f"Batch: execute query '{getattr(q, 'name', '?')}' failed: {e}")
+                    skipped += 1
+
+        # Queries that had no target_database_id at all
+        if no_target:
+            failed_dbs.append(("(no target database)", len(no_target)))
+            skipped += len(no_target)
+
+        # Single aggregated dialog instead of one per query
+        if failed_dbs:
+            details = "\n".join(
+                f"- {name}: {count} query(ies) skipped"
+                for name, count in failed_dbs
+            )
+            DialogHelper.warning(
+                tr("queries_batch_partial_title")
+                + "\n\n"
+                + tr("queries_batch_partial_body", executed=executed, skipped=skipped)
+                + "\n\n"
+                + details,
+                parent=self,
+            )
+
+        return {"executed": executed, "skipped": skipped, "failed_dbs": failed_dbs}

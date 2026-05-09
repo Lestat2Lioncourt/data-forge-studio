@@ -157,6 +157,10 @@ class WorkspaceManager(QWidget):
         toolbar_builder.add_button("Import", self._import_workspace, icon="import.png")
         toolbar_builder.add_separator()
         toolbar_builder.add_button(tr("btn_refresh"), self._refresh, icon="refresh.png")
+        toolbar_builder.add_separator()
+        toolbar_builder.add_button(tr("export_all_results_excel"),
+                                   self._export_all_results_excel,
+                                   icon="download.png")
 
         self.toolbar = toolbar_builder.build()
         layout.addWidget(self.toolbar)
@@ -1111,6 +1115,28 @@ class WorkspaceManager(QWidget):
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
+        elif item_type == "query_category":
+            # Right-click on a query category folder inside a workspace:
+            # offer to execute every query of that category that is currently
+            # displayed under this node (already filtered by workspace membership).
+            if self._database_manager:
+                queries = []
+                for i in range(item.childCount()):
+                    child = item.child(i)
+                    cdata = child.data(0, Qt.ItemDataRole.UserRole) or {}
+                    if cdata.get("type") == "query":
+                        q = cdata.get("resource_obj")
+                        if q is not None:
+                            queries.append(q)
+                if queries:
+                    cat_name = data.get("name", "")
+                    exec_all = QAction(tr("queries_exec_all_in_category"), self)
+                    exec_all.triggered.connect(
+                        lambda checked=False, qs=queries, name=cat_name:
+                            self._execute_all_queries_in_category(qs, name)
+                    )
+                    menu.addAction(exec_all)
+
         elif item_type == "database":
             if self._database_manager:
                 ws_id = self._current_workspace_id
@@ -1190,6 +1216,40 @@ class WorkspaceManager(QWidget):
 
         if menu.actions():
             menu.exec(self.workspace_tree.viewport().mapToGlobal(position))
+
+    def _export_all_results_excel(self):
+        """Export every non-empty result grid in this workspace's tab widget
+        to a single .xlsx file. Delegates to the database manager's export
+        helper but scopes it to `self.tab_widget` so DB-manager tabs from
+        other contexts don't leak into the workspace's Excel."""
+        if self._database_manager is None:
+            return
+        self._database_manager._export_all_results_excel(
+            tab_widgets=[self.tab_widget], parent=self,
+        )
+
+    def _execute_all_queries_in_category(self, queries: list, category_name: str):
+        """Execute every saved query in `queries` against the current workspace tab widget.
+        Delegates to the database manager's batch helper so a missing VPN /
+        unreachable database produces a single deduped warning rather than one
+        timeout + dialog per query."""
+        if not queries or not self._database_manager:
+            return
+        ws_id = self._current_workspace_id
+        result = self._database_manager.execute_saved_queries_batch(
+            queries, target_tab_widget=self.tab_widget, workspace_id=ws_id,
+        )
+        try:
+            w = self.window()
+            while w is not None and not hasattr(w, 'status_bar'):
+                w = w.parent()
+            if w is not None and hasattr(w, 'status_bar'):
+                w.status_bar.set_message(
+                    tr("queries_exec_all_done",
+                       count=result.get("executed", len(queries)), name=category_name)
+                )
+        except Exception:
+            pass
 
     def _remove_resource_from_workspace(self, item: QTreeWidgetItem, data: dict):
         """Remove resource from workspace."""
