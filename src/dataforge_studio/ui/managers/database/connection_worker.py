@@ -19,7 +19,7 @@ from PySide6.QtCore import Signal, QThread
 from ....database.config_db import DatabaseConnection
 from ....database.schema_loaders import SchemaLoaderFactory
 from ....utils.credential_manager import CredentialManager
-from ....utils.connection_helpers import parse_postgresql_url
+from ....utils.connection_helpers import parse_postgresql_url, parse_mysql_url
 from ....utils.network_utils import check_server_reachable
 from ....utils.connection_error_handler import format_connection_error, get_server_unreachable_message
 from ....constants import CONNECTION_TIMEOUT_S, PING_TIMEOUT_S
@@ -156,6 +156,19 @@ class DatabaseConnectionWorker(QThread):
                     return psycopg2.connect(**pg_kwargs)
                 else:
                     self.connection_error.emit(tr("db_pg_format_unsupported"))
+                    return None
+
+            elif self.db_conn.db_type == "mysql":
+                try:
+                    import pymysql
+                except ImportError:
+                    self.connection_error.emit(tr("dep_pymysql_missing"))
+                    return None
+                my_kwargs = parse_mysql_url(self.db_conn.connection_string, self.db_conn.id)
+                if my_kwargs:
+                    return pymysql.connect(**my_kwargs)
+                else:
+                    self.connection_error.emit(tr("db_mysql_format_unsupported"))
                     return None
 
             else:

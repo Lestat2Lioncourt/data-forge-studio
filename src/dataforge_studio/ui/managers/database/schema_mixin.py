@@ -195,14 +195,16 @@ class DatabaseSchemaMixin:
             while parent_item.childCount() > 0:
                 parent_item.removeChild(parent_item.child(0))
 
-            # For SQL Server, use _load_database_schema for a specific database
-            if hasattr(loader, '_load_database_schema'):
+            # Specific database requested (SQL Server / MySQL): load just that DB.
+            # If no database_name is given (server-level attach), load the full
+            # server schema so all databases appear — consistent with Resources.
+            if database_name and hasattr(loader, '_load_database_schema'):
                 db_schema = loader._load_database_schema(database_name)
                 # Populate with just this database's contents (Tables, Views, etc.)
                 self._populate_tree_from_schema(parent_item, db_schema, db_conn)
                 return True
             else:
-                # For other DB types, load full schema
+                # Full server schema (all databases)
                 schema = loader.load_schema()
                 self._populate_tree_from_schema(parent_item, schema, db_conn)
                 return True

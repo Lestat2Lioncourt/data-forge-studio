@@ -209,6 +209,17 @@ class ConfigDatabase:
                                         database_name: str = None) -> bool:
         return self._project_repo.remove_database(workspace_id, database_id, database_name)
 
+    def replace_server_link_with_databases(self, workspace_id: str, database_id: str,
+                                           db_names: List[str]) -> bool:
+        """Normalize a server-level link into one specific-database link per name."""
+        return self._project_repo.replace_server_link_with_databases(
+            workspace_id, database_id, db_names
+        )
+
+    def remove_all_databases_from_workspace(self, workspace_id: str, database_id: str) -> bool:
+        """Remove every link for a connection from a workspace (whole server)."""
+        return self._project_repo.remove_all_databases(workspace_id, database_id)
+
     def get_workspace_databases(self, workspace_id: str) -> List[DatabaseConnection]:
         return self._project_repo.get_databases(workspace_id)
 

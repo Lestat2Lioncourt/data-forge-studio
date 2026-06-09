@@ -25,6 +25,26 @@ from dataforge_studio.database.models import (
     Script,
     Job,
 )
+from dataforge_studio.utils.db_capabilities import is_multi_database_server
+
+
+class TestDbCapabilities:
+    """Test the multi-database classification helper."""
+
+    def test_multi_database_types(self):
+        assert is_multi_database_server("sqlserver") is True
+        assert is_multi_database_server("mysql") is True
+        assert is_multi_database_server("mariadb") is True
+
+    def test_single_database_types(self):
+        assert is_multi_database_server("sqlite") is False
+        assert is_multi_database_server("access") is False
+        assert is_multi_database_server("postgresql") is False
+
+    def test_case_insensitive_and_empty(self):
+        assert is_multi_database_server("SQLServer") is True
+        assert is_multi_database_server("") is False
+        assert is_multi_database_server(None) is False
 
 
 class TestConnectionPool:
@@ -294,6 +314,64 @@ class TestProjectRepository:
         updated = repo.get_by_id("proj-2")
         # last_used_at should be updated
         assert updated.last_used_at != original_time
+
+    def _add_connection(self, repo, conn_id="srv-1"):
+        """Helper: insert a database connection (FK target for project_databases)."""
+        conn_repo = DatabaseConnectionRepository(repo.pool)
+        conn_repo.add(DatabaseConnection(
+            id=conn_id, name="ORBIT-BDD", db_type="sqlserver",
+            connection_string="Server=test", description=""
+        ))
+        return conn_id
+
+    def _linked_names(self, repo, project_id, conn_id):
+        """Helper: set of database_name values linked for a connection."""
+        return {
+            db_name for (db_id, db_name, _created)
+            in repo.get_database_entries(project_id) if db_id == conn_id
+        }
+
+    def test_replace_server_link_dedup(self, repo):
+        """Server link + a pre-existing specific link -> one link per database, no ''."""
+        repo.add(Project(id="ws-1", name="WS One", description="", is_default=False))
+        conn_id = self._add_connection(repo)
+
+        # Reproduce the real ORBIT-BDD situation: server link + one specific link
+        repo.add_database("ws-1", conn_id, None)    # server-level ('')
+        repo.add_database("ws-1", conn_id, "DL")    # specific
+
+        ok = repo.replace_server_link_with_databases(
+            "ws-1", conn_id, ["DL", "GRDF_PROX_EVT", "MasterDB", "SSISDB"]
+        )
+        assert ok is True
+
+        names = self._linked_names(repo, "ws-1", conn_id)
+        assert names == {"DL", "GRDF_PROX_EVT", "MasterDB", "SSISDB"}
+        assert "" not in names  # server-level link removed
+        # DL must appear exactly once (no duplicate row)
+        dl_rows = [n for (_id, n, _c) in repo.get_database_entries("ws-1") if n == "DL"]
+        assert len(dl_rows) == 1
+
+    def test_replace_server_link_idempotent(self, repo):
+        """Calling twice yields the same set and still succeeds."""
+        repo.add(Project(id="ws-2", name="WS Two", description="", is_default=False))
+        conn_id = self._add_connection(repo, "srv-2")
+        repo.add_database("ws-2", conn_id, None)
+
+        repo.replace_server_link_with_databases("ws-2", conn_id, ["A", "B"])
+        ok = repo.replace_server_link_with_databases("ws-2", conn_id, ["A", "B"])
+        assert ok is True
+        assert self._linked_names(repo, "ws-2", conn_id) == {"A", "B"}
+
+    def test_replace_server_link_skips_empty_names(self, repo):
+        """Empty names never recreate a server-level ('') link."""
+        repo.add(Project(id="ws-3", name="WS Three", description="", is_default=False))
+        conn_id = self._add_connection(repo, "srv-3")
+        repo.add_database("ws-3", conn_id, None)
+
+        ok = repo.replace_server_link_with_databases("ws-3", conn_id, ["A", "", "B"])
+        assert ok is True
+        assert self._linked_names(repo, "ws-3", conn_id) == {"A", "B"}
 
 
 class TestUserPreferencesRepository:

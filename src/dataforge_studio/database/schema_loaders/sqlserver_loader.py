@@ -47,7 +47,12 @@ class SQLServerSchemaLoader(SchemaLoader):
         cursor = self._get_cursor()
         try:
             cursor.execute(
-                "SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name"
+                # HAS_DBACCESS filters out databases the account cannot access
+                # (and offline/restoring ones), so a least-privilege login only
+                # sees its authorized databases instead of erroring on the rest.
+                "SELECT name FROM sys.databases "
+                "WHERE database_id > 4 AND HAS_DBACCESS(name) = 1 "
+                "ORDER BY name"
             )
             return [row[0] for row in cursor.fetchall()]
         except DbError:

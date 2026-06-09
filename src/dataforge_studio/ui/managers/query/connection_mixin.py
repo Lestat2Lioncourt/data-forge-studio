@@ -134,10 +134,11 @@ class QueryConnectionMixin:
             elif self.db_type == "sqlserver":
                 cursor = self.connection.cursor()
 
-                # Get all databases (user databases, not system)
+                # Get accessible user databases (HAS_DBACCESS skips databases the
+                # account has no rights on, and offline/restoring ones)
                 cursor.execute("""
                     SELECT name FROM sys.databases
-                    WHERE database_id > 4
+                    WHERE database_id > 4 AND HAS_DBACCESS(name) = 1
                     ORDER BY name
                 """)
                 databases = [row[0] for row in cursor.fetchall()]
@@ -162,6 +163,38 @@ class QueryConnectionMixin:
                     try:
                         safe_target = target_db.replace("]", "]]")
                         cursor.execute(f"USE [{safe_target}]")
+                    except Exception as e:
+                        logger.warning(f"Could not switch to database {target_db}: {e}")
+
+            elif self.db_type == "mysql":
+                # MySQL/MariaDB: list databases and switch with USE
+                cursor = self.connection.cursor()
+                cursor.execute("""
+                    SELECT SCHEMA_NAME FROM information_schema.SCHEMATA
+                    WHERE SCHEMA_NAME NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                    ORDER BY SCHEMA_NAME
+                """)
+                databases = [row[0] for row in cursor.fetchall()]
+
+                for db in databases:
+                    self.db_combo.addItem(db)
+
+                # Pick a target: explicit target, else the connection's current
+                # database, else the first available one.
+                target_db = self._target_database
+                if not target_db:
+                    cursor.execute("SELECT DATABASE()")
+                    row = cursor.fetchone()
+                    target_db = row[0] if row and row[0] else None
+                if (not target_db or target_db not in databases) and databases:
+                    target_db = databases[0]
+
+                if target_db and target_db in databases:
+                    self.db_combo.setCurrentText(target_db)
+                    self.current_database = target_db
+                    try:
+                        safe_target = target_db.replace("`", "``")
+                        cursor.execute(f"USE `{safe_target}`")
                     except Exception as e:
                         logger.warning(f"Could not switch to database {target_db}: {e}")
 
@@ -190,14 +223,18 @@ class QueryConnectionMixin:
         if not db_name or db_name.startswith("("):
             return
 
-        if not self.connection or self.db_type != "sqlserver":
+        if not self.connection or self.db_type not in ("sqlserver", "mysql"):
             return
 
         try:
-            # Change database context using USE statement
+            # Change database context using USE statement (dialect-quoted)
             cursor = self.connection.cursor()
-            safe_db = db_name.replace("]", "]]")
-            cursor.execute(f"USE [{safe_db}]")
+            if self.db_type == "sqlserver":
+                safe_db = db_name.replace("]", "]]")
+                cursor.execute(f"USE [{safe_db}]")
+            else:  # mysql / mariadb
+                safe_db = db_name.replace("`", "``")
+                cursor.execute(f"USE `{safe_db}`")
             self.current_database = db_name
 
             # Clear schema cache for new database

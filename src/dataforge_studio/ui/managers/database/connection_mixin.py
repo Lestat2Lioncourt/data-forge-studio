@@ -27,7 +27,7 @@ from ....database.config_db import get_config_db, DatabaseConnection
 from ....database.schema_loaders import SchemaLoaderFactory
 from ....utils.image_loader import get_database_icon_with_dot, get_auto_color
 from ....utils.credential_manager import CredentialManager
-from ....utils.connection_helpers import parse_postgresql_url
+from ....utils.connection_helpers import parse_postgresql_url, parse_mysql_url
 from ....utils.connection_error_handler import format_connection_error
 from ....constants import CONNECTION_TIMEOUT_S
 from ....database.sqlserver_connection import connect_sqlserver
@@ -256,8 +256,8 @@ class DatabaseConnectionMixin:
         # Populate tree with schema
         self._populate_tree_from_schema(server_item, schema, db_conn)
 
-        # Update server node text for SQL Server (show database count)
-        if db_conn.db_type == "sqlserver":
+        # Update server node text for multi-database servers (show database count)
+        if db_conn.db_type in ("sqlserver", "mysql"):
             server_item.setText(0, schema.display_name)
 
         # Mark as connected
@@ -310,8 +310,8 @@ class DatabaseConnectionMixin:
         # Populate tree with schema
         self._populate_tree_from_schema(server_item, schema, db_conn)
 
-        # Update server node text for SQL Server (show database count)
-        if db_conn.db_type == "sqlserver":
+        # Update server node text for multi-database servers (show database count)
+        if db_conn.db_type in ("sqlserver", "mysql"):
             server_item.setText(0, schema.display_name)
 
         # Mark as connected
@@ -492,6 +492,21 @@ class DatabaseConnectionMixin:
                 DialogHelper.warning(tr("db_pg_format_unsupported"), parent=self)
                 return None
 
+        elif db_conn.db_type == "mysql":
+            try:
+                import pymysql
+            except ImportError:
+                self._set_status_message(tr("status_ready"))
+                DialogHelper.warning(tr("dep_pymysql_missing"), parent=self)
+                return None
+            my_kwargs = parse_mysql_url(db_conn.connection_string, db_conn.id)
+            if my_kwargs:
+                return pymysql.connect(**my_kwargs)
+            else:
+                self._set_status_message(tr("status_ready"))
+                DialogHelper.warning(tr("db_mysql_format_unsupported"), parent=self)
+                return None
+
         else:
             # Unsupported database type
             return None
@@ -553,6 +568,15 @@ class DatabaseConnectionMixin:
                 pg_kwargs = parse_postgresql_url(db_conn.connection_string, db_id)
                 if pg_kwargs:
                     connection = psycopg2.connect(**pg_kwargs)
+                    self.connections[db_id] = connection
+                else:
+                    return None
+
+            elif db_conn.db_type == "mysql":
+                import pymysql
+                my_kwargs = parse_mysql_url(db_conn.connection_string, db_id)
+                if my_kwargs:
+                    connection = pymysql.connect(**my_kwargs)
                     self.connections[db_id] = connection
                 else:
                     return None

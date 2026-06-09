@@ -2,7 +2,8 @@
 MySQL Schema Loader - Load schema from MySQL/MariaDB databases
 """
 
-from typing import Any, List
+from collections import defaultdict
+from typing import Any, List, Optional
 
 from .base import SchemaLoader, SchemaNode, SchemaNodeType, ForeignKeyInfo, PrimaryKeyInfo
 
@@ -16,7 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class MySQLSchemaLoader(SchemaLoader):
-    """Schema loader for MySQL/MariaDB databases."""
+    """Schema loader for MySQL/MariaDB databases.
+
+    In MySQL/MariaDB a *schema* and a *database* are synonyms, so the tree is
+    built like SQL Server: a server root node containing one DATABASE node per
+    database, each with Tables / Views / Procedures / Functions folders. Empty
+    databases still appear (with empty folders), matching SQL Server ergonomics.
+    """
 
     # System schemas to exclude
     SYSTEM_SCHEMAS = ('information_schema', 'mysql', 'performance_schema', 'sys')
@@ -24,72 +31,144 @@ class MySQLSchemaLoader(SchemaLoader):
     def __init__(self, connection: Any, db_id: str, db_name: str):
         super().__init__(connection, db_id, db_name)
 
+    def _schema_where(self, column: str, only_schema: Optional[str]):
+        """Build a WHERE fragment + params for schema filtering.
+
+        If only_schema is given, filter to that one schema; otherwise exclude
+        the system schemas.
+        """
+        if only_schema:
+            return f"{column} = %s", (only_schema,)
+        placeholders = ", ".join(["%s"] * len(self.SYSTEM_SCHEMAS))
+        return f"{column} NOT IN ({placeholders})", self.SYSTEM_SCHEMAS
+
+    # ------------------------------------------------------------------ #
+    # Schema tree assembly
+    # ------------------------------------------------------------------ #
+
     def load_schema(self) -> SchemaNode:
-        """Load complete MySQL schema."""
+        """Load complete schema for all user databases on the server."""
+        databases = self.get_databases()
+
+        # Load everything in bulk (flat), then group by database (schema).
         tables = self.load_tables()
         views = self.load_views()
         procedures = self.load_procedures()
         functions = self.load_functions()
 
-        # Create root node (the database itself)
+        tables_by_db = self._group_by_schema(tables)
+        views_by_db = self._group_by_schema(views)
+        procs_by_db = self._group_by_schema(procedures)
+        funcs_by_db = self._group_by_schema(functions)
+
+        # Root node represents the server/connection
         root = SchemaNode(
             node_type=SchemaNodeType.DATABASE,
             name=self.db_name,
-            display_name=self.db_name,
-            metadata={"db_id": self.db_id}
+            display_name=f"{self.db_name} ({len(databases)} db)",
+            metadata={"db_id": self.db_id, "is_server": True}
+        )
+
+        for db_name in databases:
+            root.add_child(self._build_database_node(
+                db_name,
+                tables_by_db.get(db_name, []),
+                views_by_db.get(db_name, []),
+                procs_by_db.get(db_name, []),
+                funcs_by_db.get(db_name, []),
+            ))
+
+        return root
+
+    def _load_database_schema(self, database_name: str) -> SchemaNode:
+        """Load schema for a single database (used by WorkspaceManager)."""
+        tables = self.load_tables(only_schema=database_name)
+        views = self.load_views(only_schema=database_name)
+        procedures = self.load_procedures(only_schema=database_name)
+        functions = self.load_functions(only_schema=database_name)
+        return self._build_database_node(
+            database_name, tables, views, procedures, functions
+        )
+
+    @staticmethod
+    def _group_by_schema(nodes: List[SchemaNode]) -> dict:
+        """Group schema nodes by their 'schema' metadata key."""
+        grouped = defaultdict(list)
+        for node in nodes:
+            grouped[node.metadata.get("schema")].append(node)
+        return grouped
+
+    def _build_database_node(self, database_name: str,
+                             tables: List[SchemaNode], views: List[SchemaNode],
+                             procedures: List[SchemaNode], functions: List[SchemaNode]) -> SchemaNode:
+        """Build a DATABASE node with its four folders (always present)."""
+        total = len(tables) + len(views) + len(procedures) + len(functions)
+
+        db_node = SchemaNode(
+            node_type=SchemaNodeType.DATABASE,
+            name=database_name,
+            display_name=f"{database_name} ({total})",
+            metadata={"db_id": self.db_id, "db_name": database_name}
         )
 
         # Tables folder
         tables_folder = self._create_folder_node(
             SchemaNodeType.TABLES_FOLDER, "Tables", len(tables)
         )
+        tables_folder.metadata["db_name"] = database_name
         tables_folder.children = tables
-        root.add_child(tables_folder)
+        db_node.add_child(tables_folder)
 
         # Views folder
         views_folder = self._create_folder_node(
             SchemaNodeType.VIEWS_FOLDER, "Views", len(views)
         )
+        views_folder.metadata["db_name"] = database_name
         views_folder.children = views
-        root.add_child(views_folder)
+        db_node.add_child(views_folder)
 
         # Procedures folder
-        if procedures:
-            procedures_folder = self._create_folder_node(
-                SchemaNodeType.PROCEDURES_FOLDER, "Procedures", len(procedures)
-            )
-            procedures_folder.children = procedures
-            root.add_child(procedures_folder)
+        procs_folder = self._create_folder_node(
+            SchemaNodeType.PROCEDURES_FOLDER, "Procedures", len(procedures)
+        )
+        procs_folder.metadata["db_name"] = database_name
+        procs_folder.children = procedures
+        db_node.add_child(procs_folder)
 
-        # Functions folder
-        if functions:
-            functions_folder = self._create_folder_node(
-                SchemaNodeType.PROCEDURES_FOLDER, "Functions", len(functions)
-            )
-            functions_folder.metadata["is_functions"] = True
-            functions_folder.children = functions
-            root.add_child(functions_folder)
+        # Functions folder (custom flag, reuse PROCEDURES_FOLDER type)
+        funcs_folder = SchemaNode(
+            node_type=SchemaNodeType.PROCEDURES_FOLDER,
+            name="Functions",
+            display_name=f"Functions ({len(functions)})",
+            metadata={"db_id": self.db_id, "db_name": database_name, "is_functions": True}
+        )
+        funcs_folder.children = functions
+        db_node.add_child(funcs_folder)
 
-        return root
+        return db_node
 
-    def load_tables(self) -> List[SchemaNode]:
-        """Load all tables with columns (optimized: single query for all columns)."""
+    # ------------------------------------------------------------------ #
+    # Bulk loaders (flat; grouped by caller)
+    # ------------------------------------------------------------------ #
+
+    def load_tables(self, only_schema: Optional[str] = None) -> List[SchemaNode]:
+        """Load all tables with columns (single query for all columns)."""
         cursor = self.connection.cursor()
         tables = []
 
         try:
-            # Get all user tables with their schemas
-            cursor.execute("""
+            where, params = self._schema_where("TABLE_SCHEMA", only_schema)
+            cursor.execute(f"""
                 SELECT TABLE_SCHEMA, TABLE_NAME
                 FROM information_schema.TABLES
                 WHERE TABLE_TYPE = 'BASE TABLE'
-                AND TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+                AND {where}
                 ORDER BY TABLE_SCHEMA, TABLE_NAME
-            """, self.SYSTEM_SCHEMAS)
+            """, params)
             table_list = cursor.fetchall()
 
             # Load ALL columns in one query (avoids N+1 problem)
-            columns_by_table = self._load_all_columns_bulk(cursor)
+            columns_by_table = self._load_all_columns_bulk(cursor, only_schema)
 
             for row in table_list:
                 schema_name, table_name = row
@@ -107,17 +186,18 @@ class MySQLSchemaLoader(SchemaLoader):
 
         return tables
 
-    def _load_all_columns_bulk(self, cursor) -> dict:
+    def _load_all_columns_bulk(self, cursor, only_schema: Optional[str] = None) -> dict:
         """Load all columns for all tables in a single query."""
         columns_by_table = {}
 
         try:
-            cursor.execute("""
+            where, params = self._schema_where("TABLE_SCHEMA", only_schema)
+            cursor.execute(f"""
                 SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
                 FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+                WHERE {where}
                 ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
-            """, self.SYSTEM_SCHEMAS)
+            """, params)
 
             for row in cursor.fetchall():
                 schema_name, table_name, col_name, col_type, nullable = row
@@ -139,21 +219,22 @@ class MySQLSchemaLoader(SchemaLoader):
 
         return columns_by_table
 
-    def load_views(self) -> List[SchemaNode]:
+    def load_views(self, only_schema: Optional[str] = None) -> List[SchemaNode]:
         """Load all views."""
         cursor = self.connection.cursor()
         views = []
 
         try:
-            cursor.execute("""
+            where, params = self._schema_where("TABLE_SCHEMA", only_schema)
+            cursor.execute(f"""
                 SELECT TABLE_SCHEMA, TABLE_NAME,
                        (SELECT COUNT(*) FROM information_schema.COLUMNS c
                         WHERE c.TABLE_SCHEMA = v.TABLE_SCHEMA
                         AND c.TABLE_NAME = v.TABLE_NAME) as column_count
                 FROM information_schema.VIEWS v
-                WHERE TABLE_SCHEMA NOT IN (%s, %s, %s, %s)
+                WHERE {where}
                 ORDER BY TABLE_SCHEMA, TABLE_NAME
-            """, self.SYSTEM_SCHEMAS)
+            """, params)
 
             for row in cursor.fetchall():
                 schema_name, view_name, column_count = row
@@ -167,19 +248,20 @@ class MySQLSchemaLoader(SchemaLoader):
 
         return views
 
-    def load_procedures(self) -> List[SchemaNode]:
+    def load_procedures(self, only_schema: Optional[str] = None) -> List[SchemaNode]:
         """Load all stored procedures."""
         cursor = self.connection.cursor()
         procedures = []
 
         try:
-            cursor.execute("""
+            where, params = self._schema_where("ROUTINE_SCHEMA", only_schema)
+            cursor.execute(f"""
                 SELECT ROUTINE_SCHEMA, ROUTINE_NAME
                 FROM information_schema.ROUTINES
                 WHERE ROUTINE_TYPE = 'PROCEDURE'
-                AND ROUTINE_SCHEMA NOT IN (%s, %s, %s, %s)
+                AND {where}
                 ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME
-            """, self.SYSTEM_SCHEMAS)
+            """, params)
 
             for row in cursor.fetchall():
                 schema_name, proc_name = row
@@ -204,19 +286,20 @@ class MySQLSchemaLoader(SchemaLoader):
 
         return procedures
 
-    def load_functions(self) -> List[SchemaNode]:
+    def load_functions(self, only_schema: Optional[str] = None) -> List[SchemaNode]:
         """Load all user-defined functions."""
         cursor = self.connection.cursor()
         functions = []
 
         try:
-            cursor.execute("""
+            where, params = self._schema_where("ROUTINE_SCHEMA", only_schema)
+            cursor.execute(f"""
                 SELECT ROUTINE_SCHEMA, ROUTINE_NAME, DTD_IDENTIFIER
                 FROM information_schema.ROUTINES
                 WHERE ROUTINE_TYPE = 'FUNCTION'
-                AND ROUTINE_SCHEMA NOT IN (%s, %s, %s, %s)
+                AND {where}
                 ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME
-            """, self.SYSTEM_SCHEMAS)
+            """, params)
 
             for row in cursor.fetchall():
                 schema_name, func_name, return_type = row

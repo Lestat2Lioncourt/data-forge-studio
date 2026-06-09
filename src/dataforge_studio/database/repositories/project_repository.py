@@ -226,6 +226,48 @@ class ProjectRepository(BaseRepository[Project]):
             extra_where=" AND database_name = ?", extra_vals=(database_name or '',)
         )
 
+    def remove_all_databases(self, project_id: str, database_id: str) -> bool:
+        """Remove ALL links for a connection from a project (every database_name
+        plus any server-level '' link). Used to detach a whole server at once."""
+        return self._remove_relation(
+            "project_databases", "database_id", project_id, database_id
+        )
+
+    def replace_server_link_with_databases(self, project_id: str, database_id: str,
+                                           db_names: List[str]) -> bool:
+        """Normalize a server-level link into one specific-database link per name.
+
+        Inserts a specific link for each name in ``db_names`` (the PRIMARY KEY on
+        ``(project_id, database_id, database_name)`` makes ``INSERT OR IGNORE``
+        skip names already linked) and removes the server-level ('') link for that
+        connection in this project. Runs in a single transaction and is idempotent.
+
+        Returns True on success, False on error.
+        """
+        try:
+            now = datetime.now().isoformat()
+            with self.pool.transaction() as conn:
+                cursor = conn.cursor()
+                for db_name in db_names:
+                    if not db_name:
+                        continue  # never create another server-level ('') link
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO project_databases "
+                        "(project_id, database_id, database_name, created_at) "
+                        "VALUES (?, ?, ?, ?)",
+                        (project_id, database_id, db_name, now)
+                    )
+                # Drop the now-redundant server-level link
+                cursor.execute(
+                    "DELETE FROM project_databases "
+                    "WHERE project_id = ? AND database_id = ? AND database_name = ''",
+                    (project_id, database_id)
+                )
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"replace_server_link_with_databases failed: {e}")
+            return False
+
     def get_databases(self, project_id: str) -> List[DatabaseConnection]:
         """Get all database connections in a project."""
         with self.pool.get_connection() as conn:

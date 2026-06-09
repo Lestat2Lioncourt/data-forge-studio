@@ -40,6 +40,7 @@ from ...utils.workspace_export import (
     ImportConflictMode, get_import_summary
 )
 from ...constants import QUERY_PREVIEW_LIMIT
+from ...utils.db_capabilities import is_multi_database_server
 
 import logging
 import sqlite3
@@ -530,25 +531,19 @@ class WorkspaceManager(QWidget):
 
     def _load_workspace_resources(self, ws_item: QTreeWidgetItem, workspace_id: str):
         """Load resources for a workspace, grouped by category."""
-        # Databases
+        # Databases — grouped by server. Multi-database connections (SQL Server,
+        # MySQL/MariaDB) show a server node with one child per linked database;
+        # single-database connections show a single node.
+        # See docs/PLAN_WORKSPACE_DB_GRANULARITY.md.
         ws_databases = self.config_db.get_workspace_databases_with_context(workspace_id)
         if ws_databases:
+            # Pre-pass: normalize legacy server-level ('') links for multi-db
+            # connections that ALREADY have a live connection (never forces one).
+            if self._normalize_connected_server_links(workspace_id, ws_databases):
+                ws_databases = self.config_db.get_workspace_databases_with_context(workspace_id)
+
             db_cat = self._create_category_item(ws_item, "Databases", "database.png", len(ws_databases))
-            for i, ws_db in enumerate(ws_databases):
-                db = ws_db.connection
-                db_item = QTreeWidgetItem(db_cat)
-                db_icon = get_database_display_icon(db, i)
-                if db_icon:
-                    db_item.setIcon(0, db_icon)
-                db_item.setText(0, ws_db.display_name)
-                db_item.setData(0, Qt.ItemDataRole.UserRole, {
-                    "type": "database",
-                    "id": db.id,
-                    "database_name": ws_db.database_name,
-                    "resource_obj": db,
-                    "ws_database": ws_db
-                })
-                TreePopulator.add_dummy_child(db_item)
+            self._populate_workspace_databases(db_cat, ws_databases)
 
         # Queries
         queries = self.config_db.get_workspace_queries(workspace_id)
@@ -632,6 +627,124 @@ class WorkspaceManager(QWidget):
             "name": name
         })
         return cat_item
+
+    # ==================== Database grouping (by server) ====================
+
+    def _group_databases_by_connection(self, ws_databases: list) -> list:
+        """Group WorkspaceDatabase entries by connection id, preserving order.
+
+        Returns a list of (connection, [WorkspaceDatabase, ...]) tuples.
+        """
+        groups = []
+        index = {}
+        for ws_db in ws_databases:
+            conn = ws_db.connection
+            if conn is None:
+                continue
+            if conn.id not in index:
+                index[conn.id] = len(groups)
+                groups.append((conn, []))
+            groups[index[conn.id]][1].append(ws_db)
+        return groups
+
+    def _enumerate_databases(self, db_conn, connection) -> list:
+        """Return the list of database names on a server, or [] on failure."""
+        try:
+            from ...database.schema_loaders import SchemaLoaderFactory
+            loader = SchemaLoaderFactory.create(
+                db_conn.db_type, connection, db_conn.id, db_conn.name
+            )
+            if loader:
+                return loader.get_databases() or []
+        except Exception as e:
+            logger.warning(f"Could not enumerate databases for {db_conn.name}: {e}")
+        return []
+
+    def _normalize_connected_server_links(self, workspace_id: str, ws_databases: list) -> bool:
+        """Convert legacy server-level ('') links into per-database links.
+
+        Only for multi-database connections that ALREADY have an open connection
+        (never forces a new one). Returns True if anything changed.
+        """
+        if not self._database_manager:
+            return False
+        changed = False
+        for conn, entries in self._group_databases_by_connection(ws_databases):
+            has_server_link = any(not e.database_name for e in entries)
+            if not has_server_link or not is_multi_database_server(conn.db_type):
+                continue
+            connection = self._database_manager.connections.get(conn.id)
+            if not connection:
+                continue  # offline — normalized lazily on first successful expand
+            names = self._enumerate_databases(conn, connection)
+            if names and self.config_db.replace_server_link_with_databases(
+                workspace_id, conn.id, names
+            ):
+                changed = True
+        return changed
+
+    def _populate_workspace_databases(self, db_cat: QTreeWidgetItem, ws_databases: list):
+        """Build database nodes under the category, grouping multi-db servers."""
+        for i, (conn, entries) in enumerate(self._group_databases_by_connection(ws_databases)):
+            multi = is_multi_database_server(conn.db_type)
+            specifics = [e for e in entries if e.database_name]
+            has_server_link = any(not e.database_name for e in entries)
+
+            if not multi:
+                # Single-database connection: one node directly (no server level)
+                self._add_workspace_db_leaf(db_cat, entries[0], i)
+                continue
+
+            if specifics and not has_server_link:
+                # Normalized multi-db server: server node + one child per database
+                server_item = self._add_workspace_server_node(db_cat, conn, i)
+                for ws_db in specifics:
+                    self._add_workspace_db_leaf(server_item, ws_db, i)
+            else:
+                # Legacy server-level link not yet normalized (offline). Render a
+                # single node that loads the full server on expand; it normalizes
+                # itself (persists per-database links) once the connection succeeds.
+                server_entry = WorkspaceDatabase(connection=conn, database_name="")
+                self._add_workspace_db_leaf(db_cat, server_entry, i, pending_server=True)
+
+    def _add_workspace_server_node(self, parent: QTreeWidgetItem, conn, index: int) -> QTreeWidgetItem:
+        """Create a pure grouping node for a multi-database server (no lazy load)."""
+        server_item = QTreeWidgetItem(parent)
+        icon = get_database_display_icon(conn, index)
+        if icon:
+            server_item.setIcon(0, icon)
+        server_item.setText(0, conn.name)
+        server_item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "server_group",
+            "id": conn.id,
+            "resource_obj": conn,
+            "config": conn,
+        })
+        return server_item
+
+    def _add_workspace_db_leaf(self, parent: QTreeWidgetItem, ws_db, index: int,
+                               pending_server: bool = False) -> QTreeWidgetItem:
+        """Create a database leaf node (lazy schema load)."""
+        db = ws_db.connection
+        db_item = QTreeWidgetItem(parent)
+        icon = get_database_display_icon(db, index)
+        if icon:
+            db_item.setIcon(0, icon)
+        db_item.setText(0, ws_db.display_name)
+        data = {
+            "type": "database",
+            "id": db.id,
+            "database_name": ws_db.database_name,
+            "resource_obj": db,
+            "ws_database": ws_db,
+        }
+        if pending_server:
+            # Hook for lazy normalization once the server connects (see
+            # _load_database_schema).
+            data["normalize_server"] = True
+        db_item.setData(0, Qt.ItemDataRole.UserRole, data)
+        TreePopulator.add_dummy_child(db_item)
+        return db_item
 
     def _add_queries_grouped_by_category(self, parent: QTreeWidgetItem, queries: list):
         """Add queries grouped by category."""
@@ -777,15 +890,52 @@ class WorkspaceManager(QWidget):
             logger.warning(f"WorkspaceManager: No resource_obj in data")
             return
 
-        # Delegate entirely to DatabaseManager for consistent behavior
+        # Delegate entirely to DatabaseManager for consistent behavior.
+        # Pass database_name as-is: a real database name loads only that DB,
+        # while None/empty (server-level attach) loads the full server schema
+        # (all databases) — same result as the Resources view.
         success = self._database_manager.load_specific_database_schema(
             parent_item=db_item,
             db_conn=db_conn,
-            database_name=database_name or db_conn.name
+            database_name=database_name
         )
 
         if not success:
             DialogHelper.warning(f"Could not load schema for: {db_conn.name}")
+            return
+
+        # Lazy normalization (F): a legacy server-level ('') link that just loaded
+        # successfully gets its per-database links persisted, so the next workspace
+        # reload renders it as a proper server group. Silent — no disruptive refresh.
+        if data.get("normalize_server"):
+            self._normalize_server_link_after_load(db_item, db_conn)
+
+    def _normalize_server_link_after_load(self, db_item: QTreeWidgetItem, db_conn):
+        """Persist per-database links for a just-loaded legacy server-level link."""
+        connection = self._database_manager.connections.get(db_conn.id)
+        if not connection:
+            return
+        names = self._enumerate_databases(db_conn, connection)
+        if not names:
+            return
+        workspace_id = self._find_workspace_id_for_item(db_item)
+        if not workspace_id:
+            return
+        if self.config_db.replace_server_link_with_databases(workspace_id, db_conn.id, names):
+            logger.info(
+                f"Normalized server link for '{db_conn.name}' into "
+                f"{len(names)} database link(s) in workspace {workspace_id}"
+            )
+
+    def _find_workspace_id_for_item(self, item: QTreeWidgetItem):
+        """Walk up the tree to find the owning workspace id, or None."""
+        ancestor = item.parent()
+        while ancestor:
+            data = ancestor.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "workspace":
+                return data.get("id")
+            ancestor = ancestor.parent()
+        return None
 
     def _load_folder_contents(self, parent_item: QTreeWidgetItem, folder_path: Path, recursive: bool = False):
         """Load folder contents using tree_helpers (no plugin dependency)."""
@@ -1137,6 +1287,15 @@ class WorkspaceManager(QWidget):
                     )
                     menu.addAction(exec_all)
 
+        elif item_type == "server_group":
+            # Pure grouping node for a multi-database server: offer to detach the
+            # whole server (all its linked databases) in one command.
+            remove_action = QAction("Remove server (all databases) from Workspace", self)
+            remove_action.triggered.connect(
+                lambda: self._remove_server_group_from_workspace(item, data)
+            )
+            menu.addAction(remove_action)
+
         elif item_type == "database":
             if self._database_manager:
                 ws_id = self._current_workspace_id
@@ -1276,7 +1435,11 @@ class WorkspaceManager(QWidget):
 
         try:
             if item_type == "database":
-                self.config_db.remove_database_from_workspace(workspace_id, resource_id)
+                # Pass the specific database_name so we remove the exact link
+                # (a specific-database link, not the server-level '' link).
+                self.config_db.remove_database_from_workspace(
+                    workspace_id, resource_id, data.get("database_name")
+                )
             elif item_type == "query":
                 self.config_db.remove_query_from_workspace(workspace_id, resource_id)
             elif item_type == "rootfolder":
@@ -1291,6 +1454,14 @@ class WorkspaceManager(QWidget):
             direct_parent = item.parent()
             if direct_parent:
                 direct_parent.removeChild(item)
+                # Remove an empty server group node (multi-db grouping), then the
+                # empty category node above it.
+                parent_data = direct_parent.data(0, Qt.ItemDataRole.UserRole) or {}
+                if parent_data.get("type") == "server_group" and direct_parent.childCount() == 0:
+                    grandparent = direct_parent.parent()
+                    if grandparent:
+                        grandparent.removeChild(direct_parent)
+                        direct_parent = grandparent
                 # Remove empty category node
                 cat_data = direct_parent.data(0, Qt.ItemDataRole.UserRole)
                 if cat_data and cat_data.get("type") == "resource_category" and direct_parent.childCount() == 0:
@@ -1302,6 +1473,36 @@ class WorkspaceManager(QWidget):
         except sqlite3.Error as e:
             logger.error(f"Error removing resource: {e}")
             DialogHelper.error("Error removing resource", details=str(e))
+
+    def _remove_server_group_from_workspace(self, item: QTreeWidgetItem, data: dict):
+        """Detach a whole server (all its databases) from the workspace at once."""
+        workspace_id = self._find_workspace_id_for_item(item)
+        db_id = data.get("id")
+        if not workspace_id or not db_id:
+            return
+
+        conn = data.get("resource_obj")
+        server_name = conn.name if conn else "this server"
+        if not DialogHelper.confirm(
+            f"Remove '{server_name}' and all its databases from the workspace?"
+        ):
+            return
+
+        try:
+            self.config_db.remove_all_databases_from_workspace(workspace_id, db_id)
+            # Remove the server node, then the category if it becomes empty
+            parent = item.parent()
+            if parent:
+                parent.removeChild(item)
+                cat_data = parent.data(0, Qt.ItemDataRole.UserRole)
+                if cat_data and cat_data.get("type") == "resource_category" and parent.childCount() == 0:
+                    grandparent = parent.parent()
+                    if grandparent:
+                        grandparent.removeChild(parent)
+            logger.info(f"Removed server {db_id} (all databases) from workspace {workspace_id}")
+        except sqlite3.Error as e:
+            logger.error(f"Error removing server from workspace: {e}")
+            DialogHelper.error("Error removing server", details=str(e))
 
     # ==================== Workspace CRUD ====================
 
