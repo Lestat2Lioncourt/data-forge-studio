@@ -1024,11 +1024,15 @@ class DataForgeMainWindow:
         if sys.platform == 'win32':
             # Windows: use a .bat script to avoid nested quote issues in cmd /k
             bat_path = project_root / '_update.bat'
+            pythonw = project_root / '.venv' / 'Scripts' / 'pythonw.exe'
+            run_script = project_root / 'run.py'
             if self._pending_update_relaunch:
+                # Relaunch detached via pythonw — an independent, console-less
+                # process that survives this .bat exiting (no '/b', no uv dep).
                 end_success = (
                     'echo.\n'
                     'echo Update complete! Relaunching DataForge Studio...\n'
-                    'start "" /b cmd /c uv run python run.py\n'
+                    f'start "" "{pythonw}" "{run_script}"\n'
                     '(del "%~f0") & exit /b 0'
                 )
             else:
@@ -1040,7 +1044,7 @@ class DataForgeMainWindow:
                 )
             bat_content = f'''@echo off
 cd /d "{project_root}"
-if not exist ".git\\" (
+if not exist ".git" (
     echo.
     echo ============================================
     echo   AUTO-UPDATE NOT AVAILABLE
@@ -1058,7 +1062,7 @@ if not exist ".git\\" (
     echo ============================================
     echo.
     pause
-    (del "%~f0") ^& exit /b 1
+    (del "%~f0") & exit /b 1
 )
 echo Updating DataForge Studio...
 echo Waiting for previous instance to release file handles...
@@ -1068,26 +1072,26 @@ echo Waiting for previous instance to release file handles...
 timeout /t 3 /nobreak >nul
 echo.
 git config --global --add safe.directory "{str(project_root).replace(chr(92), '/')}"
-git reset --hard
-git checkout main
-
-:: Retry loop for `git pull` — Windows file locks (AV, indexer, leftover
-:: handles) sometimes prevent git from removing pack files on the first
-:: try. We retry up to 3 times with growing delay; -c core.askPass=true
-:: + GIT_TERMINAL_PROMPT=0 prevents the interactive "try again?" prompt.
 set GIT_TERMINAL_PROMPT=0
+git checkout -f main
+
+:: Fetch then `reset --hard` instead of `pull`: a merge aborts as soon as an
+:: untracked file would be overwritten, while reset --hard overwrites it. This
+:: is what bricked updates. Retry the fetch (AV/indexer/leftover pack locks);
+:: gc.auto=0 avoids noisy background repack failures.
 set _PULL_TRY=0
 :retry_pull
-git pull origin main
+git -c gc.auto=0 fetch origin main
 if not errorlevel 1 goto :pull_ok
 set /a _PULL_TRY+=1
 if %_PULL_TRY% GEQ 3 goto :failed
 echo.
-echo Pull failed (attempt %_PULL_TRY%/3) — retrying in 5 seconds...
+echo Fetch failed (attempt %_PULL_TRY%/3) — retrying in 5 seconds...
 echo Close any other application using this folder if the issue persists.
 timeout /t 5 /nobreak >nul
 goto :retry_pull
 :pull_ok
+git reset --hard origin/main
 
 uv sync
 if errorlevel 1 goto :failed
@@ -1109,7 +1113,11 @@ pause
 (del "%~f0") & exit /b 1
 '''
             bat_path.write_text(bat_content, encoding='utf-8')
-            subprocess.Popen(['cmd', '/c', str(bat_path)], creationflags=subprocess.CREATE_NEW_CONSOLE)
+            # Launch with cwd + bare filename so a space in the install path
+            # can't trigger cmd's "/c quoted path" quote-stripping (which would
+            # make the window flash and close instantly).
+            subprocess.Popen(['cmd', '/c', '_update.bat'], cwd=str(project_root),
+                             creationflags=subprocess.CREATE_NEW_CONSOLE)
 
         elif sys.platform == 'darwin':
             # macOS: open new Terminal window

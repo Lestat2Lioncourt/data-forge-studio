@@ -1,147 +1,91 @@
 @echo off
-setlocal
+setlocal EnableExtensions
+title DataForge Studio - Force Update
 
-:: ============================================================
-::   DataForge Studio - Force Update (recovery script)
-::
-::   Use this when "Update on Quit" fails repeatedly with errors
-::   like "Unlink of file '.git/objects/pack/pack-XXXX.idx' failed".
-::
-::   How to use:
-::     1. Close DataForge Studio completely.
-::     2. Drop this .bat into your DataForge Studio install folder
-::        (the folder containing pyproject.toml and run.py).
-::     3. Double-click it.
-::
-::   What it does:
-::     - Waits 5 seconds for any leftover python.exe to fully exit.
-::     - Forces termination of any remaining python.exe / uv.exe
-::       still holding a handle in the install folder.
-::     - Suppresses git's interactive prompts (GIT_TERMINAL_PROMPT=0).
-::     - Retries `git pull` up to 5 times with growing backoff,
-::       so transient antivirus / Windows indexer locks resolve on
-::       their own.
-::     - Runs `uv sync` to refresh dependencies.
-:: ============================================================
+REM ============================================================
+REM   DataForge Studio - Force Update (recovery script)
+REM
+REM   Use this when the in-app update fails. Just double-click it.
+REM   Place it in the DataForge Studio install folder (the one
+REM   containing pyproject.toml and run.py), or in scripts\.
+REM
+REM   This window ALWAYS stays open at the end so you can read the
+REM   result. It does NOT relaunch the app: once it says
+REM   "UPDATE COMPLETE", close it and start DataForge Studio from
+REM   your usual shortcut.
+REM ============================================================
 
+REM Operate from the install root (folder with pyproject.toml).
 cd /d "%~dp0"
-
-:: If the user dropped this file in scripts\, jump up one level
 if exist "..\pyproject.toml" if not exist "pyproject.toml" cd ..
 
-if not exist "pyproject.toml" (
-    echo.
-    echo ============================================
-    echo   ERROR: pyproject.toml not found in:
-    echo   %CD%
-    echo.
-    echo   Place this script in the DataForge Studio install
-    echo   folder (the one with pyproject.toml and run.py).
-    echo ============================================
-    echo.
-    pause
-    exit /b 1
-)
-
-if not exist ".git\" (
-    echo.
-    echo ============================================
-    echo   This install has no .git folder (standalone).
-    echo   Auto-update only works on git-based installs.
-    echo.
-    echo   Download the latest release manually from:
-    echo     https://github.com/Lestat2Lioncourt/data-forge-studio
-    echo.
-    echo   Or contact the person who provided this build for an
-    echo   updated standalone version.
-    echo ============================================
-    echo.
-    pause
-    exit /b 1
-)
-
-echo.
 echo ============================================
 echo   DataForge Studio - Force Update
 echo ============================================
-echo.
 echo Folder: %CD%
 echo.
-echo Step 1/4 - Waiting 5 seconds for app to fully release files...
-timeout /t 5 /nobreak >nul
 
-echo Step 2/4 - Terminating any leftover python.exe / uv.exe...
-:: /F = force, /FI = filter on image name. Errors are ignored (no process).
-taskkill /F /FI "IMAGENAME eq python.exe" >nul 2>&1
-taskkill /F /FI "IMAGENAME eq pythonw.exe" >nul 2>&1
-taskkill /F /FI "IMAGENAME eq uv.exe" >nul 2>&1
-:: Give the OS a moment to actually release handles after the kill
+if not exist "pyproject.toml" (
+    echo ERROR: pyproject.toml not found in this folder.
+    echo Put this file in the DataForge Studio install folder
+    echo ^(the one containing pyproject.toml and run.py^).
+    goto :end
+)
+
+if not exist ".git" (
+    echo This install has no .git folder ^(standalone build^).
+    echo Auto-update only works on git-based installs.
+    echo Ask for an updated standalone build instead.
+    goto :end
+)
+
+echo Step 1/4 - Closing any running instance...
+taskkill /F /IM pythonw.exe >nul 2>&1
+taskkill /F /IM python.exe  >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-echo Step 3/4 - Pulling latest from GitHub...
-echo.
+echo Step 2/4 - Preparing git...
 set GIT_TERMINAL_PROMPT=0
 git config --global --add safe.directory "%CD:\=/%" >nul 2>&1
-git reset --hard
-git checkout main
+git checkout -f main
 
-set _PULL_TRY=0
-:retry_pull
-git pull origin main
-if not errorlevel 1 goto :pull_ok
-set /a _PULL_TRY+=1
-if %_PULL_TRY% GEQ 5 goto :pull_failed
-echo.
-echo Pull failed (attempt %_PULL_TRY%/5). Retrying in 8 seconds...
-echo If errors persist, exclude this folder from your antivirus.
+echo Step 3/4 - Downloading latest version...
+REM Fetch + reset --hard (not pull): a merge aborts as soon as an untracked
+REM file would be overwritten, whereas reset --hard overwrites it. gc.auto=0
+REM silences noisy background repack failures.
+set _TRY=0
+:retry
+git -c gc.auto=0 fetch origin main
+if not errorlevel 1 goto :pulled
+set /a _TRY+=1
+if %_TRY% GEQ 5 (
+    echo.
+    echo Download failed after 5 attempts. Check network/VPN and retry.
+    goto :end
+)
+echo Attempt %_TRY%/5 failed - retrying in 8 seconds...
 timeout /t 8 /nobreak >nul
-goto :retry_pull
+goto :retry
+:pulled
+git reset --hard origin/main
 
-:pull_failed
-echo.
-echo ============================================
-echo   GIT PULL FAILED AFTER 5 ATTEMPTS
-echo ============================================
-echo.
-echo Likely causes:
-echo   - Antivirus is locking files in the .git folder.
-echo     ^> Try excluding the install folder from your AV.
-echo   - Another app (file explorer, code editor) has the
-echo     folder open. Close them and try again.
-echo   - DataForge Studio is still running. Close it.
-echo.
-echo Manual fallback (open cmd in the install folder, then run):
-echo   git reset --hard
-echo   git pull origin main
-echo   uv sync
-echo.
-echo ============================================
-pause
-exit /b 1
-
-:pull_ok
-echo.
-echo Step 4/4 - Syncing dependencies (uv sync)...
-echo.
+echo Step 4/4 - Updating dependencies ^(uv sync^)...
 uv sync
 if errorlevel 1 (
     echo.
-    echo ============================================
-    echo   uv sync FAILED.
-    echo   Try running it manually in this folder.
-    echo ============================================
-    echo.
-    pause
-    exit /b 1
+    echo Dependency update failed ^(uv sync^).
+    echo Make sure 'uv' is installed and available, then run this file again.
+    goto :end
 )
 
 echo.
 echo ============================================
 echo   UPDATE COMPLETE
 echo ============================================
+echo You can close this window and start DataForge Studio
+echo from your usual shortcut.
+
+:end
 echo.
-echo Relaunching DataForge Studio...
-:: Launch in a fresh detached console so this script can exit cleanly
-start "" /b cmd /c uv run python run.py
-:: Self-delete and exit
-(del "%~f0") ^& exit /b 0
+pause
+endlocal

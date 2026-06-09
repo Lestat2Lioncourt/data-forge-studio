@@ -4,26 +4,16 @@ Database Connection Worker - Background thread for database connections.
 
 from __future__ import annotations
 
-import re
 import logging
-from pathlib import Path
-
-try:
-    import pyodbc
-except ImportError:
-    pyodbc = None
-import sqlite3
 
 from PySide6.QtCore import Signal, QThread
 
 from ....database.config_db import DatabaseConnection
 from ....database.schema_loaders import SchemaLoaderFactory
-from ....utils.credential_manager import CredentialManager
-from ....utils.connection_helpers import parse_postgresql_url, parse_mysql_url
+from ....database.connection_builder import build_connection, ConnectionConfigError
 from ....utils.network_utils import check_server_reachable
 from ....utils.connection_error_handler import format_connection_error, get_server_unreachable_message
-from ....constants import CONNECTION_TIMEOUT_S, PING_TIMEOUT_S
-from ....database.sqlserver_connection import connect_sqlserver
+from ....constants import PING_TIMEOUT_S
 from ...core.i18n_bridge import tr
 
 logger = logging.getLogger(__name__)
@@ -99,83 +89,15 @@ class DatabaseConnectionWorker(QThread):
             self.connection_error.emit(error_msg)
 
     def _create_connection(self):
-        """Create database connection based on type."""
+        """Create database connection based on type (delegates to build_connection)."""
         try:
-            if self.db_conn.db_type == "sqlite":
-                conn_str = self.db_conn.connection_string
-                if conn_str.startswith("sqlite:///"):
-                    db_path = conn_str.replace("sqlite:///", "")
-                elif "Database=" in conn_str:
-                    match = re.search(r'Database=([^;]+)', conn_str)
-                    db_path = match.group(1) if match else conn_str
-                else:
-                    db_path = conn_str
-
-                if not Path(db_path).exists():
-                    self.connection_error.emit(tr("db_file_not_found", path=db_path))
-                    return None
-
-                return sqlite3.connect(db_path, check_same_thread=False)
-
-            elif self.db_conn.db_type == "sqlserver":
-                conn_str = self.db_conn.connection_string
-
-                # Check if NOT using Windows Authentication
-                if "trusted_connection=yes" not in conn_str.lower():
-                    username, password = CredentialManager.get_credentials(self.db_conn.id)
-                    if username and password:
-                        if "uid=" not in conn_str.lower() and "user id=" not in conn_str.lower():
-                            if not conn_str.endswith(";"):
-                                conn_str += ";"
-                            conn_str += f"UID={username};PWD={password};"
-
-                return connect_sqlserver(conn_str, timeout=CONNECTION_TIMEOUT_S)
-
-            elif self.db_conn.db_type == "access":
-                conn_str = self.db_conn.connection_string
-
-                # Extract file path from connection string
-                db_path = None
-                if "Dbq=" in conn_str:
-                    match = re.search(r'Dbq=([^;]+)', conn_str, re.IGNORECASE)
-                    db_path = match.group(1) if match else None
-
-                if not db_path or not Path(db_path).exists():
-                    self.connection_error.emit(tr("db_access_file_not_found"))
-                    return None
-
-                if pyodbc is None:
-                    self.connection_error.emit(tr("db_pyodbc_required"))
-                    return None
-                return pyodbc.connect(conn_str)
-
-            elif self.db_conn.db_type == "postgresql":
-                import psycopg2
-                pg_kwargs = parse_postgresql_url(self.db_conn.connection_string, self.db_conn.id)
-                if pg_kwargs:
-                    return psycopg2.connect(**pg_kwargs)
-                else:
-                    self.connection_error.emit(tr("db_pg_format_unsupported"))
-                    return None
-
-            elif self.db_conn.db_type == "mysql":
-                try:
-                    import pymysql
-                except ImportError:
-                    self.connection_error.emit(tr("dep_pymysql_missing"))
-                    return None
-                my_kwargs = parse_mysql_url(self.db_conn.connection_string, self.db_conn.id)
-                if my_kwargs:
-                    return pymysql.connect(**my_kwargs)
-                else:
-                    self.connection_error.emit(tr("db_mysql_format_unsupported"))
-                    return None
-
-            else:
-                self.connection_error.emit(tr("db_type_not_supported", db_type=self.db_conn.db_type))
-                return None
-
+            return build_connection(self.db_conn)
+        except ConnectionConfigError as e:
+            # Configuration problem (missing file, format, driver) — localized
+            self.connection_error.emit(tr(e.key, **e.params))
+            return None
         except Exception as e:
+            # Runtime driver error (timeout, auth, …)
             error_msg = format_connection_error(e, db_type=self.db_conn.db_type)
             self.connection_error.emit(error_msg)
             return None

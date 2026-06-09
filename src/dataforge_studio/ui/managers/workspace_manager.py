@@ -1194,29 +1194,29 @@ class WorkspaceManager(QWidget):
         if item_type == "workspace":
             ws = data.get("workspace_obj")
 
-            edit_action = QAction("Edit", self)
+            edit_action = QAction(tr("ws_ctx_edit"), self)
             edit_action.triggered.connect(lambda: self._edit_workspace_item(item, data))
             menu.addAction(edit_action)
 
             # Set as favorite / unfavorite
             is_favorite = getattr(ws, 'auto_connect', False) if ws else False
             if is_favorite:
-                fav_action = QAction("⚡ Remove favorite", self)
+                fav_action = QAction(tr("ws_ctx_remove_favorite"), self)
                 fav_action.triggered.connect(lambda: self._toggle_favorite_workspace(ws, False))
             else:
-                fav_action = QAction("⚡ Set as favorite", self)
+                fav_action = QAction(tr("ws_ctx_set_favorite"), self)
                 fav_action.triggered.connect(lambda: self._toggle_favorite_workspace(ws, True))
             menu.addAction(fav_action)
 
             menu.addSeparator()
 
-            delete_action = QAction("Delete Workspace", self)
+            delete_action = QAction(tr("ws_ctx_delete"), self)
             delete_action.triggered.connect(lambda: self._delete_workspace_item(data["id"]))
             menu.addAction(delete_action)
 
             menu.addSeparator()
 
-            export_action = QAction("Export Workspace...", self)
+            export_action = QAction(tr("ws_ctx_export"), self)
             export_action.triggered.connect(lambda: self._export_workspace(data["id"], data.get("workspace_obj").name))
             menu.addAction(export_action)
 
@@ -1232,7 +1232,7 @@ class WorkspaceManager(QWidget):
                         menu.addAction(action)
                     menu.addSeparator()
 
-            remove_action = QAction("Remove from Workspace", self)
+            remove_action = QAction(tr("ws_ctx_remove_resource"), self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
@@ -1248,7 +1248,7 @@ class WorkspaceManager(QWidget):
                         menu.addAction(action)
                     menu.addSeparator()
 
-            remove_action = QAction("Remove from Workspace", self)
+            remove_action = QAction(tr("ws_ctx_remove_resource"), self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
@@ -1261,7 +1261,7 @@ class WorkspaceManager(QWidget):
                     menu.addAction(action)
                 menu.addSeparator()
 
-            remove_action = QAction("Remove from Workspace", self)
+            remove_action = QAction(tr("ws_ctx_remove_resource"), self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
@@ -1290,7 +1290,7 @@ class WorkspaceManager(QWidget):
         elif item_type == "server_group":
             # Pure grouping node for a multi-database server: offer to detach the
             # whole server (all its linked databases) in one command.
-            remove_action = QAction("Remove server (all databases) from Workspace", self)
+            remove_action = QAction(tr("ws_ctx_remove_server"), self)
             remove_action.triggered.connect(
                 lambda: self._remove_server_group_from_workspace(item, data)
             )
@@ -1305,7 +1305,7 @@ class WorkspaceManager(QWidget):
                     menu.addAction(action)
                 menu.addSeparator()
 
-            remove_action = QAction("Remove from Workspace", self)
+            remove_action = QAction(tr("ws_ctx_remove_resource"), self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
@@ -1317,7 +1317,7 @@ class WorkspaceManager(QWidget):
                     menu.addAction(action)
                 menu.addSeparator()
 
-            remove_action = QAction("Remove from Workspace", self)
+            remove_action = QAction(tr("ws_ctx_remove_resource"), self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
@@ -1430,7 +1430,7 @@ class WorkspaceManager(QWidget):
         if not workspace_id or not resource_id:
             return
 
-        if not DialogHelper.confirm(f"Remove this {item_type} from the workspace?"):
+        if not DialogHelper.confirm(tr("ws_ctx_remove_confirm", item_type=item_type)):
             return
 
         try:
@@ -1484,7 +1484,7 @@ class WorkspaceManager(QWidget):
         conn = data.get("resource_obj")
         server_name = conn.name if conn else "this server"
         if not DialogHelper.confirm(
-            f"Remove '{server_name}' and all its databases from the workspace?"
+            tr("ws_ctx_remove_server_confirm", name=server_name)
         ):
             return
 
@@ -1598,7 +1598,7 @@ class WorkspaceManager(QWidget):
 
     def _delete_workspace_item(self, workspace_id: str):
         """Delete workspace by ID."""
-        if not DialogHelper.confirm("Delete this workspace?\n\n(Resources will not be deleted)"):
+        if not DialogHelper.confirm(tr("ws_ctx_delete_confirm")):
             return
 
         try:
