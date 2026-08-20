@@ -1014,9 +1014,29 @@ class DataForgeMainWindow:
         cleanup_thread = threading.Thread(target=async_cleanup, daemon=True)
         cleanup_thread.start()
 
-        # Run update if pending
+        # Run update if pending.
+        #
+        # This MUST NOT be allowed to raise: the app runs under pythonw.exe, so
+        # there is no console to print a traceback to, and an exception escaping
+        # here skips _original_close_event() below. The window then never closes
+        # while its signals are already disconnected and its managers torn down
+        # by the cleanup thread - i.e. a frozen, unpainted grey window with no
+        # diagnostic anywhere. Failing to launch the updater must never cost the
+        # user their app.
         if self._pending_update:
-            self._run_update_on_quit()
+            try:
+                self._run_update_on_quit()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    "Update launch failed: %s", e, exc_info=True)
+                try:
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.warning(
+                        self.window, tr("update_check_title"),
+                        tr("update_launch_failed").format(error=e))
+                except Exception:
+                    pass
 
         # Call original close event immediately - don't wait for cleanup
         if self._original_close_event:
@@ -1061,7 +1081,7 @@ if not exist ".git" (
     echo   AUTO-UPDATE NOT AVAILABLE
     echo ============================================
     echo.
-    echo This install is standalone (no .git folder).
+    echo This install is standalone - no .git folder.
     echo Auto-update only works on git-based installs.
     echo.
     echo If you have access to GitHub, download the latest release from:
@@ -1078,8 +1098,8 @@ if not exist ".git" (
 echo Updating DataForge Studio...
 echo Waiting for previous instance to release file handles...
 :: Pause briefly so python.exe / Qt resources fully exit before git
-:: touches the .git folder (avoids "Unlink of file pack-*.idx failed"
-:: caused by handle locks from the closing app or antivirus scans).
+:: touches the .git folder. Avoids "Unlink of file pack-*.idx failed"
+:: caused by handle locks from the closing app or antivirus scans.
 timeout /t 3 /nobreak >nul
 echo.
 git config --global --add safe.directory "{str(project_root).replace(chr(92), '/')}"
@@ -1088,7 +1108,7 @@ git checkout -f main
 
 :: Fetch then `reset --hard` instead of `pull`: a merge aborts as soon as an
 :: untracked file would be overwritten, while reset --hard overwrites it. This
-:: is what bricked updates. Retry the fetch (AV/indexer/leftover pack locks);
+:: is what bricked updates. Retry the fetch - AV, indexer, leftover pack locks;
 :: gc.auto=0 avoids noisy background repack failures.
 set _PULL_TRY=0
 :retry_pull
@@ -1097,7 +1117,7 @@ if not errorlevel 1 goto :pull_ok
 set /a _PULL_TRY+=1
 if %_PULL_TRY% GEQ 3 goto :failed
 echo.
-echo Fetch failed (attempt %_PULL_TRY%/3) — retrying in 5 seconds...
+echo Fetch failed - attempt %_PULL_TRY%/3 - retrying in 5 seconds...
 echo Close any other application using this folder if the issue persists.
 timeout /t 5 /nobreak >nul
 goto :retry_pull
