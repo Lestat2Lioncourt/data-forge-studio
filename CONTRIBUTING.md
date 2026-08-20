@@ -110,6 +110,15 @@ uv run pytest
    - Keep the PR updated with main branch
    - Be patient and responsive
 
+## Releasing a version
+
+Follow **`docs/RELEASE_CHECKLIST.md`**. The step that has been missed more than once:
+`git push` does **not** publish anything — the app detects updates through the GitHub
+`releases/latest` API, so a release must be tagged with `gh release create vX.Y.Z`.
+Nothing fails when it is skipped, which is exactly why it goes unnoticed.
+
+---
+
 ## Development Guidelines
 
 ### Code Style
