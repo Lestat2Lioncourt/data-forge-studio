@@ -52,6 +52,65 @@ Trois points identifies pendant le diagnostic MySQL, laisses en l'etat en accord
 
 Le point 1 est le seul qui traite aussi le cas « port indeterminable » : quand aucun port n'est connu, la bonne conduite est de ne pas sonder et de laisser le driver produire son propre message d'erreur, bien plus precis que « serveur injoignable ».
 
+### Axe de reflexion NON TRANCHE - portabilite d'un espace de travail (20/08/2026)
+
+Discussion ouverte, aucune decision prise. Consigne pour ne pas la reperdre.
+
+**Le constat de depart.** `utils/workspace_export.py` ne connait que cinq types de
+ressources : `databases`, `rootfolders`, `queries`, `scripts`, `jobs`.
+
+- Les **diagrammes ER** en sont absents : un espace de travail exporte perd ses
+  diagrammes, sans le moindre avertissement (`get_export_summary` ne compte que ce
+  qu'il connait). Manque introduit avec `project_er_diagrams`, non propage a l'export.
+- Les **connexions FTP** sont dans le meme cas, et c'est anterieur.
+- L'export ne tire **aucune connexion referencee** : seules les bases explicitement
+  rattachees partent. Qu'une requete et sa connexion voyagent ensemble tient a la
+  discipline de l'utilisateur, pas au code.
+- Le lien **requete -> base est perdu** : `_serialize_query` ecrit
+  `"target_database_name": ""` et `_import_query` pose `target_database_id=None`.
+  Deux commentaires assument la chose (« Will be resolved on import », « Will need
+  to be linked manually ») alors que rien ne resout rien.
+
+Consequence specifique aux diagrammes : une requete deliee reste lisible et se
+rattache a la main, un diagramme sans sa connexion **ne s'ouvre pas du tout** —
+`_load_diagram` a besoin de `connection_id` pour construire le chargeur de schema.
+
+**Ce qui existe deja.** `utils/workspace_sharing.py` implemente un dossier partage
+(`shared_path` sur le modele workspace, EVO-4) avec un fichier JSON par objet :
+
+```
+shared_path/
+├── diagrams/     → diagram-name.json
+├── queries/      → query-name.json
+└── connections/  → connection-name.json   (sans identifiants)
+```
+
+Les diagrammes y sont deja traites. Reste a verifier si ce mecanisme est branche
+dans l'interface ou s'il dort a l'etat de specification.
+
+**La piste proposee.** Une base de reference unique portant toute la configuration
+d'un espace de travail, deposee sur un partage type OneDrive. L'export ecrit dedans ;
+a l'import l'utilisateur la designe, est interroge pour les identifiants requis par
+les objets, et sa base de configuration locale est alimentee.
+
+**Le vrai arbitrage** n'est donc pas « fichier plat contre base », mais **un fichier
+par objet contre une base unique** :
+
+| | Un fichier par objet (existant) | Base unique (piste) |
+|---|---|---|
+| Integrite referentielle | absente — c'est la cause du lien requete→base perdu | naturelle, clés etrangeres |
+| Conflit de synchronisation | touche un objet, reste lisible, se repare a la main | fichier binaire verrouille pendant l'ecriture ; un client de sync qui copie un `.db` en transaction produit une corruption ou un doublon de conflit silencieux — **on perd tout d'un coup** |
+| Lisibilite / diff | oui | non |
+
+**Question restee ouverte** : import = copie ponctuelle ou lien vivant ? L'enonce
+(« charge sa base de configuration locale ») suggere une copie ; `shared_path`
+suggere une lecture continue. Ce sont deux produits differents.
+
+**La brique reellement manquante, quel que soit le format retenu** : declarer, par
+objet, *quels identifiants sont requis*. Une connexion Windows Authentication n'a
+rien a demander, une connexion SQL en veut deux, une FTP aussi. Rien ne l'exprime
+aujourd'hui, alors que c'est ce qui rend l'import interrogeable.
+
 ---
 
 ## Analyse Globale de la Solution (Audit #8 - 15/04/2026)
