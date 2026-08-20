@@ -69,6 +69,14 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
         self._setup_ui()
         self._load_existing_connection()
 
+        # Open at least as tall as the content needs. The minimum above is a
+        # floor, not a fit: a dialog with more fields than the others (SQL
+        # Server) would otherwise open too short, and the deficit gets absorbed
+        # by the QLineEdits — which have no minimum height and end up flattened.
+        hint = self.sizeHint()
+        self.resize(max(self.minimumWidth(), hint.width()),
+                    max(self.minimumHeight(), hint.height()))
+
     def _setup_ui(self):
         """Setup base UI structure"""
         layout = QVBoxLayout(self)

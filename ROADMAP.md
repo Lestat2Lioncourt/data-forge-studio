@@ -1,8 +1,56 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.16
+**Version**: 0.6.17
 **Objectif**: POC v0.9.xx / Production v1.0
-**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audits #6, #7 & #8)
+**Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audits #6, #7 & #8) / Aout 2026 (audit #9)
+
+---
+
+## Analyse Globale de la Solution (Audit #9 - 20/08/2026)
+
+### Scores sur 10
+
+| Critere | Score | Evol. | Justification |
+|---------|-------|-------|---------------|
+| **Structure de l'application** | 9.5/10 | = | 239 fichiers Python (68,576L, +4,784L). Nouveau module `er_diagram/hover_overlay.py` (overlay FK reutilisable par toute vue). 12e type de ressource rattachable a un workspace (`project_er_diagrams`, migration 13). `_compute_line_offsets` (385L) eclatee en 11 methodes nommees. Architecture modulaire preservee |
+| **Qualite du code** | 8.5/10 | +0.5 | **Critere #12 fortement redresse** : `QColor("#...")` 54 -> **9** (-83%), `color: #` 77 -> 51. Les composants ER Diagram sont sortis du palmares des contrevenants. 0 bare `except:`, 0 `shell=True`, 0 `eval`/`exec`, 6 TODO. **En baisse** : 217 `except Exception` (+29) et 91 `except+pass` (+17) — la hausse suit la croissance du code mais l'hygiene ne progresse pas |
+| **Gestion de la securite** | 8.5/10 | +0.5 | Correction d'un comportement de **balayage de ports** : la sonde de joignabilite testait `[1433, 3306, 5432, 27017, 1521, 445]` sur tout serveur distant, quel que soit le moteur, faute d'extraire le port. Un test MySQL frappait donc le port SQL Server puis **445 (SMB)** — assimilable a un scan sur reseau supervise. La sonde ne teste plus que le port reellement utilise. Credentials toujours via keyring |
+| **Maintenabilite** | 9/10 | +0.5 | **233 tests** (+32), 13 fichiers de tests (+4). Critere #11 pleinement satisfait : 12 `get_*_context_actions()`, tous consommes par delegation dans WorkspaceManager, aucune logique d'action dupliquee. Nouvelle specification normative `docs/ER_DIAGRAMS_ROUTING.md` (vocabulaire partage + regles R1..R6 + historique des decisions) |
+| **Fiabilite** | 8.5/10 | +0.5 | Fin des pertes silencieuses sur les diagrammes ER : suivi de modification + dialogue Enregistrer/Abandonner/Annuler au changement de diagramme. Invariant R6 (orthogonalite + sortie perpendiculaire) verifie a la restauration des waypoints, les chaines incompatibles sont ecartees au lieu d'etre rendues obliques. 513 `.connect()` vs 25 `.disconnect()` (ratio 20:1, en legere degradation) |
+| **Performance** | 7.5/10 | = | Pas de changement structurel. Point positif cible : la revalidation des apercus de diagrammes se fait par comparaison `updated_at` — seuls les onglets reellement perimes sont reconstruits, le schema n'est pas recharge inutilement. Pas d'async generalise |
+| **Extensibilite** | 9.5/10 | = | Les diagrammes ER deviennent une ressource d'espace de travail de plein droit, via le `WorkspaceMenuBuilder` partage et le quintuplet `add/remove/get_workspace_*/get_*_workspaces` deja en place pour les autres types. Crochet generique `refresh_previews()` dans `_switch_frame` : toute vue future affichant des apercus en beneficie sans modification |
+| **Documentation** | 8.5/10 | +0.5 | `docs/ER_DIAGRAMS_ROUTING.md` livre le memo de vocabulaire partage attendu depuis l'audit #7 (item ER #4, priorite Haute) et sert de specification executable du routage. i18n a parite parfaite : **720 cles** EN et FR, aucun ecart. Toujours pas de doc API developpeur |
+| **UX/UI** | 9.5/10 | +0.5 | Routage ER refondu (chemins en L au lieu de Z, plus aucun segment oblique). Arborescence connexion -> base -> diagramme. Sauvegarde explicite avec indicateur de modification. Apercu du diagramme rendu dans un onglet de l'espace de travail. Icone disquette a la place de l'etoile + avertissement au demarrage sur les icones manquantes. Dialogues de connexion : champs SQL Server ne sont plus ecrases (9 px -> 26 px) |
+
+**Score Global: 8.8/10** (+0.4 vs audit #8) — Le critere #12 introduit a l'audit #8 est en grande partie solde (-83% de couleurs hardcodees) et le critere #11 est desormais pleinement satisfait. 6 criteres en hausse, 3 stables, 0 en baisse. Reserve : l'hygiene de gestion d'erreurs (`except+pass`) continue de se degrader lentement et n'a jamais fait l'objet d'un correctif.
+
+### Constats specifiques de l'audit #9
+
+**Code mort confirme** (a supprimer au correctif) :
+
+| Symbole | Fichier | Appels |
+|---|---|---|
+| `_split_anchor` | `ui/managers/er_diagram_manager.py` | 0 |
+| `_offset_corner_from_obstacles` | `ui/managers/er_diagram_manager.py` | 1, uniquement depuis `_split_anchor` |
+| `update_er_diagram_table_position` | `database/config_db.py` + repository | 0 |
+
+Soit ~130 lignes inertes, dont un residu `... if False else ...` dans `_offset_corner_from_obstacles`.
+
+**Dependances** : `pywin32` est bien utilise (`win32com.client`, raccourcis + Access). `xlrd` n'est jamais importe directement mais reste requis par pandas pour lire les `.xls` — a conserver, ce n'est pas une dependance morte.
+
+**Imports differes** : 281 imports places dans des fonctions plutot qu'en tete de module. C'est le contournement historique des imports circulaires ; aucun cycle detecte a l'execution, mais le nombre progresse et masque la vraie carte des dependances.
+
+### Dette reseau consignee (differee volontairement - 20/08/2026)
+
+Trois points identifies pendant le diagnostic MySQL, laisses en l'etat en accord avec l'utilisateur :
+
+| # | Point | Impact | Priorite |
+|---|---|---|---|
+| 1 | **La sonde de joignabilite est un verrou, pas un avis.** `base_connection_dialog._on_test` fait `if not reachable: return` avant d'appeler le driver ; idem `connection_mixin.py:386` pour la reconnexion. Un faux negatif de l'heuristique masque une connexion qui fonctionne | C'est ce mecanisme qui a transforme une erreur de parsing en test casse. Risque residuel : instance nommee SQL Server sur port dynamique | P1 |
+| 2 | **Pas de champ port sur le dialogue SQL Server.** Ses 3 connexions n'en portent aucun, 1433 est donc deduit. A ajouter en **optionnel** et non obligatoire : l'adressage SQL Server est exclusif (`hote,port` OU `hote\INSTANCE`), forcer un port casserait les instances nommees | Faux negatif possible sur instance nommee | P2 |
+| 3 | **Le champ port reste videable** sur MySQL/PostgreSQL/Oracle/MongoDB : `port = self.port_edit.text().strip() or self._get_default_port()` retombe silencieusement sur le defaut | Mineur — le port est deja toujours ecrit dans la chaine | P3 |
+
+Le point 1 est le seul qui traite aussi le cas « port indeterminable » : quand aucun port n'est connu, la bonne conduite est de ne pas sonder et de laisser le driver produire son propre message d'erreur, bien plus precis que « serveur injoignable ».
 
 ---
 
@@ -73,18 +121,18 @@
 
 ### Historique des scores
 
-| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Audit #5 | Audit #6 | Audit #7 | Audit #8 | Tendance |
-|---------|----------|----------|----------|----------|----------|----------|----------|----------|----------|
-| Structure | 8 | 8 | 8.5 | 9 | 9 | 9 | 9.5 | 9.5 | = |
-| Qualite du code | 7 | 6.5 | 7 | 8 | 8 | 8.5 | 8.5 | 8 | ↓ |
-| Securite | 7 | 6.5 | 7 | 8 | 8 | 8 | 8 | 8 | = |
-| Maintenabilite | 7 | 6.5 | 7.5 | 8 | 8 | 8.5 | 9 | 8.5 | ↓ |
-| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | 8 | 8 | = |
-| Performance | 7 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | 7.5 | 7.5 | = |
-| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 9.5 | 9.5 | = |
-| Documentation | 7.5 | 7 | 7 | 7 | 7 | 7 | 8 | 8 | = |
-| UX/UI | 8 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 9.5 | 9 | ↓ |
-| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **7.9** | **8.2** | **8.6** | **8.4** | ↓ |
+| Critere | Audit #1 | Audit #2 | Audit #3 | Audit #4 | Audit #5 | Audit #6 | Audit #7 | Audit #8 | Audit #9 | Tendance |
+|---------|----------|----------|----------|----------|----------|----------|----------|----------|----------|----------|
+| Structure | 8 | 8 | 8.5 | 9 | 9 | 9 | 9.5 | 9.5 | 9.5 | = |
+| Qualite du code | 7 | 6.5 | 7 | 8 | 8 | 8.5 | 8.5 | 8 | 8.5 | ↑ |
+| Securite | 7 | 6.5 | 7 | 8 | 8 | 8 | 8 | 8 | 8.5 | ↑ |
+| Maintenabilite | 7 | 6.5 | 7.5 | 8 | 8 | 8.5 | 9 | 8.5 | 9 | ↑ |
+| Fiabilite | 7.5 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | 8 | 8 | 8.5 | ↑ |
+| Performance | 7 | 7 | 7.5 | 7.5 | 7.5 | 7.5 | 7.5 | 7.5 | 7.5 | = |
+| Extensibilite | 8.5 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 9.5 | 9.5 | 9.5 | = |
+| Documentation | 7.5 | 7 | 7 | 7 | 7 | 7 | 8 | 8 | 8.5 | ↑ |
+| UX/UI | 8 | 8.5 | 8.5 | 8.5 | 8.5 | 9 | 9.5 | 9 | 9.5 | ↑ |
+| **Global** | **7.4** | **7.3** | **7.7** | **7.9** | **7.9** | **8.2** | **8.6** | **8.4** | **8.8** | ↑ |
 
 ### Plan de correctifs #12 (prioritaires)
 
@@ -728,7 +776,7 @@ Avril 2026
 |-- ER diagrams polish: hover popup themable, Ctrl+wheel zoom, Fit View button, Column Types toggle, content-driven table width
 |-- v0.6.11
 |-- Fix: bootstrap theme defaults on fresh installs (palettes/dispositions/themes combos empty)
-|-- v0.6.16 (actuel)
+|-- v0.6.17 (actuel)
 ```
 
 ### Projection (estimee)
@@ -763,7 +811,7 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.16.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.17.
 
 **Score global (audit #8): 8.4/10** (-0.2 vs audit #7) — Progression fonctionnelle forte (ER Diagrams aboutis, workspace partage EVO-4, refactor icones SVG-only) mais introduction du critere #12 (conformite au theme) revele une dette visuelle: 54 `QColor("#...")`, 34 `background-color: #`, 77 `color: #` hardcodes dans le code. Les nouveaux composants custom-paint (ER Diagram) ne passent pas par `theme_bridge` et ne se reabonnent pas a `theme_changed`. Trois palettes de log sont triplees a l'identique (log_panel, file_viewer_widget, file_content_handler).
 

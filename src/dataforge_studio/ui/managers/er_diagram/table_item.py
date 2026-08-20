@@ -220,10 +220,21 @@ class ERTableItem(QGraphicsRectItem):
 
         self.setZValue(1)
 
+        self._read_only = False
+
         # Resize state
         self._resize_mode = None  # None | 'v' | 'h' | 'both'
         self._resize_start_pos = None
         self._resize_start_size = None
+
+    def set_read_only(self, read_only: bool):
+        """Freeze the table: no move, no resize. Hover events stay enabled so
+        FK relationship popups keep working."""
+        self._read_only = read_only
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not read_only)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, not read_only)
+        if read_only:
+            self.unsetCursor()
 
     def set_size(self, width: float, height: float):
         """Apply a specific width/height (used when restoring persisted size)."""
@@ -271,6 +282,9 @@ class ERTableItem(QGraphicsRectItem):
             painter.setPen(QPen(QColor(palette["header_bg"]), 2, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(QRectF(0, 0, self.width, self.height))
+
+        if self._read_only:
+            return
 
         # Resize handle (bottom-right triangle)
         m = self.RESIZE_MARGIN
@@ -348,6 +362,8 @@ class ERTableItem(QGraphicsRectItem):
 
     def _resize_mode_at(self, pos: QPointF) -> Optional[str]:
         """Return 'both', 'v', 'h', or None based on grip zone under pos."""
+        if self._read_only:
+            return None
         m = self.RESIZE_MARGIN
         near_right = (self.width - m) < pos.x() <= self.width + m
         near_bottom = (self.height - m) < pos.y() <= self.height + m

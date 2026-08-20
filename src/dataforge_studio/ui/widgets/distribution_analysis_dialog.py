@@ -14,6 +14,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _is_missing(value: Any) -> bool:
+    """True for real missing values: None, NaN, NaT.
+
+    Grid data comes from df.values.tolist(), where pandas turns empty text-file
+    fields into float NaN — which is not None and str()s to 'nan', so a plain
+    None check silently counts it as non-null.
+    """
+    if value is None:
+        return True
+    try:
+        import pandas as pd
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
 class DistributionAnalysisDialog(QDialog):
     """Dialog showing distribution analysis for dataset columns"""
 
@@ -157,6 +173,7 @@ class DistributionAnalysisDialog(QDialog):
             "Total Values",
             "Non-Null",
             "Null",
+            "Empty",
             "Unique",
             "Data Type",
             "lMin",
@@ -179,7 +196,7 @@ class DistributionAnalysisDialog(QDialog):
             row_data.append(col_name)
 
             # Non-null values (needed early for format detection)
-            non_null = [v for v in values if v is not None and str(v).strip() != '']
+            non_null = [v for v in values if not _is_missing(v) and str(v).strip() != '']
 
             # Data type detection (needed for format)
             data_type = self._detect_data_type(non_null)
@@ -194,9 +211,12 @@ class DistributionAnalysisDialog(QDialog):
             # Non-null values
             row_data.append(str(len(non_null)))
 
-            # Null values
-            null_count = len(values) - len(non_null)
+            # Null values (None/NaN/NaT) vs Empty values (blank/whitespace strings,
+            # common in text-file imports where a field is present but empty)
+            null_count = sum(1 for v in values if _is_missing(v))
+            empty_count = len(values) - len(non_null) - null_count
             row_data.append(str(null_count))
+            row_data.append(str(empty_count))
 
             # Unique values
             unique = len(set(str(v) for v in non_null))
@@ -278,7 +298,7 @@ class DistributionAnalysisDialog(QDialog):
 
         for col_name in self.columns:
             values = column_data[col_name]
-            non_null = [v for v in values if v is not None and str(v).strip() != '']
+            non_null = [v for v in values if not _is_missing(v) and str(v).strip() != '']
 
             row_data = []
 

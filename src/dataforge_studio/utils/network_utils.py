@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def ping_host(host: str, timeout: int = 3) -> Tuple[bool, str]:
+def ping_host(host: str, timeout: int = 3, port: int = None) -> Tuple[bool, str]:
     """
     Ping a host to check if it's reachable.
 
@@ -31,7 +31,7 @@ def ping_host(host: str, timeout: int = 3) -> Tuple[bool, str]:
     try:
         # Try socket connection first (faster and more reliable for servers)
         # This checks if the host is reachable on common ports
-        reachable, msg = _check_host_socket(host, timeout)
+        reachable, msg = _check_host_socket(host, timeout, port=port)
         if reachable:
             return True, msg
 
@@ -55,8 +55,10 @@ def _check_host_socket(host: str, timeout: int, port: int = None) -> Tuple[bool,
     Returns:
         Tuple of (success: bool, message: str)
     """
-    # Common database ports to try
-    ports_to_try = [port] if port else [1433, 3306, 5432, 27017, 1521, 445]
+    # Only probe the port the connection actually uses. Sweeping every
+    # known database port (1433, 445, ...) reaches services the user never
+    # asked about and shows up as scanning on monitored networks.
+    ports_to_try = [port] if port else sorted(set(DEFAULT_PORTS.values()))
 
     for test_port in ports_to_try:
         try:
@@ -117,46 +119,83 @@ def _ping_icmp(host: str, timeout: int) -> Tuple[bool, str]:
         return False, f"Ping error: {str(e)}"
 
 
-def extract_host_from_connection_string(connection_string: str, db_type: str = None) -> Optional[str]:
+DEFAULT_PORTS = {
+    "sqlserver": 1433,
+    "mysql": 3306,
+    "mariadb": 3306,
+    "postgresql": 5432,
+    "mongodb": 27017,
+    "oracle": 1521,
+}
+
+
+def extract_host_port_from_connection_string(
+        connection_string: str, db_type: str = None) -> Tuple[Optional[str], Optional[int]]:
     """
-    Extract host/server from a connection string.
+    Extract host and port from a connection string.
 
-    Args:
-        connection_string: Database connection string
-        db_type: Database type hint (sqlserver, mysql, postgresql, etc.)
-
-    Returns:
-        Host/server name or None if not found
+    Returns (host, port). Either may be None. The port matters: probing a
+    server on a port it does not serve looks like a port scan to network
+    equipment, and tells us nothing about the database being reachable.
     """
     if not connection_string:
-        return None
+        return None, None
 
     conn_str_lower = connection_string.lower()
-
-    # SQLite - no host needed
     if "sqlite" in conn_str_lower or connection_string.endswith(".db"):
-        return None
+        return None, None
 
-    # Try common patterns
-    patterns = [
-        # ODBC style: Server=hostname or SERVER=hostname
-        r'(?:server|data source)\s*=\s*([^;,\s]+)',
-        # URL style: //hostname:port/ or //hostname/
-        r'://(?:[^:@]+(?::[^@]+)?@)?([^:/]+)',
-        # Host= style
-        r'host\s*=\s*([^;,\s]+)',
-    ]
+    host = port = None
 
-    for pattern in patterns:
-        match = re.search(pattern, connection_string, re.IGNORECASE)
-        if match:
-            host = match.group(1).strip()
-            # Remove instance name if present (e.g., SERVER\INSTANCE)
-            if '\\' in host:
-                host = host.split('\\')[0]
-            return host
+    if "://" in connection_string:
+        # URL style: scheme://[user[:password]@]host[:port][/database]
+        after_scheme = connection_string.split("://", 1)[1]
+        # Split on the LAST '@': a password may legitimately contain one, and
+        # splitting on the first would take part of it for the host.
+        _userinfo, sep, remainder = after_scheme.rpartition("@")
+        if not sep:
+            remainder = after_scheme
+        # Only cut the path AFTER the credentials — a password may contain '/'
+        host_port = remainder.split("/", 1)[0]
 
-    return None
+        if host_port.startswith("["):          # IPv6 literal
+            host, _, rest = host_port.partition("]")
+            host = host.lstrip("[")
+            port_part = rest.lstrip(":")
+        else:
+            host, _, port_part = host_port.partition(":")
+
+        if port_part.isdigit():
+            port = int(port_part)
+    else:
+        # ODBC / key=value style
+        m = re.search(r'(?:server|data source|host)\s*=\s*([^;]+)', connection_string,
+                      re.IGNORECASE)
+        if m:
+            host = m.group(1).strip()
+            # SQL Server writes the port after a comma: SERVER=host,1433
+            if "," in host:
+                host, _, port_part = host.partition(",")
+                host, port_part = host.strip(), port_part.strip()
+                if port_part.isdigit():
+                    port = int(port_part)
+        m = re.search(r'port\s*=\s*(\d+)', connection_string, re.IGNORECASE)
+        if m:
+            port = int(m.group(1))
+
+    if host:
+        # Drop a named instance (SERVER\INSTANCE) — not part of the hostname
+        host = host.split("\\")[0].strip()
+
+    if port is None and db_type:
+        port = DEFAULT_PORTS.get(db_type.lower())
+
+    return (host or None), port
+
+
+def extract_host_from_connection_string(connection_string: str, db_type: str = None) -> Optional[str]:
+    """Extract host/server from a connection string (see the *_port variant)."""
+    return extract_host_port_from_connection_string(connection_string, db_type)[0]
 
 
 def check_server_reachable(connection_string: str, db_type: str = None, timeout: int = 3) -> Tuple[bool, Optional[str]]:
@@ -173,7 +212,7 @@ def check_server_reachable(connection_string: str, db_type: str = None, timeout:
         If reachable, error_message is None
         If not reachable, error_message contains the VPN suggestion
     """
-    host = extract_host_from_connection_string(connection_string, db_type)
+    host, port = extract_host_port_from_connection_string(connection_string, db_type)
 
     # No host to check (e.g., SQLite)
     if not host:
@@ -183,7 +222,7 @@ def check_server_reachable(connection_string: str, db_type: str = None, timeout:
     if host.lower() in ('localhost', '127.0.0.1', '::1', '.'):
         return True, None
 
-    success, message = ping_host(host, timeout)
+    success, message = ping_host(host, timeout, port=port)
 
     if success:
         return True, None

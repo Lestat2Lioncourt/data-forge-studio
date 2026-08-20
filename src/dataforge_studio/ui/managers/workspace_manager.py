@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeWidget, QTreeWidgetItem,
     QLabel, QMenu, QFileDialog, QTabWidget, QLineEdit
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 
 from ..widgets.toolbar_builder import ToolbarBuilder
@@ -64,6 +64,7 @@ class WorkspaceManager(QWidget):
     - RIGHT: ObjectViewerWidget (unified content display)
     """
 
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
 
@@ -93,7 +94,8 @@ class WorkspaceManager(QWidget):
         rootfolder_manager: Optional["RootFolderManager"] = None,
         ftproot_manager: Optional["FTPRootManager"] = None,
         scripts_manager: Optional["ScriptsManager"] = None,
-        jobs_manager: Optional["JobsManager"] = None
+        jobs_manager: Optional["JobsManager"] = None,
+        er_diagram_manager: Optional[QWidget] = None
     ):
         """Set references to managers for delegation."""
         self._database_manager = database_manager
@@ -101,6 +103,7 @@ class WorkspaceManager(QWidget):
         self._ftproot_manager = ftproot_manager
         self._scripts_manager = scripts_manager
         self._jobs_manager = jobs_manager
+        self._er_diagram_manager = er_diagram_manager
 
         # Connect to FTPRootManager's connection signals
         if self._ftproot_manager:
@@ -127,6 +130,8 @@ class WorkspaceManager(QWidget):
 
     def refresh(self) -> None:
         self._refresh()
+        # Preview tabs are not part of the tree: revalidate them too
+        self.refresh_previews()
 
     def set_workspace_filter(self, workspace_id: Optional[str]) -> None:
         pass  # WorkspaceManager doesn't filter by workspace
@@ -562,6 +567,27 @@ class WorkspaceManager(QWidget):
         if jobs:
             j_cat = self._create_category_item(ws_item, "Jobs", "jobs.png", len(jobs))
             self._add_jobs_grouped_by_type(j_cat, jobs)
+
+        # ER Diagrams
+        er_diagrams = self.config_db.get_workspace_er_diagrams(workspace_id)
+        if er_diagrams:
+            d_cat = self._create_category_item(
+                ws_item, "ER Diagrams", "diagram.png", len(er_diagrams))
+            for diagram in er_diagrams:
+                d_item = QTreeWidgetItem(d_cat)
+                d_icon = get_icon("diagram.png", size=16)
+                if d_icon:
+                    d_item.setIcon(0, d_icon)
+                label = diagram.name
+                if diagram.database_name:
+                    label = f"{label}  ({diagram.database_name})"
+                d_item.setText(0, label)
+                d_item.setToolTip(0, diagram.description or diagram.name)
+                d_item.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "er_diagram",
+                    "id": diagram.id,
+                    "resource_obj": diagram
+                })
 
         # RootFolders
         ws_file_roots = self.config_db.get_workspace_file_roots_with_context(workspace_id)
@@ -1096,6 +1122,14 @@ class WorkspaceManager(QWidget):
         elif item_type == "job":
             pass  # Future: dedicated job viewer tab
 
+        elif item_type == "er_diagram":
+            # A single click renders the diagram: unlike a query, seeing it IS
+            # the point. The tab is reused, so clicking around stays cheap.
+            if self._er_diagram_manager:
+                self._er_diagram_manager.render_diagram(
+                    data.get("resource_obj"), self.tab_widget
+                )
+
         elif item_type == "rootfolder":
             fr = data.get("resource_obj")
             full_path = data.get("full_path", "")
@@ -1126,6 +1160,13 @@ class WorkspaceManager(QWidget):
                 )
             self.tab_widget.setCurrentIndex(0)  # Switch to Preview tab
 
+        elif item_type == "er_diagram":
+            # Render the diagram in a workspace tab, like a saved query opens
+            # its results there. Editing still happens in the ER Diagrams view.
+            if self._er_diagram_manager:
+                self._er_diagram_manager.render_diagram(
+                    data.get("resource_obj"), self.tab_widget
+                )
         elif item_type == "file":
             file_path = data.get("path")
             if file_path and self._rootfolder_manager:
@@ -1250,6 +1291,22 @@ class WorkspaceManager(QWidget):
 
             remove_action = QAction(tr("ws_ctx_remove_resource"), self)
             remove_action.triggered.connect(lambda: self._remove_resource_from_workspace(item, data))
+            menu.addAction(remove_action)
+
+        elif item_type == "er_diagram":
+            # Use ERDiagramManager's context actions
+            if self._er_diagram_manager:
+                diagram = data.get("resource_obj")
+                for action in self._er_diagram_manager.get_diagram_context_actions(
+                    diagram, self, target_viewer=self.object_viewer,
+                    target_tab_widget=self.tab_widget
+                ):
+                    menu.addAction(action)
+                menu.addSeparator()
+
+            remove_action = QAction(tr("ws_ctx_remove_resource"), self)
+            remove_action.triggered.connect(
+                lambda: self._remove_resource_from_workspace(item, data))
             menu.addAction(remove_action)
 
         elif item_type == "query":
@@ -1450,6 +1507,8 @@ class WorkspaceManager(QWidget):
                 self.config_db.remove_script_from_workspace(workspace_id, resource_id)
             elif item_type == "job":
                 self.config_db.remove_job_from_workspace(workspace_id, resource_id)
+            elif item_type == "er_diagram":
+                self.config_db.remove_er_diagram_from_workspace(workspace_id, resource_id)
 
             direct_parent = item.parent()
             if direct_parent:
@@ -1622,6 +1681,11 @@ class WorkspaceManager(QWidget):
             if data and data.get("type") == "workspace" and data.get("id") == workspace_id:
                 return item
         return None
+
+    def refresh_previews(self):
+        """Ask the ER manager to rebuild preview tabs whose diagram changed."""
+        if self._er_diagram_manager is not None:
+            self._er_diagram_manager.refresh_previews()
 
     def refresh_workspace(self, workspace_id: str, select_and_expand: bool = True):
         """

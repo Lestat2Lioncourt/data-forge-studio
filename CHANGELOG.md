@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.17] - 2026-08-20
+
+### Added
+- **ER diagrams as a workspace resource**: diagrams can be attached to a workspace like every other
+  resource type (new `project_er_diagrams` junction table, migration 13)
+  - Right-click a diagram to add/remove it from workspaces, or a connection/database node to add all
+    the diagrams below it at once
+  - New "ER Diagrams" branch in the workspace tree, with a rendered preview in its own tab
+  - `ERDiagramManager` exposes `show_diagram()`, `render_diagram()` and `get_diagram_context_actions()`
+    so consumers delegate instead of duplicating the actions
+- **Diagram tree**: the diagram list is now a connection -> database -> diagram tree
+- **Rename a diagram** from the tree, via a targeted UPDATE that does not commit pending layout edits
+- **Explicit save for diagrams**: an unsaved-changes indicator plus a Save/Discard/Cancel prompt when
+  switching diagrams. Adding/removing tables and toggling Group FKs no longer write to the database
+  behind the user's back
+- **Missing icon warning**: a missing icon now logs a warning naming the expected `.svg` file instead
+  of silently falling back to the red placeholder
+- `docs/ER_DIAGRAMS_ROUTING.md`: normative specification of the FK routing rules (R1..R6) and shared
+  vocabulary
+
+### Changed
+- **FK auto-routing rewritten**: straight line > L-path > Z-path, instead of forcing parallel sides on
+  every diagonal pair. `_compute_line_offsets` (385 lines) split into 11 named methods
+  - A straight link is only kept when it does not push an anchor into a corner
+  - Anchors constrained by an included edge impose their middle; the rest spread homogeneously
+- **Save icon**: the toolbar uses a floppy disk icon instead of a star
+- FK hover overlay extracted to `er_diagram/hover_overlay.py`, shared by the editing view and previews
+
+### Fixed
+- **Reachability probe scanned unrelated ports**: the probe never extracted the port and swept
+  `[1433, 3306, 5432, 27017, 1521, 445]` on every remote server, so a MySQL test knocked on the SQL
+  Server port and on SMB. It now only tests the port the connection actually uses
+- **Host mis-parsed when the password contains `@` or `/`**: the connection string was split on the
+  first `@`, yielding a nonexistent host and reporting a working server as unreachable
+- **Flattened fields in the SQL Server connection dialog**: the dialog opened shorter than its content
+  required and the deficit was absorbed by the text boxes (9 px instead of 26). Connection dialogs now
+  open at least as tall as they need
+- **Oblique FK segments**: waypoints saved under a different side assignment produced diagonal segments
+  and a first segment running back inside the table. Restored chains are validated against the
+  orthogonality invariant and discarded when incompatible
+- **Stale diagram preview**: a preview left open in the workspace kept showing the layout it was built
+  with; it is now revalidated on save, on view switch and on refresh
+- Read-only previews could still be moved: the view's unfreeze safety net undid the freeze on first click
+
+
 ## [0.5.2] - 2025-12-21
 
 ### Added

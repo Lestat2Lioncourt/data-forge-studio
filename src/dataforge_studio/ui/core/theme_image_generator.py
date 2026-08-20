@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 ASSETS_PATH = Path(__file__).parent.parent / "assets" / "images"
 ICONS_PATH = Path(__file__).parent.parent / "assets" / "icons"
 
+# Icon names that resolved to the "?" placeholder — warned about once each
+_MISSING_ICONS: set = set()
+
 
 def generate_dropdown_arrow(color: str, output_dir: Path, size: int = 12) -> str:
     """
@@ -323,9 +326,25 @@ def get_themed_icon_path(icon_name: str, is_dark_theme: bool, icon_color: str) -
         if legacy_path.exists():
             return str(legacy_path)
 
-    # 3. Missing icon: return red "?" placeholder so the gap is visible
+    # 3. Missing icon: return red "?" placeholder so the gap is visible.
+    #    Warn once per name — icons resolve while the toolbars are built, so
+    #    the gaps show up in the log at launch instead of staying silent.
+    if base_name not in _MISSING_ICONS:
+        _MISSING_ICONS.add(base_name)
+        logger.warning(
+            "Icon '%s' not found - falling back to the red '?' placeholder. "
+            "Add %s.svg to %s (PNG sources are ignored: the icon set is "
+            "SVG-only so icons can be recolored per theme).",
+            base_name, base_name, ICONS_PATH / "base"
+        )
+
     missing = ICONS_PATH / "base" / "missing.svg"
     if missing.exists():
         return str(missing)
 
     return None
+
+
+def get_missing_icons() -> set:
+    """Names of the icons requested so far that could not be resolved."""
+    return set(_MISSING_ICONS)

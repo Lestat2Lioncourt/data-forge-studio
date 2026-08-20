@@ -68,7 +68,7 @@ Les ER Diagrams permettent à l'utilisateur de créer, sauvegarder, organiser et
 | 1 | Refactor `_compute_line_offsets` en fonctions nommées | Moyenne | après stabilisation des règles de layout |
 | 2 | Centraliser la décision de côté d'ancrage | Moyenne | |
 | 3 | Supprimer ou factoriser le post-traitement ligne-droite | Moyenne | |
-| 4 | Mémo de vocabulaire partagé (user ↔ assistant) | Haute | `docs/ER_DIAGRAMS_GLOSSARY.md` : terme → définition (côté/ancrage/pin/segment/bord/jog/zone/Z-path…) |
+| 4 | Mémo de vocabulaire partagé (user ↔ assistant) | Haute | ✅ **Fait** — `docs/ER_DIAGRAMS_ROUTING.md` §1 (vocabulaire) + §2-5 (règles normatives de routage) |
 | 5 | Bouton "Reset layout" (clear `_user_modified` + waypoints, relance auto-layout) | Moyenne | utile après changements d'algo pour repartir propre |
 | 6 | Tests unitaires pour auto-routing sur scénarios typiques | Moyenne | `tests/ui/er_diagram/test_layout.py` |
 | 7 | Contract docstring + invariants `set_waypoints` / `get_waypoints` | Basse | |
@@ -114,9 +114,13 @@ Les ER Diagrams permettent à l'utilisateur de créer, sauvegarder, organiser et
 
 ---
 
-## Glossaire (v0)
+## Glossaire
 
-À compléter dans `docs/ER_DIAGRAMS_GLOSSARY.md`. Termes en vrac à cadrer :
+> Déplacé et cadré dans **`docs/ER_DIAGRAMS_ROUTING.md` §1**, qui fait désormais
+> référence pour le vocabulaire *et* pour les règles de routage (R1 à R4).
+> La liste ci-dessous est conservée pour mémoire.
+
+Termes en vrac à cadrer :
 
 - **Fact / dim** : table centrale vs tables satellites dans un schéma en étoile
 - **Côté d'ancrage** : `top`, `bottom`, `left`, `right` sur une table

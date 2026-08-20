@@ -118,6 +118,7 @@ class ERRelationshipLine(QGraphicsPathItem):
         self._to_side: Optional[str] = None
         self._user_modified = False  # True after user drag/split — only then save waypoints
         self._hovered = False
+        self._read_only = False
         self._label: Optional[QGraphicsTextItem] = None
         self._show_label = False
 
@@ -283,11 +284,92 @@ class ERRelationshipLine(QGraphicsPathItem):
 
         self._merge_collinear()
 
+    @staticmethod
+    def _same_path(a: List[QPointF], b: List[QPointF], tol: float = 1.0) -> bool:
+        """True when two vertex chains describe the same polyline."""
+        if len(a) != len(b):
+            return False
+        return all(abs(p.x() - q.x()) <= tol and abs(p.y() - q.y()) <= tol
+                   for p, q in zip(a, b))
+
+    @staticmethod
+    def _side_axis(side: str) -> str:
+        """Axis of the segment leaving a side: 'h' (horizontal) or 'v'."""
+        return 'h' if side in ('left', 'right') else 'v'
+
+    @staticmethod
+    def _leaves_outward(anchor: QPointF, nxt: QPointF, side: str) -> bool:
+        """R6 — True when anchor->nxt exits the table instead of running back
+        inside it."""
+        if side == 'left':
+            return nxt.x() <= anchor.x()
+        if side == 'right':
+            return nxt.x() >= anchor.x()
+        if side == 'top':
+            return nxt.y() <= anchor.y()
+        return nxt.y() >= anchor.y()
+
+    def _orthogonalize(self, verts: List[QPointF],
+                       from_side: str, to_side: str) -> Optional[List[QPointF]]:
+        """Snap a vertex chain so every segment is axis-aligned (R6).
+
+        Segment axes alternate, starting on the axis imposed by from_side. The
+        chain is rejected (None) when it cannot satisfy the invariant:
+        - its segment count has the wrong parity for the two sides, so the last
+          segment could not be perpendicular to to_side;
+        - an end segment would leave its anchor back inside the table.
+
+        Rejection happens for waypoints saved under a different side
+        assignment: replaying them would yield oblique segments.
+        """
+        n_seg = len(verts) - 1
+        if n_seg < 1:
+            return None
+
+        first_axis = self._side_axis(from_side)
+        flip = {'h': 'v', 'v': 'h'}
+        last_axis = first_axis if (n_seg - 1) % 2 == 0 else flip[first_axis]
+        if last_axis != self._side_axis(to_side):
+            return None
+
+        out = [verts[0]]
+        axis = first_axis
+        for v in verts[1:]:
+            prev = out[-1]
+            out.append(QPointF(v.x(), prev.y()) if axis == 'h'
+                       else QPointF(prev.x(), v.y()))
+            axis = flip[axis]
+
+        # Pin the far end back on its anchor, realigning the last bend
+        out[-1] = verts[-1]
+        if len(out) >= 2:
+            if last_axis == 'h':
+                out[-2] = QPointF(out[-2].x(), out[-1].y())
+            else:
+                out[-2] = QPointF(out[-1].x(), out[-2].y())
+
+        if not self._leaves_outward(out[0], out[1], from_side):
+            return None
+        if not self._leaves_outward(out[-1], out[-2], to_side):
+            return None
+        return out
+
     def set_waypoints(self, waypoints: List[QPointF]):
         """Restore waypoints (loaded from DB). Replaces intermediate vertices.
+
         Preserves the endpoints already placed by auto-layout distribution
         (each fact-edge anchor is unique) instead of collapsing to the edge
         center — otherwise several restored lines stack on the same anchor.
+
+        The restored chain must satisfy R6 (every segment axis-aligned, end
+        segments perpendicular to their edge and pointing outward). A chain
+        saved under a different side assignment cannot, and is discarded: the
+        line then keeps its auto-routed geometry rather than being rendered
+        with oblique segments.
+
+        A chain that reproduces the auto-routed path exactly carries no user
+        intent, so the line is left auto (`_user_modified` stays False) and
+        keeps re-routing when tables move.
         """
         if not waypoints:
             return
@@ -299,21 +381,20 @@ class ERRelationshipLine(QGraphicsPathItem):
             fp = self.from_table.get_connection_point(from_side)
             tp = self.to_table.get_connection_point(to_side)
 
-        # Align first waypoint with fp for orthogonality
-        first_wp = waypoints[0]
-        if from_side in ('left', 'right'):
-            waypoints[0] = QPointF(first_wp.x(), fp.y())
-        else:
-            waypoints[0] = QPointF(fp.x(), first_wp.y())
+        chain = self._orthogonalize([fp] + list(waypoints) + [tp],
+                                    from_side, to_side)
+        if chain is None:
+            logger.debug(
+                "FK %s->%s: saved waypoints incompatible with sides %s->%s, "
+                "keeping auto layout",
+                self.from_table.table_name, self.to_table.table_name,
+                from_side, to_side)
+            return
 
-        # Align last waypoint with tp
-        last_wp = waypoints[-1]
-        if to_side in ('left', 'right'):
-            waypoints[-1] = QPointF(last_wp.x(), tp.y())
-        else:
-            waypoints[-1] = QPointF(tp.x(), last_wp.y())
+        if self._same_path(chain, self._vertices):
+            return  # identical to auto-layout — nothing was customised
 
-        self._vertices = [fp] + waypoints + [tp]
+        self._vertices = chain
         self._user_modified = True
         self._rebuild_path()
 
@@ -341,7 +422,7 @@ class ERRelationshipLine(QGraphicsPathItem):
         self.setPath(path)
         self._mid_seg_center = path.pointAtPercent(0.5)
 
-        if self._drag_points:
+        if self._drag_points and not self._read_only:
             self._sync_drag_points()
         if self._show_label:
             self._update_label_position()
@@ -431,6 +512,13 @@ class ERRelationshipLine(QGraphicsPathItem):
         """Called on mouseRelease — merge collinear segments, rebuild points."""
         self._merge_collinear()
         self._rebuild_path()
+        self.notify_routing_changed()
+
+    def notify_routing_changed(self):
+        """Tell the scene this line's routing was edited (unsaved change)."""
+        scene = self.scene()
+        if scene is not None and hasattr(scene, 'routing_changed'):
+            scene.routing_changed.emit()
 
     def _merge_collinear(self):
         """Remove intermediate vertices where adjacent segments are collinear."""
@@ -524,12 +612,25 @@ class ERRelationshipLine(QGraphicsPathItem):
     # Hover
     # =====================================================================
 
+    def set_read_only(self, read_only: bool):
+        """Freeze the routing: no drag points, so the geometry cannot be edited.
+        Hovering still emits relation_hovered — showing the FK columns is the
+        whole point of a preview."""
+        self._read_only = read_only
+        if read_only:
+            for dp in self._drag_points:
+                dp.setVisible(False)
+                if dp.scene():
+                    dp.scene().removeItem(dp)
+            self._drag_points = []
+
     def hoverEnterEvent(self, event):
         self._hovered = True
         if self.scene():
-            self._sync_drag_points()
-            for dp in self._drag_points:
-                dp.setVisible(True)
+            if not self._read_only:
+                self._sync_drag_points()
+                for dp in self._drag_points:
+                    dp.setVisible(True)
             palette = self._palette()
             fk_color, pk_color, dim = palette["fk"], palette["pk"], palette["popup_dim"]
             fk_header = f"<span style='color:{dim}'>{self.fk_name}</span><br>" if self.fk_name else ""

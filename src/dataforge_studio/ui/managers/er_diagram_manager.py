@@ -9,8 +9,8 @@ Layout:
 from typing import Optional, Dict, List, Any
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QGraphicsView,
-    QListWidget, QListWidgetItem, QPushButton, QFileDialog, QLabel,
-    QComboBox
+    QTreeWidget, QTreeWidgetItem, QPushButton, QFileDialog, QLabel,
+    QComboBox, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal, QPointF
 from PySide6.QtGui import QWheelEvent, QKeyEvent, QAction
@@ -25,6 +25,7 @@ from ...database.schema_loaders import SchemaLoaderFactory, ForeignKeyInfo, Prim
 from .er_diagram.scene import ERDiagramScene
 from .er_diagram.dialogs import NewDiagramDialog, TablePickerDialog
 from .er_diagram.export import export_to_png, export_to_svg
+from .er_diagram.hover_overlay import FKHoverOverlay
 
 import logging
 logger = logging.getLogger(__name__)
@@ -226,6 +227,7 @@ class ZoomableGraphicsView(QGraphicsView):
             verts.insert(seg_idx + 1, mid)
 
         line._rebuild_path()
+        line.notify_routing_changed()
 
     def _jog_anchor_segment(self, line, is_from: bool):
         """Divide an anchor segment while preserving the anchor side.
@@ -434,6 +436,7 @@ class ZoomableGraphicsView(QGraphicsView):
                 if not (mp.from_table == ft and mp.to_table == tt
                         and mp.from_column == fc and mp.to_column == tc)
             ]
+            mgr.mark_dirty()
 
     def _delete_segment(self, line, seg_idx):
         """Delete a segment by removing the shared vertex, merging adjacent segments."""
@@ -458,6 +461,7 @@ class ZoomableGraphicsView(QGraphicsView):
             del verts[seg_idx + 1]
 
         line._rebuild_path()
+        line.notify_routing_changed()
 
     def _rename_group(self, group_item):
         """Prompt the user for a new title for the group."""
@@ -477,7 +481,8 @@ class ZoomableGraphicsView(QGraphicsView):
             for g in mgr._current_diagram.groups:
                 if g.id == group_item.group_id:
                     g.name = name
-                    return
+                    break
+            mgr.mark_dirty()
 
     def _change_group_color(self, group_item, color_hex: str):
         """Change a group's pastel color."""
@@ -488,7 +493,8 @@ class ZoomableGraphicsView(QGraphicsView):
             for g in mgr._current_diagram.groups:
                 if g.id == group_item.group_id:
                     g.color = color_hex
-                    return
+                    break
+            mgr.mark_dirty()
 
     def _delete_group(self, group_item):
         """Remove the group from the scene and the diagram model."""
@@ -503,6 +509,7 @@ class ZoomableGraphicsView(QGraphicsView):
             mgr._current_diagram.groups = [
                 g for g in mgr._current_diagram.groups if g.id != gid
             ]
+            mgr.mark_dirty()
 
     def _find_manager(self):
         """Walk up the parent chain to find the ERDiagramManager."""
@@ -528,6 +535,10 @@ class ERDiagramManager(QWidget):
     Layout: toolbar + splitter (diagram list | diagram view)
     """
 
+    # Emitted when a diagram must be edited here: the host brings this view to
+    # the front. Without it, open_diagram() would load out of sight.
+    edit_requested = Signal(str)  # diagram_id
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._database_manager = None
@@ -537,6 +548,14 @@ class ERDiagramManager(QWidget):
         self._show_fk_names = False
         self._show_column_types = True
         self._group_fks = True
+        # Unsaved changes: layout edits live in the scene and in the in-memory
+        # model until "Save Diagram" writes them out. Nothing is persisted
+        # behind the user's back.
+        self._dirty = False
+        self._loading = False
+        self._workspace_manager = None
+        # Tab widgets we have rendered previews into, so a save can refresh them
+        self._preview_tab_widgets: List[Any] = []
 
         self._setup_ui()
         self._load_diagram_list()
@@ -546,7 +565,8 @@ class ERDiagramManager(QWidget):
 
     def _on_theme_changed(self, theme_colors: dict):
         """Reload current diagram + refresh hover overlay to pick up new palette."""
-        self._apply_hover_label_style()
+        if getattr(self, '_hover_overlay', None) is not None:
+            self._hover_overlay.apply_theme()
         if self._current_diagram:
             self._load_diagram(self._current_diagram.id)
 
@@ -564,7 +584,9 @@ class ERDiagramManager(QWidget):
         toolbar_builder.add_button("New Diagram", self._new_diagram, icon="add")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Add Tables", self._add_tables, icon="table")
-        toolbar_builder.add_button("Save Diagram", self._save_positions, icon="star")
+        self._save_btn = toolbar_builder.add_button(
+            "Save Diagram", self._save_positions, icon="save", return_button=True
+        )
         toolbar_builder.add_button("Fit View", self._fit_view, icon="view")
         toolbar_builder.add_separator()
         toolbar_builder.add_button("Export PNG", self._export_png, icon="download")
@@ -600,9 +622,15 @@ class ERDiagramManager(QWidget):
         self._conn_combo.currentIndexChanged.connect(self._on_connection_filter_changed)
         left_layout.addWidget(self._conn_combo)
 
-        self._diagram_list = QListWidget()
-        self._diagram_list.currentItemChanged.connect(self._on_diagram_selected)
-        left_layout.addWidget(self._diagram_list)
+        # Diagrams grouped connection -> database -> diagram, mirroring the
+        # database tree. Both keys are already stored on er_diagrams.
+        self._diagram_tree = QTreeWidget()
+        self._diagram_tree.setHeaderHidden(True)
+        self._diagram_tree.setUniformRowHeights(True)
+        self._diagram_tree.currentItemChanged.connect(self._on_diagram_selected)
+        self._diagram_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._diagram_tree.customContextMenuRequested.connect(self._on_tree_context_menu)
+        left_layout.addWidget(self._diagram_tree)
 
         self.splitter.addWidget(left_panel)
 
@@ -613,12 +641,8 @@ class ERDiagramManager(QWidget):
         self._view.delete_requested.connect(self._remove_tables_from_diagram)
         self.splitter.addWidget(self._view)
 
-        # Hover popup overlay (centered top of view)
-        self._hover_label = QLabel(self._view)
-        self._apply_hover_label_style()
-        self._hover_label.setTextFormat(Qt.TextFormat.RichText)
-        self._hover_label.hide()
-        self._view.installEventFilter(self)
+        # FK hover popup — same overlay class as read-only previews
+        self._hover_overlay = FKHoverOverlay(self._view)
 
         self.splitter.setSizes([250, 750])
         self.splitter.setStretchFactor(0, 0)
@@ -627,61 +651,330 @@ class ERDiagramManager(QWidget):
         layout.addWidget(self.splitter)
 
     def _load_diagram_list(self):
-        """Load saved diagrams into the list."""
-        self._diagram_list.clear()
+        """Rebuild the diagram tree: connection -> database -> diagram."""
+        from ...utils.image_loader import get_icon
+
+        self._diagram_tree.blockSignals(True)
+        self._diagram_tree.clear()
         config_db = get_config_db()
 
-        # Load connection filter
+        # Keep the connection filter in sync (it still narrows the tree)
+        current_filter = self._conn_combo.currentData()
         self._conn_combo.blockSignals(True)
         self._conn_combo.clear()
         self._conn_combo.addItem("All connections", "")
-        for conn in config_db.get_all_database_connections():
+        connections = config_db.get_all_database_connections()
+        for conn in connections:
             self._conn_combo.addItem(conn.name, conn.id)
+        idx = self._conn_combo.findData(current_filter)
+        if idx >= 0:
+            self._conn_combo.setCurrentIndex(idx)
         self._conn_combo.blockSignals(False)
 
-        # Load diagrams
         conn_filter = self._conn_combo.currentData()
         if conn_filter:
             diagrams = config_db.get_er_diagrams_by_connection(conn_filter)
         else:
             diagrams = config_db.get_all_er_diagrams()
 
-        for diagram in diagrams:
-            item = QListWidgetItem(f"{diagram.name} ({len(diagram.tables)} tables)")
-            item.setData(Qt.ItemDataRole.UserRole, diagram.id)
-            item.setToolTip(diagram.description or diagram.name)
-            self._diagram_list.addItem(item)
+        conn_names = {c.id: c.name for c in connections}
+        conn_icon = get_icon("connect", size=16)
+        db_icon = get_icon("database", size=16)
+        diagram_icon = get_icon("diagram", size=16)
+
+        conn_nodes: Dict[str, QTreeWidgetItem] = {}
+        db_nodes: Dict[tuple, QTreeWidgetItem] = {}
+
+        for diagram in sorted(diagrams, key=lambda d: (
+                conn_names.get(d.connection_id, ""), d.database_name or "", d.name)):
+            cid = diagram.connection_id
+            if cid not in conn_nodes:
+                node = QTreeWidgetItem(self._diagram_tree,
+                                       [conn_names.get(cid, "(unknown connection)")])
+                if conn_icon:
+                    node.setIcon(0, conn_icon)
+                conn_nodes[cid] = node
+            parent = conn_nodes[cid]
+
+            # Diagrams on a multi-database server get an intermediate node;
+            # single-database engines hang straight off the connection.
+            if diagram.database_name:
+                key = (cid, diagram.database_name)
+                if key not in db_nodes:
+                    node = QTreeWidgetItem(parent, [diagram.database_name])
+                    if db_icon:
+                        node.setIcon(0, db_icon)
+                    db_nodes[key] = node
+                parent = db_nodes[key]
+
+            item = QTreeWidgetItem(parent, [f"{diagram.name} ({len(diagram.tables)} tables)"])
+            item.setData(0, Qt.ItemDataRole.UserRole, diagram.id)
+            item.setToolTip(0, diagram.description or diagram.name)
+            if diagram_icon:
+                item.setIcon(0, diagram_icon)
+
+        self._diagram_tree.expandAll()
+        self._diagram_tree.blockSignals(False)
+        self._select_tree_item(self._current_diagram.id if self._current_diagram else None)
+
+    def _diagram_ids_under(self, item) -> List[str]:
+        """Diagram ids carried by an item, or by all its descendants."""
+        did = item.data(0, Qt.ItemDataRole.UserRole)
+        if did:
+            return [did]
+        ids: List[str] = []
+        for i in range(item.childCount()):
+            ids.extend(self._diagram_ids_under(item.child(i)))
+        return ids
+
+    def _build_workspace_submenu(self, diagram_id: str):
+        """Workspace submenu for a single diagram (same builder as the other
+        resource managers, so the behaviour is identical everywhere)."""
+        from ..widgets.workspace_menu_builder import build_workspace_menu
+        config_db = get_config_db()
+        return build_workspace_menu(
+            parent=self,
+            item_id=diagram_id,
+            get_item_workspaces=lambda: config_db.get_er_diagram_workspaces(diagram_id),
+            add_to_workspace=lambda ws: config_db.add_er_diagram_to_workspace(ws, diagram_id),
+            remove_from_workspace=lambda ws: config_db.remove_er_diagram_from_workspace(ws, diagram_id),
+            on_workspace_changed=self._on_workspace_changed,
+        )
+
+    def _build_bulk_workspace_menu(self, diagram_ids: List[str]):
+        """"Add every diagram under this node" menu, for a connection or
+        database node. Adding is a one-shot bulk link: diagrams created later
+        are not pulled in, and each one can be removed individually."""
+        from PySide6.QtWidgets import QMenu
+        from ...utils.image_loader import get_icon
+
+        config_db = get_config_db()
+        menu = QMenu(tr("menu_workspaces"), self)
+        icon = get_icon("workspace", size=16)
+        if icon:
+            menu.setIcon(icon)
+        workspaces = config_db.get_all_workspaces()
+        if not workspaces:
+            action = QAction(tr("new_workspace"), self)
+            action.setEnabled(False)
+            menu.addAction(action)
+            return menu
+        for ws in workspaces:
+            action = QAction(tr("er_add_all_to_workspace").format(name=ws.name), self)
+            action.triggered.connect(
+                lambda _=False, w=ws.id: self._add_diagrams_to_workspace(w, diagram_ids))
+            menu.addAction(action)
+        return menu
+
+    def _add_diagrams_to_workspace(self, workspace_id: str, diagram_ids: List[str]):
+        config_db = get_config_db()
+        for did in diagram_ids:
+            config_db.add_er_diagram_to_workspace(workspace_id, did)
+        self._on_workspace_changed(workspace_id)
+
+    def _on_workspace_changed(self, workspace_id: str):
+        """Refresh the workspace view so the change shows up immediately."""
+        mgr = getattr(self, '_workspace_manager', None)
+        if mgr is not None and hasattr(mgr, 'refresh_workspace'):
+            mgr.refresh_workspace(workspace_id)
+
+    def set_workspace_manager(self, workspace_manager):
+        """Injected so workspace additions refresh the workspace tree."""
+        self._workspace_manager = workspace_manager
+
+    def _on_tree_context_menu(self, pos):
+        """Right-click: workspaces + rename/delete on a diagram, bulk add on a
+        connection or database node."""
+        from PySide6.QtWidgets import QMenu
+
+        item = self._diagram_tree.itemAt(pos)
+        if item is None:
+            return
+        diagram_id = item.data(0, Qt.ItemDataRole.UserRole)
+
+        if not diagram_id:
+            # Connection or database node: offer to add all diagrams below it
+            ids = self._diagram_ids_under(item)
+            if not ids:
+                return
+            menu = QMenu(self._diagram_tree)
+            menu.addMenu(self._build_bulk_workspace_menu(ids))
+            menu.exec(self._diagram_tree.viewport().mapToGlobal(pos))
+            return
+
+        menu = QMenu(self._diagram_tree)
+        menu.addMenu(self._build_workspace_submenu(diagram_id))
+        menu.addSeparator()
+        rename_action = QAction(tr("er_rename_diagram"), self)
+        rename_action.triggered.connect(lambda: self._rename_diagram(diagram_id))
+        menu.addAction(rename_action)
+        menu.addSeparator()
+        delete_action = QAction(tr("er_delete_diagram"), self)
+        delete_action.triggered.connect(lambda: self._delete_diagram(diagram_id))
+        menu.addAction(delete_action)
+        menu.exec(self._diagram_tree.viewport().mapToGlobal(pos))
+
+    def _rename_diagram(self, diagram_id: str):
+        """Rename a diagram from the tree, whether or not it is the open one."""
+        from PySide6.QtWidgets import QInputDialog
+
+        config_db = get_config_db()
+        if self._current_diagram and self._current_diagram.id == diagram_id:
+            current_name = self._current_diagram.name
+        else:
+            existing = config_db.get_er_diagram(diagram_id)
+            if existing is None:
+                return
+            current_name = existing.name
+
+        name, ok = QInputDialog.getText(
+            self, tr("er_rename_diagram"), tr("er_diagram_name_prompt"),
+            text=current_name
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name or name == current_name:
+            return
+
+        # Targeted UPDATE: renaming must not commit pending layout edits
+        config_db.rename_er_diagram(diagram_id, name)
+        if self._current_diagram and self._current_diagram.id == diagram_id:
+            self._current_diagram.name = name
+        self._load_diagram_list()
+        self._refresh_dirty_indicator()
+
+    def _iter_diagram_items(self):
+        """Yield every leaf item (those carrying a diagram id)."""
+        stack = [self._diagram_tree.topLevelItem(i)
+                 for i in range(self._diagram_tree.topLevelItemCount())]
+        while stack:
+            it = stack.pop()
+            if it is None:
+                continue
+            if it.data(0, Qt.ItemDataRole.UserRole):
+                yield it
+            stack.extend(it.child(i) for i in range(it.childCount()))
+
+    def _find_tree_item(self, diagram_id: str) -> Optional[QTreeWidgetItem]:
+        if not diagram_id:
+            return None
+        for it in self._iter_diagram_items():
+            if it.data(0, Qt.ItemDataRole.UserRole) == diagram_id:
+                return it
+        return None
+
+    def _select_tree_item(self, diagram_id: Optional[str]):
+        """Select a diagram in the tree without triggering a reload."""
+        item = self._find_tree_item(diagram_id) if diagram_id else None
+        self._diagram_tree.blockSignals(True)
+        self._diagram_tree.setCurrentItem(item)
+        self._diagram_tree.blockSignals(False)
 
     def _on_connection_filter_changed(self, index: int):
         """Filter diagrams by connection."""
         self._load_diagram_list()
 
+    # ------------------------------------------------------------------
+    # Unsaved changes
+    # ------------------------------------------------------------------
+
+    def mark_dirty(self):
+        """Flag the current diagram as having unsaved changes."""
+        if self._loading or not self._current_diagram or self._dirty:
+            return
+        self._dirty = True
+        self._refresh_dirty_indicator()
+
+    def _clear_dirty(self):
+        if not self._dirty:
+            return
+        self._dirty = False
+        self._refresh_dirty_indicator()
+
+    def _refresh_dirty_indicator(self):
+        """Mark the tree entry with a bullet and highlight the Save button."""
+        item = self._find_tree_item(
+            self._current_diagram.id if self._current_diagram else None)
+        if item is not None:
+            label = item.text(0).lstrip('• ')
+            item.setText(0, f"• {label}" if self._dirty else label)
+        if getattr(self, '_save_btn', None) is not None:
+            self._save_btn.setToolTip(
+                tr("er_save_diagram_unsaved") if self._dirty
+                else tr("er_save_diagram"))
+
+    def _confirm_discard_changes(self) -> bool:
+        """Ask what to do with unsaved changes. False means "stay here"."""
+        if not self._dirty or not self._current_diagram:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(tr("er_unsaved_title"))
+        box.setText(tr("er_unsaved_text").format(name=self._current_diagram.name))
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Save)
+        choice = box.exec()
+        if choice == QMessageBox.StandardButton.Save:
+            self._save_positions()
+            return True
+        if choice == QMessageBox.StandardButton.Discard:
+            self._clear_dirty()
+            return True
+        return False
+
     def _on_diagram_selected(self, current, previous):
-        """Load the selected diagram."""
+        """Load the selected diagram, guarding unsaved changes first."""
         if not current:
             return
-        diagram_id = current.data(Qt.ItemDataRole.UserRole)
-        if diagram_id:
-            self._load_diagram(diagram_id)
-
-    def _load_diagram(self, diagram_id: str):
-        """Load a diagram and display it."""
-        config_db = get_config_db()
-        diagram = config_db.get_er_diagram(diagram_id)
-        if not diagram:
+        diagram_id = current.data(0, Qt.ItemDataRole.UserRole)
+        if not diagram_id or (self._current_diagram
+                              and diagram_id == self._current_diagram.id):
             return
 
-        self._current_diagram = diagram
+        if not self._confirm_discard_changes():
+            # User cancelled — put the selection back where it was
+            self._select_tree_item(
+                self._current_diagram.id if self._current_diagram else None)
+            return
 
-        # Get connection (auto-connect if needed)
+        self._load_diagram(diagram_id)
+
+    def _load_diagram(self, diagram_id: str, model: Optional[ERDiagram] = None):
+        """Load a diagram and display it, then reset the unsaved-changes flag.
+
+        model: rebuild from this in-memory diagram instead of re-reading the
+        database. Used when the scene has to be rebuilt (Add Tables, Group FKs)
+        so that pending layout edits are not silently dropped.
+        """
+        self._loading = True
+        try:
+            self._load_diagram_impl(diagram_id, model)
+        finally:
+            self._loading = False
+        self._select_tree_item(diagram_id)
+        self._clear_dirty()
+
+    def build_scene(self, diagram: ERDiagram) -> Optional[ERDiagramScene]:
+        """Build a populated ERDiagramScene for a diagram.
+
+        Shared by the editing view and by read-only previews rendered in another
+        container, so the schema loading and scene assembly exist only once.
+        Returns None when the database is unreachable.
+        """
+        config_db = get_config_db()
         if not self._database_manager:
             DialogHelper.warning("Database Manager not available.", parent=self)
-            return
+            return None
 
         db_conn = config_db.get_database_connection(diagram.connection_id)
         if not db_conn:
             DialogHelper.warning("Connection configuration not found.", parent=self)
-            return
+            return None
 
         connection = self._database_manager.connections.get(diagram.connection_id)
         if not connection:
@@ -692,22 +985,22 @@ class ERDiagramManager(QWidget):
                 "Connect to the database in the Database Manager first.",
                 parent=self
             )
-            return
+            return None
 
-        # Create schema loader
         try:
             loader = SchemaLoaderFactory.create(
-                db_conn.db_type, connection, db_conn.id, diagram.database_name or db_conn.name
+                db_conn.db_type, connection, db_conn.id,
+                diagram.database_name or db_conn.name
             )
         except (ValueError, KeyError) as e:
             DialogHelper.error(f"Cannot create schema loader: {e}", parent=self)
-            return
+            return None
 
-        # Load metadata — retry once if FK query returns empty (cold connection issue)
+        # Load metadata - retry once if the FK query comes back empty (cold connection)
         table_names = diagram.get_table_names()
         foreign_keys = loader.load_foreign_keys(table_names, diagram.database_name)
         if not foreign_keys and table_names:
-            logger.warning("FK query returned empty — retrying after reconnect")
+            logger.warning("FK query returned empty - retrying after reconnect")
             connection = self._database_manager.reconnect_database(diagram.connection_id)
             if connection:
                 try:
@@ -719,11 +1012,8 @@ class ERDiagramManager(QWidget):
                 except Exception as e:
                     logger.error(f"FK retry failed: {e}")
         logger.info(f"FK loaded: {len(foreign_keys)} entries")
-        for fk in foreign_keys:
-            logger.info(f"  FK: {fk.fk_name} | {fk.from_table}.{fk.from_column} -> {fk.to_table}.{fk.to_column}")
         primary_keys = loader.load_primary_keys(table_names, diagram.database_name)
 
-        # Build PK/FK lookup
         pk_by_table: Dict[str, List[str]] = {}
         for pk in primary_keys:
             pk_by_table.setdefault(pk.table_name, []).append(pk.column_name)
@@ -732,26 +1022,20 @@ class ERDiagramManager(QWidget):
         for fk in foreign_keys:
             fk_columns_by_table.setdefault(fk.from_table, []).append(fk.from_column)
 
-        # Create scene
-        self._scene = ERDiagramScene(is_dark=self._is_dark)
-        # Restore group_fks BEFORE add_relationships so grouping applies during line creation
-        self._group_fks = diagram.group_fks
-        self._scene.set_group_fks(self._group_fks)
-        self._update_group_fks_icon()
-        self._scene.table_moved.connect(self._on_table_moved)
-
-        # Add tables
-        has_positions = any(t.pos_x != 0 or t.pos_y != 0 for t in diagram.tables)
+        scene = ERDiagramScene(is_dark=self._is_dark)
+        # Grouping must be set BEFORE add_relationships so it applies while the
+        # lines are created
+        scene.set_group_fks(diagram.group_fks)
 
         for dt in diagram.tables:
-            # Load columns for this table
             try:
                 col_nodes = loader.load_columns(dt.table_name)
-                columns = [{'name': c.name, 'type': c.metadata.get('type', '')} for c in col_nodes]
+                columns = [{'name': c.name, 'type': c.metadata.get('type', '')}
+                           for c in col_nodes]
             except Exception:
                 columns = [{'name': '(error loading columns)', 'type': ''}]
 
-            self._scene.add_table(
+            scene.add_table(
                 table_name=dt.table_name,
                 columns=columns,
                 pk_columns=pk_by_table.get(dt.table_name, []),
@@ -761,90 +1045,69 @@ class ERDiagramManager(QWidget):
                 width=dt.width, height=dt.height,
             )
 
-        # Add FK relationships
-        self._scene.add_relationships(foreign_keys)
+        scene.add_relationships(foreign_keys)
 
-        # Restore saved FK waypoints (ordered by seq)
         for mp in diagram.fk_midpoints:
-            self._scene.set_fk_midpoint(
-                mp.from_table, mp.from_column,
-                mp.to_table, mp.to_column,
+            scene.set_fk_midpoint(
+                mp.from_table, mp.from_column, mp.to_table, mp.to_column,
                 mp.mid_x, mp.mid_y, seq=mp.seq
             )
 
-        # Restore saved groups
         for g in diagram.groups:
-            self._scene.add_group(g.id, g.name, g.x, g.y, g.width, g.height, g.color)
-        self._scene.group_geometry_changed.connect(self._on_group_geometry_changed)
+            scene.add_group(g.id, g.name, g.x, g.y, g.width, g.height, g.color)
 
-        # Auto-layout if no saved positions
-        if not has_positions:
-            self._scene.auto_layout()
+        if not any(t.pos_x != 0 or t.pos_y != 0 for t in diagram.tables):
+            scene.auto_layout()
 
-        self._view.setScene(self._scene)
-        self._scene.relation_hovered.connect(self._on_relation_hovered)
+        if not diagram.show_column_types:
+            scene.set_show_column_types(False)
 
-        # Restore column types toggle
-        self._show_column_types = diagram.show_column_types
-        if not self._show_column_types:
-            self._scene.set_show_column_types(False)
+        return scene
 
-        # Always fit to view at the end of loading — ignore saved zoom level,
-        # so a freshly opened diagram is always fully visible.
-        rect = self._scene.itemsBoundingRect()
-        if not rect.isEmpty():
-            self._view.fitInView(rect.adjusted(-50, -50, 50, 50),
-                                 Qt.AspectRatioMode.KeepAspectRatio)
-
-    def _apply_hover_label_style(self):
-        from ..core.theme_bridge import ThemeBridge
-        p = ThemeBridge.get_instance().get_er_diagram_colors()
-        self._hover_label.setStyleSheet(
-            f"background-color: {p['popup_bg']}; color: {p['popup_fg']};"
-            f" padding: 6px 12px; border-radius: 4px; border: 1px solid {p['popup_border']};"
-        )
-
-    def _on_relation_hovered(self, html: str):
-        """Show/hide hover popup for FK relationship at top-center of the view."""
-        if not html:
-            self._hover_label.hide()
+    def _load_diagram_impl(self, diagram_id: str, model: Optional[ERDiagram] = None):
+        """Build the scene for a diagram and attach it to the editing view."""
+        config_db = get_config_db()
+        diagram = model if model is not None else config_db.get_er_diagram(diagram_id)
+        if not diagram:
             return
-        self._hover_label.setText(html)
-        self._hover_label.adjustSize()
-        self._reposition_hover_label()
-        self._hover_label.show()
-        self._hover_label.raise_()
 
-    def _reposition_hover_label(self):
-        """Place the FK popup top- or bottom-centered depending on where the cursor
-        is in the view: if the cursor sits in the upper half, show the popup at the
-        bottom (so it doesn't cover the link the user is trying to reach)."""
-        from PySide6.QtGui import QCursor
-        viewport = self._view.viewport()
-        view_w = viewport.width()
-        view_h = viewport.height()
-        label_w = self._hover_label.width()
-        label_h = self._hover_label.height()
-        x = max(0, (view_w - label_w) // 2)
+        self._current_diagram = diagram
 
-        cursor_local = viewport.mapFromGlobal(QCursor.pos())
-        show_at_bottom = (0 <= cursor_local.y() <= view_h // 2)
-        if show_at_bottom:
-            y = max(8, view_h - label_h - 8)
-        else:
-            y = 8
-        self._hover_label.move(x, y)
+        scene = self.build_scene(diagram)
+        if scene is None:
+            return
 
-    def eventFilter(self, obj, event):
-        from PySide6.QtCore import QEvent
-        if obj is self._view and event.type() == QEvent.Type.Resize and self._hover_label.isVisible():
-            self._reposition_hover_label()
-        return super().eventFilter(obj, event)
+        self._scene = scene
+        self._group_fks = diagram.group_fks
+        self._show_column_types = diagram.show_column_types
+        self._update_group_fks_icon()
+
+        # Editing signals - a read-only preview does not connect these
+        scene.table_moved.connect(self._on_table_moved)
+        scene.routing_changed.connect(self.mark_dirty)
+        scene.group_geometry_changed.connect(self._on_group_geometry_changed)
+        self._hover_overlay.attach(scene)
+
+        self._view.setScene(scene)
+        self._fit_scene_in(self._view, scene)
+
+    @staticmethod
+    def _fit_scene_in(view: QGraphicsView, scene: ERDiagramScene):
+        """Zoom a view so the whole diagram is visible.
+
+        The saved zoom level is deliberately ignored: a diagram that has just
+        been opened should always be fully visible.
+        """
+        rect = scene.itemsBoundingRect()
+        if not rect.isEmpty():
+            view.fitInView(rect.adjusted(-50, -50, 50, 50),
+                           Qt.AspectRatioMode.KeepAspectRatio)
 
     def _on_table_moved(self, table_name: str, x: float, y: float):
         """Track table position changes (for save)."""
         if self._current_diagram:
             self._current_diagram.update_table_position(table_name, x, y)
+            self.mark_dirty()
 
     def _get_active_connection(self):
         """Get the currently selected connection from the combo, auto-connecting if needed.
@@ -884,6 +1147,8 @@ class ERDiagramManager(QWidget):
 
     def _new_diagram(self):
         """Create a new ER diagram."""
+        if not self._confirm_discard_changes():
+            return
         if not self._database_manager:
             DialogHelper.warning("Database Manager not available.", parent=self)
             return
@@ -955,14 +1220,8 @@ class ERDiagramManager(QWidget):
         config_db.save_er_diagram(diagram)
 
         # Reload list and select the new diagram
-        self._diagram_list.blockSignals(True)
+        self._current_diagram = diagram
         self._load_diagram_list()
-        for i in range(self._diagram_list.count()):
-            item = self._diagram_list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == diagram.id:
-                self._diagram_list.setCurrentItem(item)
-                break
-        self._diagram_list.blockSignals(False)
         self._load_diagram(diagram.id)
 
     def _add_tables(self):
@@ -993,14 +1252,18 @@ class ERDiagramManager(QWidget):
         if dialog.exec() != TablePickerDialog.DialogCode.Accepted:
             return
 
+        self._collect_scene_state()
         for table in dialog.selected_tables:
             self._current_diagram.add_table(table)
+        self._load_diagram(self._current_diagram.id, model=self._current_diagram)
+        self.mark_dirty()
 
-        config_db.save_er_diagram(self._current_diagram)
-        self._load_diagram(self._current_diagram.id)
+    def _collect_scene_state(self):
+        """Fold the scene's current geometry back into the in-memory diagram.
 
-    def _save_positions(self):
-        """Save current table positions, FK midpoints, and zoom level."""
+        Split out of the save so the scene can be rebuilt (Add Tables, Group
+        FKs) without losing pending edits, and without touching the database.
+        """
         if not self._current_diagram or not self._scene:
             return
 
@@ -1033,8 +1296,18 @@ class ERDiagramManager(QWidget):
         self._current_diagram.show_column_types = self._show_column_types
         self._current_diagram.group_fks = self._group_fks
 
-        config_db = get_config_db()
-        config_db.save_er_diagram(self._current_diagram)
+    def _save_positions(self):
+        """Persist the diagram: geometry, FK waypoints, groups, view toggles."""
+        if not self._current_diagram or not self._scene:
+            return
+
+        self._collect_scene_state()
+        get_config_db().save_er_diagram(self._current_diagram)
+        self._clear_dirty()
+        self._load_diagram_list()
+        # A preview of this diagram may be open in another view
+        self.refresh_previews()
+
         # Status bar notification instead of popup
         try:
             w = self.window()
@@ -1052,8 +1325,7 @@ class ERDiagramManager(QWidget):
         for name in table_names:
             self._scene.remove_table(name)
             self._current_diagram.remove_table(name)
-        config_db = get_config_db()
-        config_db.save_er_diagram(self._current_diagram)
+        self.mark_dirty()
 
     def _fit_view(self):
         """Center and zoom to show all tables within the viewport."""
@@ -1078,17 +1350,19 @@ class ERDiagramManager(QWidget):
             return
         self._show_column_types = not self._show_column_types
         self._scene.set_show_column_types(self._show_column_types)
+        self.mark_dirty()
 
     def _toggle_group_fks(self):
         """Toggle grouping of multiple FKs between same table pair."""
         self._group_fks = not self._group_fks
-        # Persist to DB BEFORE reload so _load_diagram re-reads the correct value
-        if self._current_diagram:
-            self._current_diagram.group_fks = self._group_fks
-            get_config_db().save_er_diagram(self._current_diagram)
         self._update_group_fks_icon()
-        if self._current_diagram:
-            self._load_diagram(self._current_diagram.id)
+        if not self._current_diagram:
+            return
+        # Rebuild from the in-memory model so pending layout edits survive
+        self._collect_scene_state()
+        self._current_diagram.group_fks = self._group_fks
+        self._load_diagram(self._current_diagram.id, model=self._current_diagram)
+        self.mark_dirty()
 
     def _reset_layout(self):
         """Clear every manual FK geometry on the current diagram and rerun the
@@ -1104,6 +1378,7 @@ class ERDiagramManager(QWidget):
         # Clear in-memory midpoints so "Save Diagram" after this truly commits
         # the reset. If the user reloads instead, DB midpoints are still there.
         self._current_diagram.fk_midpoints = []
+        self.mark_dirty()
         try:
             w = self.window()
             while w is not None and not hasattr(w, 'status_bar'):
@@ -1140,6 +1415,7 @@ class ERDiagramManager(QWidget):
         self._scene.add_group(group.id, group.name, group.x, group.y,
                               group.width, group.height, group.color)
         self._current_diagram.groups.append(group)
+        self.mark_dirty()
 
     def _on_group_geometry_changed(self, group_id: str, x: float, y: float,
                                     w: float, h: float):
@@ -1149,7 +1425,8 @@ class ERDiagramManager(QWidget):
         for g in self._current_diagram.groups:
             if g.id == group_id:
                 g.x, g.y, g.width, g.height = x, y, w, h
-                return
+                break
+        self.mark_dirty()
 
     def _update_group_fks_icon(self):
         """Swap toolbar icon based on current grouping state."""
@@ -1180,19 +1457,242 @@ class ERDiagramManager(QWidget):
             if export_to_svg(self._scene, path):
                 DialogHelper.info(f"Exported to {path}", parent=self)
 
-    def _delete_diagram(self):
-        """Delete the current diagram."""
-        if not self._current_diagram:
-            return
-        if not DialogHelper.confirm(f"Delete diagram '{self._current_diagram.name}'?"):
+    def _delete_diagram(self, diagram_id: Optional[str] = None):
+        """Delete a diagram: the open one from the toolbar, any one from the tree."""
+        # The toolbar connects this to clicked(bool) — ignore that argument
+        if not isinstance(diagram_id, str):
+            diagram_id = None
+        config_db = get_config_db()
+        if diagram_id and (not self._current_diagram
+                           or diagram_id != self._current_diagram.id):
+            target = config_db.get_er_diagram(diagram_id)
+            if target is None:
+                return
+            name, is_current = target.name, False
+        else:
+            if not self._current_diagram:
+                return
+            diagram_id = self._current_diagram.id
+            name, is_current = self._current_diagram.name, True
+
+        if not DialogHelper.confirm(f"Delete diagram '{name}'?"):
             return
 
-        config_db = get_config_db()
-        config_db.delete_er_diagram(self._current_diagram.id)
-        self._current_diagram = None
-        self._scene = None
-        self._view.setScene(None)
+        config_db.delete_er_diagram(diagram_id)
+        if is_current:
+            self._current_diagram = None
+            self._dirty = False
+            self._scene = None
+            self._view.setScene(None)
         self._load_diagram_list()
+
+    # ------------------------------------------------------------------
+    # Public API for cross-context display (see ARCHITECTURE.md §2)
+    # ------------------------------------------------------------------
+
+    def refresh_previews(self):
+        """Rebuild any open preview tab whose diagram was saved since.
+
+        Called after a save and on a workspace refresh: a preview left open in
+        another view would otherwise keep showing the layout it was built with.
+        """
+        config_db = get_config_db()
+        for tabs in list(self._preview_tab_widgets):
+            try:
+                count = tabs.count()
+            except RuntimeError:
+                self._preview_tab_widgets.remove(tabs)  # C++ side already gone
+                continue
+            for i in range(count):
+                page = tabs.widget(i)
+                did = getattr(page, '_er_diagram_id', None)
+                if not did:
+                    continue
+                fresh = config_db.get_er_diagram(did)
+                if fresh is None:
+                    continue
+                if getattr(page, '_er_diagram_updated_at', None) != fresh.updated_at:
+                    was_current = (tabs.currentIndex() == i)
+                    tabs.removeTab(i)
+                    page.deleteLater()
+                    self.render_diagram(fresh, tabs)
+                    if not was_current:
+                        tabs.setCurrentIndex(0)
+                    return  # indices shifted; a further pass will catch the rest
+
+    def render_diagram(self, diagram: ERDiagram, target_tab_widget) -> bool:
+        """Render a diagram read-only in a tab of another container.
+
+        Mirrors how a saved query opens its results in a workspace tab: the
+        preview lives where the user is, editing stays in the ER Diagrams view.
+        Re-selects the tab if this diagram is already open there.
+
+        Args:
+            diagram: the ERDiagram to render
+            target_tab_widget: QTabWidget receiving the preview tab
+        """
+        if diagram is None or target_tab_widget is None:
+            return False
+
+        full = get_config_db().get_er_diagram(diagram.id) or diagram
+
+        # Already open? Bring it forward — unless the diagram was saved since,
+        # in which case the tab shows a stale layout and must be rebuilt.
+        for i in range(target_tab_widget.count()):
+            widget = target_tab_widget.widget(i)
+            if getattr(widget, '_er_diagram_id', None) != diagram.id:
+                continue
+            if getattr(widget, '_er_diagram_updated_at', None) == full.updated_at:
+                target_tab_widget.setCurrentIndex(i)
+                return True
+            target_tab_widget.removeTab(i)
+            widget.deleteLater()
+            break
+
+        scene = self.build_scene(full)
+        if scene is None:
+            return False
+
+        # Read-only: nothing here can be saved, so nothing here pretends to be
+        # editable. Hovering a link still lists its FK columns.
+        scene.set_read_only(True)
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        bar = QHBoxLayout()
+        bar.setContentsMargins(8, 4, 8, 4)
+        hint = QLabel(tr("er_preview_readonly"))
+        hint.setEnabled(False)
+        bar.addWidget(hint)
+        bar.addStretch()
+        edit_btn = QPushButton(tr("er_edit_diagram"))
+        edit_btn.clicked.connect(lambda: self.open_diagram(diagram.id))
+        bar.addWidget(edit_btn)
+        layout.addLayout(bar)
+
+        view = ZoomableGraphicsView()
+        view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        view.setScene(scene)
+        layout.addWidget(view)
+
+        # The overlay must live on THIS view: the manager's own popup is a child
+        # of the editing view and would render off-screen here.
+        overlay = FKHoverOverlay(view)
+        overlay.attach(scene)
+
+        # Keep references alive and let us find the tab again
+        page._er_diagram_scene = scene
+        page._er_diagram_id = diagram.id
+        page._er_diagram_updated_at = full.updated_at
+        page._er_hover_overlay = overlay
+
+        if target_tab_widget not in self._preview_tab_widgets:
+            self._preview_tab_widgets.append(target_tab_widget)
+
+        index = target_tab_widget.addTab(page, diagram.name)
+        target_tab_widget.setCurrentIndex(index)
+        self._fit_scene_in(view, scene)
+        return True
+
+    def show_diagram(self, diagram: ERDiagram, target_viewer=None,
+                     target_tab_widget=None):
+        """Display a diagram in another container.
+
+        Args:
+            diagram: the ERDiagram to display
+            target_viewer: ObjectViewerWidget receiving the details
+            target_tab_widget: QTabWidget receiving a rendered preview tab
+        """
+        if diagram is None:
+            return
+        if target_tab_widget is not None:
+            self.render_diagram(diagram, target_tab_widget)
+            return
+        if target_viewer is None:
+            return
+        config_db = get_config_db()
+        db_conn = config_db.get_database_connection(diagram.connection_id)
+        location = diagram.database_name or (db_conn.name if db_conn else "")
+        obj_type = f"ER Diagram ({location})" if location else "ER Diagram"
+
+        n_tables = len(diagram.tables)
+        if not n_tables:
+            # Workspace listings load diagrams without their children
+            full = config_db.get_er_diagram(diagram.id)
+            n_tables = len(full.tables) if full else 0
+
+        description = diagram.description or ""
+        summary = tr("er_table_count").format(count=n_tables)
+        target_viewer.show_details(
+            name=diagram.name,
+            obj_type=obj_type,
+            description=f"{description}\n\n{summary}".strip(),
+            created=diagram.created_at or "",
+            updated=diagram.updated_at or "",
+        )
+
+    def get_diagram_context_actions(self, diagram: ERDiagram, parent,
+                                    target_viewer=None,
+                                    target_tab_widget=None) -> List[QAction]:
+        """Context menu actions for a diagram, usable from any view.
+
+        Keeps the behaviour in this manager instead of duplicating it in the
+        workspace tree.
+        """
+        actions: List[QAction] = []
+        if diagram is None:
+            return actions
+
+        if target_tab_widget is not None:
+            preview_action = QAction(tr("er_preview_diagram"), parent)
+            preview_action.triggered.connect(
+                lambda: self.render_diagram(diagram, target_tab_widget))
+            actions.append(preview_action)
+
+        edit_action = QAction(tr("er_edit_diagram"), parent)
+        edit_action.triggered.connect(lambda: self.open_diagram(diagram.id))
+        actions.append(edit_action)
+
+        view_action = QAction(tr("er_view_details"), parent)
+        view_action.triggered.connect(
+            lambda: self.show_diagram(diagram, target_viewer))
+        actions.append(view_action)
+
+        rename_action = QAction(tr("er_rename_diagram"), parent)
+        rename_action.triggered.connect(lambda: self._rename_diagram(diagram.id))
+        actions.append(rename_action)
+
+        return actions
+
+    def open_diagram(self, diagram_id: str, confirm: bool = True):
+        """Open a diagram by id for editing, from anywhere in the app.
+
+        Switching views moves the user out of where they were, so it is
+        announced rather than done behind their back. Unsaved changes on the
+        currently open diagram are guarded first, then this view is brought to
+        the front — otherwise the diagram would load out of sight.
+
+        Args:
+            diagram_id: diagram to edit
+            confirm: ask before switching views (False when the caller already did)
+        """
+        name = ""
+        current = get_config_db().get_er_diagram(diagram_id)
+        if current is not None:
+            name = current.name
+        if confirm and not DialogHelper.confirm(
+                tr("er_switch_to_edit_confirm").format(name=name),
+                title=tr("er_switch_to_edit_title"), parent=self):
+            return
+
+        if not self._current_diagram or self._current_diagram.id != diagram_id:
+            if not self._confirm_discard_changes():
+                return
+            self._load_diagram(diagram_id)
+        self.edit_requested.emit(diagram_id)
 
     def refresh(self):
         """Refresh the diagram list."""

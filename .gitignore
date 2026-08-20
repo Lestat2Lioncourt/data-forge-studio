@@ -64,3 +64,6 @@ _packages/DataForgeStudio/
 _packages/DataForgeStudio_Offline/
 _packages/*.7z
 _packages/*.zip
+
+# Screenshot exchange folder (working artefacts, not source)
+debug/

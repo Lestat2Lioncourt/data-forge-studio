@@ -481,6 +481,9 @@ class SchemaManager:
             # Migration 12: Add width/height columns to er_diagram_tables
             self._migrate_er_diagram_tables_size(cursor, conn)
 
+            # Migration 13: Create project_er_diagrams junction table
+            self._migrate_create_project_er_diagrams(cursor, conn)
+
             # Ensure image indexes exist
             self._ensure_image_indexes(cursor, conn)
 
@@ -695,6 +698,22 @@ class SchemaManager:
                 height REAL NOT NULL DEFAULT 200,
                 color TEXT NOT NULL DEFAULT '#B3E5FC',
                 FOREIGN KEY (diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
+            )
+        """)
+        conn.commit()
+
+    def _migrate_create_project_er_diagrams(self, cursor: sqlite3.Cursor,
+                                            conn: sqlite3.Connection):
+        """Migration 13: Create project_er_diagrams so ER diagrams can belong to
+        workspaces like every other resource type."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS project_er_diagrams (
+                project_id TEXT NOT NULL,
+                er_diagram_id TEXT NOT NULL,
+                created_at TEXT,
+                PRIMARY KEY (project_id, er_diagram_id),
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY (er_diagram_id) REFERENCES er_diagrams(id) ON DELETE CASCADE
             )
         """)
         conn.commit()

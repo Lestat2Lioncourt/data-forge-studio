@@ -441,6 +441,17 @@ class DataForgeMainWindow:
                 self._current_view = frame_name
                 self._update_active_menu(frame_name)
 
+                # A view showing previews of resources owned elsewhere may have
+                # gone stale while it was hidden (e.g. an ER diagram edited and
+                # saved in its own view). Let it revalidate on the way in.
+                if hasattr(frame, 'refresh_previews'):
+                    try:
+                        frame.refresh_previews()
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"Preview refresh failed for {frame_name}: {e}")
+
                 # Show/hide icon sidebar based on context
                 resource_views = ["database", "rootfolders", "ftproots", "queries", "er_diagram", "jobs", "scripts", "images"]
                 if frame_name in resource_views:

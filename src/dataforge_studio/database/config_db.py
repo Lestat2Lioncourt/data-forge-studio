@@ -324,6 +324,24 @@ class ConfigDatabase:
 
     # ==================== Workspace-Script Relations ====================
 
+    # ==================== ERDiagram Workspace Relations ====================
+
+    def add_er_diagram_to_workspace(self, workspace_id: str, diagram_id: str) -> bool:
+        return self._project_repo.add_er_diagram(workspace_id, diagram_id)
+
+    def remove_er_diagram_from_workspace(self, workspace_id: str, diagram_id: str) -> bool:
+        return self._project_repo.remove_er_diagram(workspace_id, diagram_id)
+
+    def get_workspace_er_diagrams(self, workspace_id: str) -> List[ERDiagram]:
+        return self._project_repo.get_er_diagrams(workspace_id)
+
+    def get_workspace_er_diagram_ids(self, workspace_id: str) -> List[str]:
+        return self._project_repo.get_er_diagram_ids(workspace_id)
+
+    def get_er_diagram_workspaces(self, diagram_id: str) -> List[Project]:
+        return self._project_repo.get_er_diagram_workspaces(diagram_id)
+
+
     def add_script_to_workspace(self, workspace_id: str, script_id: str) -> bool:
         return self._project_repo.add_script(workspace_id, script_id)
 
@@ -491,6 +509,9 @@ class ConfigDatabase:
 
     def save_er_diagram(self, diagram: ERDiagram) -> ERDiagram:
         return self._er_diagram_repo.save(diagram)
+
+    def rename_er_diagram(self, diagram_id: str, new_name: str):
+        self._er_diagram_repo.rename(diagram_id, new_name)
 
     def delete_er_diagram(self, diagram_id: str):
         self._er_diagram_repo.delete_diagram(diagram_id)

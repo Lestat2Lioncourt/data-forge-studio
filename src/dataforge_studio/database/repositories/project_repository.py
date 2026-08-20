@@ -14,7 +14,8 @@ import logging
 
 from .base_repository import BaseRepository
 from ..connection_pool import ConnectionPool
-from ..models import Project, DatabaseConnection, SavedQuery, FileRoot, FTPRoot, Script, Job
+from ..models import (Project, DatabaseConnection, SavedQuery, FileRoot, FTPRoot,
+                      Script, Job, ERDiagram)
 from ..models.workspace_resource import WorkspaceFileRoot, WorkspaceDatabase, WorkspaceFTPRoot
 
 logger = logging.getLogger(__name__)
@@ -380,6 +381,54 @@ class ProjectRepository(BaseRepository[Project]):
     def get_query_workspaces(self, query_id: str) -> List[Project]:
         """Get all workspaces that contain a query."""
         return self._get_resource_workspaces("project_queries", "query_id", query_id)
+
+    # ==================== ERDiagram Relations ====================
+
+    def add_er_diagram(self, project_id: str, diagram_id: str) -> bool:
+        """Add an ER diagram to a project."""
+        return self._add_relation(
+            "project_er_diagrams", "er_diagram_id", project_id, diagram_id)
+
+    def remove_er_diagram(self, project_id: str, diagram_id: str) -> bool:
+        """Remove an ER diagram from a project."""
+        return self._remove_relation(
+            "project_er_diagrams", "er_diagram_id", project_id, diagram_id)
+
+    def get_er_diagrams(self, project_id: str) -> List[ERDiagram]:
+        """Get all ER diagrams in a project.
+
+        Tables, waypoints and groups are NOT loaded — callers listing a
+        workspace only need identity. Use ERDiagramRepository.get_with_tables()
+        to open one.
+        """
+        with self.pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT d.* FROM er_diagrams d
+                INNER JOIN project_er_diagrams pd ON d.id = pd.er_diagram_id
+                WHERE pd.project_id = ?
+                ORDER BY d.name
+            """, (project_id,))
+            diagrams = []
+            for row in cursor.fetchall():
+                data = dict(row)
+                data['tables'] = []
+                data['fk_midpoints'] = []
+                data['groups'] = []
+                data['show_column_types'] = bool(data.get('show_column_types', 1))
+                data['group_fks'] = bool(data.get('group_fks', 1))
+                diagrams.append(ERDiagram(**data))
+            return diagrams
+
+    def get_er_diagram_ids(self, project_id: str) -> List[str]:
+        """Get all ER diagram IDs in a project."""
+        return self._get_resource_ids(
+            "project_er_diagrams", "er_diagram_id", project_id)
+
+    def get_er_diagram_workspaces(self, diagram_id: str) -> List[Project]:
+        """Get all workspaces that contain an ER diagram."""
+        return self._get_resource_workspaces(
+            "project_er_diagrams", "er_diagram_id", diagram_id)
 
     # ==================== FileRoot Relations ====================
 

@@ -27,7 +27,7 @@ def main():
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("DataForge Studio")
-    app.setApplicationVersion("0.6.16")
+    app.setApplicationVersion("0.6.17")
     app.setOrganizationName("DataForge")
 
     # Set application icon (for taskbar and desktop shortcut)
@@ -43,7 +43,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = 'dataforge.studio.v0616'
+            myappid = 'dataforge.studio.v0617'
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
@@ -197,8 +197,11 @@ def main():
             rootfolder_manager=rootfolder_manager,
             ftproot_manager=ftproot_manager,
             scripts_manager=scripts_manager,
-            jobs_manager=jobs_manager
+            jobs_manager=jobs_manager,
+            er_diagram_manager=er_diagram_manager
         )
+
+
 
     # Connect managers to WorkspaceManager for auto-refresh on workspace changes
     if workspace_manager:
@@ -210,6 +213,18 @@ def main():
             scripts_manager.set_workspace_manager(workspace_manager)
         if jobs_manager and hasattr(jobs_manager, 'set_workspace_manager'):
             jobs_manager.set_workspace_manager(workspace_manager)
+        if er_diagram_manager and hasattr(er_diagram_manager, 'set_workspace_manager'):
+            er_diagram_manager.set_workspace_manager(workspace_manager)
+
+    # Editing a diagram from anywhere brings the ER Diagrams view to the front.
+    # _switch_frame is what actually swaps the view: it also syncs the icon
+    # sidebar selection, the active menu and the status bar. activate_plugin()
+    # only updates the plugin manager's bookkeeping and shows nothing.
+    if er_diagram_manager and hasattr(er_diagram_manager, 'edit_requested'):
+        er_diagram_manager.edit_requested.connect(
+            lambda _diagram_id: (plugin_manager.activate_plugin("er_diagram"),
+                                 main_window._switch_frame("er_diagram"))
+        )
 
     # Connect plugin signals
     plugin_manager.connect_all_signals()

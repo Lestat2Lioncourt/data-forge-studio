@@ -36,10 +36,15 @@ class ERDiagramScene(QGraphicsScene):
     # Signal emitted when a group's geometry changes (id, x, y, w, h)
     group_geometry_changed = Signal(str, float, float, float, float)
 
+    # Signal emitted when a FK line's routing is edited (drag, split, delete,
+    # reset) — lets the manager flag the diagram as having unsaved changes
+    routing_changed = Signal()
+
     def __init__(self, is_dark: bool = True, parent=None):
         super().__init__(parent)
         self.is_dark = is_dark
         self._group_fks = True  # Default: merge all FKs between same table pair
+        self._read_only = False
 
         # Track items
         self._table_items: Dict[str, ERTableItem] = {}  # table_name -> ERTableItem
@@ -169,391 +174,488 @@ class ERDiagramScene(QGraphicsScene):
 
         self._compute_line_offsets()
 
+    # ==================================================================
+    # Auto-routing — rules R1..R5 are specified in docs/ER_DIAGRAMS_ROUTING.md
+    # ==================================================================
+
+    # R3.1 — a straight link is kept only if its anchor stays at least this
+    # fraction of the homogeneous step away from both ends of its edge.
+    HOMOGENEITY_MIN = 0.5
+    # Minimum edge overlap (px) making a straight link geometrically possible.
+    STRAIGHT_MIN_OVERLAP = 20
+    # R3.2 (interim) — a table carrying at least this many outgoing links
+    # spreads them on its lateral sides instead of crowding a single side.
+    LATERAL_SPREAD_MIN = 2
+
     def _compute_line_offsets(self):
-        """Distribute FK anchors along shared sides to avoid overlap and minimize crossings.
+        """Route every auto line: choose sides, place anchors, rebuild paths.
 
-        Two-pass:
-        1. FROM side: sort by other_table position, assign evenly spaced positions.
-        2. TO side: sort by counterpart from_anchor position (just assigned).
-           If sides axes are perpendicular, reverse to avoid crossings.
-        Pair-alone case: single line between two tables on parallel sides with range overlap
-        becomes a single straight segment.
+        Implements docs/ER_DIAGRAMS_ROUTING.md — R1 straight > L > Z,
+        R2 inclusion-constrained anchors, R3 form/side choice, R4 homogeneous
+        distribution per sub-segment, R5 crossing-free ordering on an edge.
         """
-        from collections import defaultdict
-        from PySide6.QtCore import QPointF as _QPointF
-
         auto_lines = [ln for ln in self._relationship_lines if not ln._user_modified]
         if not auto_lines:
             return
+        line_sides, pin_coord = self._assign_sides(auto_lines)
+        self._place_anchors(auto_lines, line_sides, pin_coord)
+        self._rebuild_all(auto_lines, line_sides)
+
+    # ------------------------------------------------------------------
+    # Geometry helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _span(table, side):
+        """(start, end) of an edge along its own axis."""
+        p = table.scenePos()
+        if side in ('top', 'bottom'):
+            return p.x(), p.x() + table.width
+        return p.y(), p.y() + table.height
+
+    @staticmethod
+    def _shared_coord(a0, a1, b0, b1):
+        """R2 — coordinate of a straight link between two overlapping spans.
+
+        When one span is included in the other, the included one imposes its
+        middle: it has the least room, and the point is then guaranteed to fall
+        inside the wider span. Otherwise the middle of the overlap is used.
+        """
+        if b0 >= a0 and b1 <= a1:
+            return (b0 + b1) / 2
+        if a0 >= b0 and a1 <= b1:
+            return (a0 + a1) / 2
+        return (max(a0, b0) + min(a1, b1)) / 2
+
+    def _straight_candidate(self, ft, tt):
+        """Geometric candidate for a 1-segment straight link, or None.
+
+        Returns (from_side, to_side, coord). Only checks feasibility — whether
+        the candidate is clean enough to keep is R3.1's job.
+        """
+        fp, tp = ft.scenePos(), tt.scenePos()
+        fx0, fx1 = fp.x(), fp.x() + ft.width
+        fy0, fy1 = fp.y(), fp.y() + ft.height
+        tx0, tx1 = tp.x(), tp.x() + tt.width
+        ty0, ty1 = tp.y(), tp.y() + tt.height
+
+        # Horizontal link needs a vertical overlap
+        if min(fy1, ty1) - max(fy0, ty0) >= self.STRAIGHT_MIN_OVERLAP:
+            coord = self._shared_coord(fy0, fy1, ty0, ty1)
+            if (tx0 + tx1) / 2 > (fx0 + fx1) / 2:
+                return 'right', 'left', coord
+            return 'left', 'right', coord
+
+        # Vertical link needs a horizontal overlap
+        if min(fx1, tx1) - max(fx0, tx0) >= self.STRAIGHT_MIN_OVERLAP:
+            coord = self._shared_coord(fx0, fx1, tx0, tx1)
+            if (ty0 + ty1) / 2 > (fy0 + fy1) / 2:
+                return 'bottom', 'top', coord
+            return 'top', 'bottom', coord
+
+        return None
+
+    @staticmethod
+    def _l_sides(ft, tt, horizontal_first):
+        """R3.2/R3.3 — the two sides of an L path between diagonal tables.
+
+        A diagonal pair admits exactly two orthogonal L paths. Either way the
+        target is entered on the side facing the source (R3.3).
+        """
+        fcx = ft.scenePos().x() + ft.width / 2
+        fcy = ft.scenePos().y() + ft.height / 2
+        tcx = tt.scenePos().x() + tt.width / 2
+        tcy = tt.scenePos().y() + tt.height / 2
+        if horizontal_first:
+            # leave sideways, arrive on the target's top or bottom
+            return ('right' if tcx > fcx else 'left',
+                    'top' if tcy > fcy else 'bottom')
+        # leave vertically, arrive on the target's left or right
+        return ('bottom' if tcy > fcy else 'top',
+                'left' if tcx > fcx else 'right')
+
+    def _distribution_ok(self, coord, table, side, n_anchors):
+        """R3.1 — is `coord` far enough from both ends of the edge?
+
+        Compares the smallest margin to the homogeneous step L/(n+1). Below
+        HOMOGENEITY_MIN the anchor is jammed into a corner and the straight
+        link is not worth its cost.
+        """
+        start, end = self._span(table, side)
+        step = (end - start) / (n_anchors + 1)
+        if step <= 0:
+            return False
+        return min(coord - start, end - coord) / step >= self.HOMOGENEITY_MIN
+
+    # ------------------------------------------------------------------
+    # R1 / R2 / R3 — side assignment
+    # ------------------------------------------------------------------
+
+    def _assign_sides(self, auto_lines):
+        """Choose the form and the two sides of every auto line.
+
+        Straight candidates are accepted optimistically, then demoted to an L
+        when they would push an anchor into a corner (R3.1). That test needs
+        the per-edge anchor count, which itself depends on the chosen sides, so
+        the assignment is iterated until it stabilises.
+
+        Returns (line_sides, pin_coord):
+          line_sides[id(line)] = (from_side, to_side)
+          pin_coord[id(line)]  = imposed coordinate, for straight links only
+        """
+        from collections import defaultdict
+
+        # Pairs carrying many composite FKs keep the legacy spread across two
+        # sides of the target — see _assign_sides_multi_fk.
+        pair_lines = defaultdict(list)
+        for ln in auto_lines:
+            pair_lines[(id(ln.from_table), id(ln.to_table))].append(ln)
+        multi_fk_sides = {}
+        simple_lines = []
+        for lines in pair_lines.values():
+            if len(lines) >= 5:
+                multi_fk_sides.update(self._assign_sides_multi_fk(lines))
+            else:
+                simple_lines.extend(lines)
+
+        # Interim R3.2 criterion: a busy source spreads its links sideways
+        out_degree = defaultdict(int)
+        for ln in auto_lines:
+            out_degree[id(ln.from_table)] += 1
+
+        candidate = {id(ln): self._straight_candidate(ln.from_table, ln.to_table)
+                     for ln in simple_lines}
+        keep_straight = {id(ln): candidate[id(ln)] is not None for ln in simple_lines}
+
+        def build():
+            sides, pins = dict(multi_fk_sides), {}
+            for ln in simple_lines:
+                if keep_straight[id(ln)]:
+                    fs, ts, coord = candidate[id(ln)]
+                    pins[id(ln)] = coord
+                else:
+                    horizontal_first = (out_degree[id(ln.from_table)]
+                                        >= self.LATERAL_SPREAD_MIN)
+                    fs, ts = self._l_sides(ln.from_table, ln.to_table,
+                                           horizontal_first)
+                sides[id(ln)] = (fs, ts)
+                ln._from_side, ln._to_side = fs, ts
+            return sides, pins
+
+        def demote(sides, pins):
+            """Drop straight links whose anchor would land in a corner."""
+            counts = defaultdict(int)
+            for ln in auto_lines:
+                fs, ts = sides[id(ln)]
+                counts[(id(ln.from_table), fs)] += 1
+                counts[(id(ln.to_table), ts)] += 1
+            changed = False
+            for ln in simple_lines:
+                if not keep_straight[id(ln)]:
+                    continue
+                fs, ts = sides[id(ln)]
+                coord = pins[id(ln)]
+                if not (self._distribution_ok(coord, ln.from_table, fs,
+                                              counts[(id(ln.from_table), fs)])
+                        and self._distribution_ok(coord, ln.to_table, ts,
+                                                  counts[(id(ln.to_table), ts)])):
+                    keep_straight[id(ln)] = False
+                    changed = True
+            return changed
+
+        for _ in range(4):
+            line_sides, pin_coord = build()
+            if not demote(line_sides, pin_coord):
+                break
+        else:
+            line_sides, pin_coord = build()
+
+        return line_sides, pin_coord
+
+    def _assign_sides_multi_fk(self, lines):
+        """Legacy spread for a pair linked by 5+ separate FK lines.
+
+        Splits the anchors between the target's facing side and an adjacent
+        perpendicular side, so a dense bundle does not pile up on one edge.
+        Kept unchanged: it only triggers with group_fks disabled.
+        """
+        import math
+
+        base_from, base_to = lines[0]._auto_sides()
+        ft = lines[0].from_table
+        tt = lines[0].to_table
+
+        base_horiz = base_to in ('left', 'right')
+        ft_cy = ft.scenePos().y() + ft.height / 2
+        ft_cx = ft.scenePos().x() + ft.width / 2
+        tt_cy = tt.scenePos().y() + tt.height / 2
+        tt_cx = tt.scenePos().x() + tt.width / 2
+
+        if base_horiz:
+            perp = 'top' if ft_cy < tt_cy else 'bottom'
+        else:
+            perp = 'left' if ft_cx < tt_cx else 'right'
+
+        base_len = tt.width if base_to in ('top', 'bottom') else tt.height
+        perp_len = tt.width if perp in ('top', 'bottom') else tt.height
+        perp_ratio = (perp_len / (base_len + perp_len)
+                      if (base_len + perp_len) > 0 else 0.5)
+        n_perp = max(1, min(len(lines) - 1, math.ceil(len(lines) * perp_ratio)))
+        n_base = len(lines) - n_perp
+
+        fs_axis_vert = base_from in ('left', 'right')
+        ft_columns = [c.get('name') for c in getattr(ft, 'columns', [])]
+
+        def col_index(ln):
+            try:
+                return ft_columns.index(ln.from_column)
+            except (ValueError, AttributeError):
+                return 999
+
+        def target_pos_outer(ln):
+            t = ln.to_table
+            if fs_axis_vert:
+                return t.scenePos().y() + t.height / 2
+            return t.scenePos().x() + t.width / 2
+
+        lines_sorted = sorted(
+            lines, key=lambda ln: (target_pos_outer(ln), col_index(ln),
+                                   ln.fk_name or ''))
+
+        if fs_axis_vert:
+            perp_at_end = ft.scenePos().y() < tt.scenePos().y()
+        else:
+            perp_at_end = ft.scenePos().x() < tt.scenePos().x()
+
+        if perp_at_end:
+            base_lines = lines_sorted[:n_base]
+            perp_lines = lines_sorted[n_base:]
+        else:
+            perp_lines = lines_sorted[:len(lines_sorted) - n_base]
+            base_lines = lines_sorted[len(lines_sorted) - n_base:]
+
+        sides = {}
+        for ln in base_lines:
+            ln._from_side, ln._to_side = base_from, base_to
+            sides[id(ln)] = (base_from, base_to)
+        for ln in perp_lines:
+            ln._from_side, ln._to_side = base_from, perp
+            sides[id(ln)] = (base_from, perp)
+        return sides
+
+    # ------------------------------------------------------------------
+    # R2 / R4 / R5 — anchor placement
+    # ------------------------------------------------------------------
+
+    def _place_anchors(self, auto_lines, line_sides, pin_coord):
+        """Place both endpoints of every auto line on their table edges.
+
+        Parallel-sided links (straight / Z) keep the master-slave scheme: the
+        busier edge lays its anchors out and the other end matches that
+        coordinate. Perpendicular links (L) have their anchors on two different
+        axes, so each end is laid out independently on its own edge.
+        """
+        from collections import defaultdict
 
         id_to_table = {id(t): t for t in self._table_items.values()}
 
-        def edge_pt(table, side, i, n):
-            tpos = table.scenePos()
-            tw, th = table.width, table.height
-            if side == 'left':
-                return _QPointF(tpos.x(), tpos.y() + th * (i + 1) / (n + 1))
-            if side == 'right':
-                return _QPointF(tpos.x() + tw, tpos.y() + th * (i + 1) / (n + 1))
-            if side == 'top':
-                return _QPointF(tpos.x() + tw * (i + 1) / (n + 1), tpos.y())
-            return _QPointF(tpos.x() + tw * (i + 1) / (n + 1), tpos.y() + th)
+        parallel = {}
+        for ln in auto_lines:
+            fs, ts = line_sides[id(ln)]
+            parallel[id(ln)] = (fs in ('left', 'right')) == (ts in ('left', 'right'))
 
-        # Determine sides per line. For multi-FK pairs (≥5 lines), spread across
-        # perpendicular sides of the target to avoid dense clustering on one side.
-        pair_lines: dict = defaultdict(list)
-        for line in auto_lines:
-            pair_lines[(id(line.from_table), id(line.to_table))].append(line)
+        counts = defaultdict(int)
+        for ln in auto_lines:
+            fs, ts = line_sides[id(ln)]
+            counts[(id(ln.from_table), fs)] += 1
+            counts[(id(ln.to_table), ts)] += 1
 
-        line_sides = {}
-        for (_ft_id, _tt_id), lines in pair_lines.items():
-            if not lines:
+        master_is_from = {}
+        for ln in auto_lines:
+            if not parallel[id(ln)]:
                 continue
-            base_from, base_to = lines[0]._auto_sides()
-            ft = lines[0].from_table
-            tt = lines[0].to_table
+            fs, ts = line_sides[id(ln)]
+            master_is_from[id(ln)] = (counts[(id(ln.from_table), fs)]
+                                      >= counts[(id(ln.to_table), ts)])
 
-            # Single line or small group: position-aware side decision.
-            # If target's center is outside source's Y (or X) range, attach on source's
-            # perpendicular side (top/bottom or left/right). Otherwise use auto base sides.
-            if len(lines) < 5:
-                ft_top = ft.scenePos().y()
-                ft_bot = ft.scenePos().y() + ft.height
-                ft_lef = ft.scenePos().x()
-                ft_rig = ft.scenePos().x() + ft.width
-                tt_cx = tt.scenePos().x() + tt.width / 2
-                tt_cy = tt.scenePos().y() + tt.height / 2
-
-                if tt_cy < ft_top:
-                    fs_auto, ts_auto = 'top', 'bottom'
-                elif tt_cy > ft_bot:
-                    fs_auto, ts_auto = 'bottom', 'top'
-                elif tt_cx < ft_lef:
-                    fs_auto, ts_auto = 'left', 'right'
-                elif tt_cx > ft_rig:
-                    fs_auto, ts_auto = 'right', 'left'
+        # One entry per anchor that the distribution rule has to place
+        edge_entries = defaultdict(list)  # (table_id, side) -> [(line, is_from)]
+        for ln in auto_lines:
+            fs, ts = line_sides[id(ln)]
+            if parallel[id(ln)]:
+                if master_is_from[id(ln)]:
+                    edge_entries[(id(ln.from_table), fs)].append((ln, True))
                 else:
-                    fs_auto, ts_auto = base_from, base_to
-
-                for line in lines:
-                    if line._user_modified:
-                        fs = line._from_side or fs_auto
-                        ts = line._to_side or ts_auto
-                    else:
-                        fs = fs_auto
-                        ts = ts_auto
-                        old_fs, old_ts = line._from_side, line._to_side
-                        line._from_side = fs
-                        line._to_side = ts
-                        if old_fs != fs or old_ts != ts:
-                            line._init_vertices()
-                    line_sides[id(line)] = (fs, ts)
-                continue
-
-            # Multi-FK: check if target has an adjacent side that also faces source
-            # perpendicular_side = perpendicular to base_to that still faces source
-            base_horiz = base_to in ('left', 'right')
-            ft_cy = ft.scenePos().y() + ft.height / 2
-            ft_cx = ft.scenePos().x() + ft.width / 2
-            tt_cy = tt.scenePos().y() + tt.height / 2
-            tt_cx = tt.scenePos().x() + tt.width / 2
-
-            if base_horiz:
-                # Primary side is left/right; perpendicular is top or bottom
-                perp = 'top' if ft_cy < tt_cy else 'bottom'
+                    edge_entries[(id(ln.to_table), ts)].append((ln, False))
             else:
-                perp = 'left' if ft_cx < tt_cx else 'right'
+                edge_entries[(id(ln.from_table), fs)].append((ln, True))
+                edge_entries[(id(ln.to_table), ts)].append((ln, False))
 
-            # Split ratio based on ratio of base side length vs perp side length
-            tt = lines[0].to_table
-            if base_to in ('top', 'bottom'):
-                base_len = tt.width
-            else:
-                base_len = tt.height
-            if perp in ('top', 'bottom'):
-                perp_len = tt.width
-            else:
-                perp_len = tt.height
-            # Use ceil on the perp side so perpendicular sides get their "fair share"
-            import math
-            if (base_len + perp_len) > 0:
-                perp_ratio = perp_len / (base_len + perp_len)
-            else:
-                perp_ratio = 0.5
-            n_perp = max(1, min(len(lines) - 1, math.ceil(len(lines) * perp_ratio)))
-            n_base = len(lines) - n_perp
+        for (tid, side), entries in edge_entries.items():
+            table = id_to_table.get(tid)
+            if table is not None:
+                self._layout_edge(table, side, entries, pin_coord)
 
-            # Sort lines by TARGET position along source edge axis, then by column index.
-            # This places anchors where they naturally want to go (above targets at top, below at bottom).
-            fs_axis_vert = base_from in ('left', 'right')
-            ft_columns = [c.get('name') for c in getattr(ft, 'columns', [])]
+        self._place_slaves(auto_lines, line_sides, parallel, master_is_from)
 
-            def col_index(ln):
-                try:
-                    return ft_columns.index(ln.from_column)
-                except (ValueError, AttributeError):
-                    return 999
-            def target_pos_outer(ln):
-                tt = ln.to_table
-                if fs_axis_vert:
-                    return tt.scenePos().y() + tt.height / 2
-                else:
-                    return tt.scenePos().x() + tt.width / 2
-            lines_sorted = sorted(lines, key=lambda ln: (target_pos_outer(ln), col_index(ln), ln.fk_name or ''))
+    def _layout_edge(self, table, side, entries, pin_coord):
+        """R2 + R4 + R5 — place all the anchors carried by one edge.
 
-            # Determine which END of fact's edge should host perp lines.
-            # Perp lines go to the side of fact CLOSEST to Calendar's perp edge.
-            # This matches the Y/X overlap zone used in distribution.
-            ft = lines[0].from_table
-            if fs_axis_vert:
-                # Source edge varies along Y; check if Calendar is above or below fact
-                perp_at_bottom = ft.scenePos().y() < tt.scenePos().y()  # fact above → perp zone at bottom of fact
-            else:
-                perp_at_bottom = ft.scenePos().x() < tt.scenePos().x()  # fact left → perp zone at right
-
-            # Assign: perp gets lines at the "close to Calendar" end of fact's edge
-            if perp_at_bottom:
-                # Perp lines are at the END of the sorted list (bottommost/rightmost on fact edge)
-                base_lines = lines_sorted[:n_base]
-                perp_lines = lines_sorted[n_base:]
-            else:
-                # Perp lines are at the START of the sorted list (topmost/leftmost on fact edge)
-                perp_lines = lines_sorted[:len(lines_sorted) - n_base]
-                base_lines = lines_sorted[len(lines_sorted) - n_base:]
-
-            for line in base_lines:
-                if line._user_modified:
-                    fs = line._from_side or base_from
-                    ts = line._to_side or base_to
-                else:
-                    fs = base_from
-                    ts = base_to
-                line_sides[id(line)] = (fs, ts)
-                if not line._user_modified:
-                    old_fs, old_ts = line._from_side, line._to_side
-                    line._from_side = fs
-                    line._to_side = ts
-                    if old_fs != fs or old_ts != ts:
-                        line._init_vertices()
-            for line in perp_lines:
-                if line._user_modified:
-                    fs = line._from_side or base_from
-                    ts = line._to_side or perp
-                else:
-                    fs = base_from
-                    ts = perp
-                line_sides[id(line)] = (fs, ts)
-                if not line._user_modified:
-                    old_fs, old_ts = line._from_side, line._to_side
-                    line._from_side = fs
-                    line._to_side = ts
-                    if old_fs != fs or old_ts != ts:
-                        line._init_vertices()
-
-        # --- Master / Slave anchor placement ---
-        # For each edge (table, side), count how many lines attach to it. Per line,
-        # the MASTER side is the one with the higher anchor count (tie → from-side).
-        # The master lays out its anchors by its own distribution rule (angle-based
-        # sort + uniform L/(n+1) spacing). The SLAVE then places its anchor at the
-        # master's coordinate along the edge axis — clamped to the slave's edge range
-        # — which produces a straight 1-segment line when geometrically possible,
-        # and only bends (Z-path) otherwise.
+        Constrained anchors (straight links, R2) go to their imposed coordinate
+        and split the edge into sub-segments; the remaining anchors spread
+        homogeneously inside each sub-segment (R4). The ordering along the edge
+        follows the direction of the far end, so links sharing an edge do not
+        cross (R5).
+        """
         from math import atan2
+        from PySide6.QtCore import QPointF as _QPointF
 
-        edge_anchor_count: dict = defaultdict(int)
-        for line in auto_lines:
-            fs, ts = line_sides[id(line)]
-            edge_anchor_count[(id(line.from_table), fs)] += 1
-            edge_anchor_count[(id(line.to_table), ts)] += 1
+        pos = table.scenePos()
+        w, h = table.width, table.height
+        start, end = self._span(table, side)
+        cx, cy = pos.x() + w / 2, pos.y() + h / 2
 
-        line_master_is_from: dict = {}
-        for line in auto_lines:
-            fs, ts = line_sides[id(line)]
-            nf = edge_anchor_count[(id(line.from_table), fs)]
-            nt = edge_anchor_count[(id(line.to_table), ts)]
-            line_master_is_from[id(line)] = (nf >= nt)
+        def other_end(entry):
+            ln, is_from = entry
+            return ln.to_table if is_from else ln.from_table
 
-        # PASS M — master anchors: distribute uniformly on each master edge
-        master_edge_lines: dict = defaultdict(list)
-        for line in auto_lines:
-            if line_master_is_from[id(line)]:
-                master_edge_lines[(id(line.from_table), line_sides[id(line)][0])].append(line)
+        def angle(entry):
+            ot = other_end(entry)
+            return atan2(ot.scenePos().y() + ot.height / 2 - cy,
+                         ot.scenePos().x() + ot.width / 2 - cx)
+
+        if side == 'top':
+            entries.sort(key=lambda e: (angle(e), e[0].fk_name or ''))
+        elif side == 'bottom':
+            entries.sort(key=lambda e: (-angle(e), e[0].fk_name or ''))
+        else:
+            entries.sort(key=lambda e: (other_end(e).scenePos().y()
+                                        + other_end(e).height / 2,
+                                        e[0].fk_name or ''))
+
+        def set_pos(entry, coord):
+            ln, is_from = entry
+            vidx = 0 if is_from else -1
+            if side == 'left':
+                ln._vertices[vidx] = _QPointF(pos.x(), coord)
+            elif side == 'right':
+                ln._vertices[vidx] = _QPointF(pos.x() + w, coord)
+            elif side == 'top':
+                ln._vertices[vidx] = _QPointF(coord, pos.y())
             else:
-                master_edge_lines[(id(line.to_table), line_sides[id(line)][1])].append(line)
+                ln._vertices[vidx] = _QPointF(coord, pos.y() + h)
 
-        for (mtable_id, mside), mlines in master_edge_lines.items():
-            mtable = id_to_table.get(mtable_id)
-            if not mtable:
+        CORNER_MARGIN = 10
+        pinned = {}
+        for e in entries:
+            c = pin_coord.get(id(e[0]))
+            if c is not None and (start + CORNER_MARGIN) < c < (end - CORNER_MARGIN):
+                pinned[id(e[0])] = c
+
+        # Sub-segments delimited by the constrained anchors
+        segments, seg_start, current = [], start, []
+        for e in entries:
+            if id(e[0]) in pinned:
+                segments.append((seg_start, pinned[id(e[0])], current))
+                current, seg_start = [], pinned[id(e[0])]
+            else:
+                current.append(e)
+        segments.append((seg_start, end, current))
+
+        for e in entries:
+            if id(e[0]) in pinned:
+                set_pos(e, pinned[id(e[0])])
+
+        for s_start, s_end, s_entries in segments:
+            m = len(s_entries)
+            if m == 0:
                 continue
-            mpos = mtable.scenePos()
-            mw, mh = mtable.width, mtable.height
-            mcx = mpos.x() + mw / 2
-            mcy = mpos.y() + mh / 2
+            step = (s_end - s_start) / (m + 1)
+            for i, e in enumerate(s_entries):
+                set_pos(e, s_start + step * (i + 1))
 
-            def _other_end(ln, _mid=mtable_id):
-                return ln.to_table if id(ln.from_table) == _mid else ln.from_table
+    def _place_slaves(self, auto_lines, line_sides, parallel, master_is_from):
+        """Parallel links only — the non-master end matches its master's
+        coordinate, clamped inside its own edge so it never lands on a corner."""
+        from PySide6.QtCore import QPointF as _QPointF
 
-            def _angle_from_master(ln, _cx=mcx, _cy=mcy):
-                ot = _other_end(ln)
-                return atan2(ot.scenePos().y() + ot.height / 2 - _cy,
-                             ot.scenePos().x() + ot.width / 2 - _cx)
-
-            # Sort lines along the edge axis: angle for horizontal edges (avoids
-            # deeper-over-shallower crossings), Y for vertical edges.
-            if mside == 'top':
-                mlines.sort(key=lambda ln: (_angle_from_master(ln), ln.fk_name or ''))
-                edge_start, edge_end = mpos.x(), mpos.x() + mw
-            elif mside == 'bottom':
-                mlines.sort(key=lambda ln: (-_angle_from_master(ln), ln.fk_name or ''))
-                edge_start, edge_end = mpos.x(), mpos.x() + mw
-            else:  # left / right
-                mlines.sort(key=lambda ln: (
-                    _other_end(ln).scenePos().y() + _other_end(ln).height / 2,
-                    ln.fk_name or ''))
-                edge_start, edge_end = mpos.y(), mpos.y() + mh
-
-            def _set_master_pos(ln, pos):
-                vidx = 0 if line_master_is_from[id(ln)] else -1
-                if mside == 'left':
-                    ln._vertices[vidx] = _QPointF(mpos.x(), pos)
-                elif mside == 'right':
-                    ln._vertices[vidx] = _QPointF(mpos.x() + mw, pos)
-                elif mside == 'top':
-                    ln._vertices[vidx] = _QPointF(pos, mpos.y())
-                else:
-                    ln._vertices[vidx] = _QPointF(pos, mpos.y() + mh)
-
-            # A line is PINNABLE on the master edge if its slave's center along
-            # the master-edge axis falls inside the master edge range (minus a
-            # small corner margin). Pinnable lines are placed at the slave's
-            # own center → a 1-segment straight line. Other lines distribute
-            # uniformly within the sub-segments between pins.
-            CORNER_MARGIN = 10
-            pinned: dict = {}
-            for ln in mlines:
-                ot = _other_end(ln)
-                if mside in ('top', 'bottom'):
-                    tcp = ot.scenePos().x() + ot.width / 2
-                else:
-                    tcp = ot.scenePos().y() + ot.height / 2
-                if (edge_start + CORNER_MARGIN) < tcp < (edge_end - CORNER_MARGIN):
-                    pinned[id(ln)] = tcp
-
-            # Walk the sorted lines and build the sub-segments bounded by pins
-            segments_to_fill = []  # (seg_start, seg_end, [lines])
-            seg_start = edge_start
-            current: list = []
-            for ln in mlines:
-                if id(ln) in pinned:
-                    segments_to_fill.append((seg_start, pinned[id(ln)], current))
-                    current = []
-                    seg_start = pinned[id(ln)]
-                else:
-                    current.append(ln)
-            segments_to_fill.append((seg_start, edge_end, current))
-
-            # Place pinned lines at their own pin position
-            for ln in mlines:
-                if id(ln) in pinned:
-                    _set_master_pos(ln, pinned[id(ln)])
-
-            # Distribute non-pinned lines uniformly within each sub-segment
-            for s_start, s_end, s_lines in segments_to_fill:
-                m = len(s_lines)
-                if m == 0:
-                    continue
-                sub_step = (s_end - s_start) / (m + 1)
-                for i, ln in enumerate(s_lines):
-                    _set_master_pos(ln, s_start + sub_step * (i + 1))
-
-        # PASS S — slave anchors: match master's coord along the edge axis,
-        # clamped to the slave's edge range (minus a small corner margin so the
-        # anchor doesn't land exactly on a corner).
         SLAVE_CORNER_MARGIN = 5
-        for line in auto_lines:
-            fs, ts = line_sides[id(line)]
-            is_from_master = line_master_is_from[id(line)]
-            if is_from_master:
-                master_anchor = line._vertices[0]
-                slave_table = line.to_table
-                slave_side = ts
-                slave_vidx = -1
+        for ln in auto_lines:
+            if not parallel[id(ln)]:
+                continue
+            fs, ts = line_sides[id(ln)]
+            if master_is_from[id(ln)]:
+                master = ln._vertices[0]
+                table, side, vidx = ln.to_table, ts, -1
             else:
-                master_anchor = line._vertices[-1]
-                slave_table = line.from_table
-                slave_side = fs
-                slave_vidx = 0
+                master = ln._vertices[-1]
+                table, side, vidx = ln.from_table, fs, 0
 
-            spos = slave_table.scenePos()
-            sw, sh = slave_table.width, slave_table.height
-            if slave_side in ('top', 'bottom'):
-                x_min = spos.x() + SLAVE_CORNER_MARGIN
-                x_max = spos.x() + sw - SLAVE_CORNER_MARGIN
-                x = max(x_min, min(x_max, master_anchor.x()))
-                y = spos.y() if slave_side == 'top' else spos.y() + sh
-            else:  # left / right
-                y_min = spos.y() + SLAVE_CORNER_MARGIN
-                y_max = spos.y() + sh - SLAVE_CORNER_MARGIN
-                y = max(y_min, min(y_max, master_anchor.y()))
-                x = spos.x() if slave_side == 'left' else spos.x() + sw
-            line._vertices[slave_vidx] = _QPointF(x, y)
+            p = table.scenePos()
+            w, h = table.width, table.height
+            if side in ('top', 'bottom'):
+                x = max(p.x() + SLAVE_CORNER_MARGIN,
+                        min(p.x() + w - SLAVE_CORNER_MARGIN, master.x()))
+                y = p.y() if side == 'top' else p.y() + h
+            else:
+                y = max(p.y() + SLAVE_CORNER_MARGIN,
+                        min(p.y() + h - SLAVE_CORNER_MARGIN, master.y()))
+                x = p.x() if side == 'left' else p.x() + w
+            ln._vertices[vidx] = _QPointF(x, y)
 
-        # Compute per-line mid_ratio to stagger Z-path middle segments
-        # Group lines by (from_table, to_table, from_side, to_side)
-        zpath_groups: dict = defaultdict(list)
-        for line in auto_lines:
-            fs, ts = line_sides[id(line)]
-            f_vert = fs in ('left', 'right')
-            t_vert = ts in ('left', 'right')
-            if f_vert == t_vert:  # parallel sides → Z-path
-                zpath_groups[(id(line.from_table), id(line.to_table), fs, ts)].append(line)
+    # ------------------------------------------------------------------
+    # Path regeneration
+    # ------------------------------------------------------------------
 
-        line_mid_ratio = {}
-        for group_key, group_lines in zpath_groups.items():
-            n = len(group_lines)
-            # Sort by source anchor position (top-to-bottom for vertical sides)
-            fs = line_sides[id(group_lines[0])][0]
+    def _rebuild_all(self, auto_lines, line_sides):
+        """Regenerate intermediate vertices and repaint every auto line.
+
+        Z-paths sharing the same pair and sides get their middle segment
+        staggered so they do not overlap.
+        """
+        from collections import defaultdict
+
+        zpath_groups = defaultdict(list)
+        for ln in auto_lines:
+            fs, ts = line_sides[id(ln)]
+            if (fs in ('left', 'right')) == (ts in ('left', 'right')):
+                zpath_groups[(id(ln.from_table), id(ln.to_table), fs, ts)].append(ln)
+
+        mid_ratio = {}
+        for group in zpath_groups.values():
+            n = len(group)
+            fs = line_sides[id(group[0])][0]
             if fs in ('left', 'right'):
-                group_lines.sort(key=lambda ln: ln._vertices[0].y())
+                group.sort(key=lambda ln: ln._vertices[0].y())
             else:
-                group_lines.sort(key=lambda ln: ln._vertices[0].x())
+                group.sort(key=lambda ln: ln._vertices[0].x())
 
             if n == 1:
-                line_mid_ratio[id(group_lines[0])] = 0.5
+                mid_ratio[id(group[0])] = 0.5
                 continue
 
-            # Determine direction: is source "before" target in the relevant axis?
-            ft = group_lines[0].from_table
-            tt = group_lines[0].to_table
+            ft, tt = group[0].from_table, group[0].to_table
             if fs in ('left', 'right'):
-                # Vertical sides (right/left) → staggering along X axis (stub length)
-                # If source is ABOVE target: first line (topmost) has LONGEST stub (ratio high)
-                # If source is BELOW target: first line has SHORTEST stub (ratio low)
-                source_before = (ft.scenePos().y() + ft.height / 2) < (tt.scenePos().y() + tt.height / 2)
+                source_before = ((ft.scenePos().y() + ft.height / 2)
+                                 < (tt.scenePos().y() + tt.height / 2))
             else:
-                # Horizontal sides (top/bottom) → staggering along Y axis
-                source_before = (ft.scenePos().x() + ft.width / 2) < (tt.scenePos().x() + tt.width / 2)
+                source_before = ((ft.scenePos().x() + ft.width / 2)
+                                 < (tt.scenePos().x() + tt.width / 2))
 
-            for i, line in enumerate(group_lines):
-                # ratio 0.2 → near source, 0.8 → near target
-                if source_before:
-                    # First line gets longest stub (ratio close to 1)
-                    ratio = 0.8 - (i * 0.6 / (n - 1))
-                else:
-                    # First line gets shortest stub (ratio close to 0)
-                    ratio = 0.2 + (i * 0.6 / (n - 1))
-                line_mid_ratio[id(line)] = ratio
+            for i, ln in enumerate(group):
+                # 0.2 → mid segment near the source, 0.8 → near the target
+                mid_ratio[id(ln)] = (0.8 - i * 0.6 / (n - 1)) if source_before \
+                    else (0.2 + i * 0.6 / (n - 1))
 
-        # Regenerate intermediate vertices using proper Z/L pattern with new endpoints
-        for line in auto_lines:
-            if len(line._vertices) == 2:
-                a, b = line._vertices[0], line._vertices[1]
+        for ln in auto_lines:
+            if len(ln._vertices) == 2:
+                a, b = ln._vertices[0], ln._vertices[1]
                 if abs(a.x() - b.x()) < 1 or abs(a.y() - b.y()) < 1:
-                    line._rebuild_path()
+                    ln._rebuild_path()
                     continue
-            ratio = line_mid_ratio.get(id(line), 0.5)
-            line.rebuild_intermediates(mid_ratio=ratio)
-            line._rebuild_path()
+            ln.rebuild_intermediates(mid_ratio=mid_ratio.get(id(ln), 0.5))
+            ln._rebuild_path()
+
 
     def auto_layout(self):
         """Arrange tables in a grid layout."""
@@ -587,7 +689,13 @@ class ERDiagramScene(QGraphicsScene):
         return self._table_items.get(table_name)
 
     def unfreeze_all_tables(self):
-        """Safety reset — ensure all tables are movable (fixes stuck state after drag bug)."""
+        """Safety reset — ensure all tables are movable (fixes stuck state after drag bug).
+
+        Does nothing on a read-only scene: the view calls this on every mouse
+        press, which would otherwise undo set_read_only() on the first click.
+        """
+        if self._read_only:
+            return
         for item in self._table_items.values():
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
 
@@ -665,6 +773,18 @@ class ERDiagramScene(QGraphicsScene):
     def set_group_fks(self, group: bool):
         """Toggle grouping of multiple FKs between same pair of tables."""
         self._group_fks = group
+
+    def set_read_only(self, read_only: bool):
+        """Freeze every item so the diagram can be shown outside the editor
+        without pretending to be editable. Hover popups keep working."""
+        self._read_only = read_only
+        for item in self._table_items.values():
+            item.set_read_only(read_only)
+        for line in self._relationship_lines:
+            line.set_read_only(read_only)
+        for group in self._group_items.values():
+            group.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not read_only)
+            group.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, not read_only)
 
     def set_show_column_types(self, show: bool):
         """Show or hide column types in all tables."""

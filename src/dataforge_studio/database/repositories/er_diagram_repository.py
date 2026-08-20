@@ -204,6 +204,20 @@ class ERDiagramRepository(BaseRepository[ERDiagram]):
             self._load_full(d)
         return diagrams
 
+    def rename(self, diagram_id: str, new_name: str):
+        """Rename a diagram, touching nothing else.
+
+        Deliberately a targeted UPDATE rather than save(): renaming must not
+        commit the unsaved layout edits the caller may be holding in memory.
+        """
+        with self.pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE er_diagrams SET name = ?, updated_at = ? WHERE id = ?",
+                (new_name, datetime.now().isoformat(), diagram_id)
+            )
+            conn.commit()
+
     def delete_diagram(self, diagram_id: str):
         """Delete a diagram and its tables (cascade)."""
         with self.pool.get_connection() as conn:
