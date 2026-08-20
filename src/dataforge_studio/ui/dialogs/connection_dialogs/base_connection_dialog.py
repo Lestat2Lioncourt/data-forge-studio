@@ -15,7 +15,9 @@ from PySide6.QtGui import QColor
 from ....database.config_db import get_config_db, DatabaseConnection
 from ....utils.credential_manager import CredentialManager
 from ....utils.network_utils import check_server_reachable
-from ....utils.connection_error_handler import format_connection_error, get_server_unreachable_message
+from ....utils.connection_error_handler import (format_connection_error,
+                                                get_server_unreachable_message,
+                                                parse_connection_error)
 from ...widgets.dialog_helper import DialogHelper
 from ...core.i18n_bridge import tr
 
@@ -260,28 +262,30 @@ class BaseConnectionDialog(QDialog, metaclass=QDialogABCMeta):
                 DialogHelper.warning(tr("conn_fill_required"), parent=self)
                 return
 
-            # First, ping the server to check if it's reachable
-            reachable, vpn_message = check_server_reachable(
-                connection_string,
-                db_type=self._get_db_type(),
-                timeout=3
-            )
-
-            if not reachable:
-                error_msg = get_server_unreachable_message(
-                    self._get_server_name(),
-                    db_type=self._get_db_type()
-                )
-                DialogHelper.error("❌ " + tr("conn_server_unreachable") + f"\n\n{error_msg}", parent=self)
-                return
-
-            # Test connection
+            # Go straight for the real connection. There used to be a TCP
+            # pre-flight probe here; it did more harm than good:
+            #
+            # - MySQL speaks first, so opening a socket on 3306 and closing it
+            #   without answering the handshake counts as an aborted connection.
+            #   Repeated, it trips max_connect_errors and the server BLOCKS the
+            #   client IP (error 1129) - which happened in production.
+            # - it also gated the test: a false negative reported "server
+            #   unreachable" for a connection that actually worked.
+            #
+            # The driver's own error is more precise anyway, and
+            # parse_connection_error already classifies it (VPN, timeout,
+            # unreachable, access denied).
             success, message = self._test_connection(connection_string)
 
             if success:
                 DialogHelper.info("✅ " + tr("conn_success") + f"\n\n{message}", parent=self)
-            else:
-                DialogHelper.error("❌ " + tr("conn_failed") + f"\n\n{message}", parent=self)
+                return
+
+            # Enrich a network-looking failure with the VPN hint the probe used
+            # to provide - without touching the network to find out.
+            info = parse_connection_error(Exception(message), self._get_db_type())
+            body = f"{message}\n\n{info.suggestion}" if info.suggestion else message
+            DialogHelper.error("❌ " + tr("conn_failed") + f"\n\n{body}", parent=self)
 
         except Exception as e:
             logger.error(f"Error testing connection: {e}")

@@ -43,6 +43,31 @@ def ping_host(host: str, timeout: int = 3, port: int = None) -> Tuple[bool, str]
         return False, str(e)
 
 
+def _drain_and_shutdown(sock: socket.socket) -> None:
+    """Read whatever the peer already sent, then close the direction cleanly.
+
+    Closing a TCP socket whose receive buffer still holds unread bytes makes the
+    OS send a RST rather than a FIN. Database servers that speak first — MySQL
+    greets with its handshake packet the moment the socket opens — therefore
+    turn every probe into a reset attributed to the client.
+
+    Note this does not stop the server from *counting* the probe as an aborted
+    connection: nothing short of completing the handshake would. That is why
+    the connection dialog no longer probes at all before connecting for real.
+    """
+    try:
+        sock.setblocking(False)
+        while True:
+            if not sock.recv(4096):
+                break
+    except (BlockingIOError, OSError):
+        pass
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
 def _check_host_socket(host: str, timeout: int, port: int = None) -> Tuple[bool, str]:
     """
     Check if host is reachable via socket connection.
@@ -65,6 +90,16 @@ def _check_host_socket(host: str, timeout: int, port: int = None) -> Tuple[bool,
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout)
             result = sock.connect_ex((host, test_port))
+
+            if result == 0:
+                # Close politely. Several database servers speak first (MySQL
+                # sends its handshake as soon as the socket opens), and closing
+                # a socket that still holds unread data makes the OS send a RST
+                # instead of a FIN — which is what network monitoring reports as
+                # a "client-rst" coming from the user's machine. Drain, then
+                # shut down cleanly.
+                _drain_and_shutdown(sock)
+
             sock.close()
 
             if result == 0:
