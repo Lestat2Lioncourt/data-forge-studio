@@ -130,9 +130,11 @@ class MultiModeConnectionDialog(BaseConnectionDialog):
 
         conn_str = self._get_connection_prefix()
 
-        # Add credentials if provided (for testing only)
+        # Add credentials if provided (for testing only). Percent-encode them:
+        # a raw '@' or '/' in a password makes the URL unparseable.
         if username and password:
-            conn_str += f"{username}:{password}@"
+            from ....utils.connection_helpers import quote_credential
+            conn_str += f"{quote_credential(username)}:{quote_credential(password)}@"
 
         conn_str += f"{host}:{port}"
 
@@ -203,9 +205,11 @@ class MultiModeConnectionDialog(BaseConnectionDialog):
         # Remove prefix
         conn_str = conn_str[len(prefix):]
 
-        # Skip auth part if present
-        if "@" in conn_str:
-            conn_str = conn_str.split("@", 1)[1]
+        # Skip the auth part: the userinfo ends at the LAST '@', a password may
+        # contain one.
+        _userinfo, separator, remainder = conn_str.rpartition("@")
+        if separator:
+            conn_str = remainder
 
         # Parse host:port/database
         if "/" in conn_str:

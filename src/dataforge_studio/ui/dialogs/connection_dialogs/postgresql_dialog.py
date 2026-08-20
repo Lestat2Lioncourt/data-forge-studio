@@ -58,36 +58,23 @@ class PostgreSQLConnectionDialog(MultiModeConnectionDialog):
         try:
             import psycopg2
 
-            # Parse connection string
+            # Parse connection string with the shared parser: splitting on the
+            # first '@' here used to shift the host when a password contained one.
             if connection_string.startswith("postgresql://"):
-                conn_str = connection_string.replace("postgresql://", "")
+                from ....utils.connection_helpers import split_db_url
 
-                # Parse username:password@host:port/database
-                if "@" in conn_str:
-                    auth_part, server_part = conn_str.split("@", 1)
-                    username, password = auth_part.split(":", 1) if ":" in auth_part else (auth_part, "")
-                else:
-                    username, password = "", ""
-                    server_part = conn_str
-
-                # Parse host:port/database
-                if "/" in server_part:
-                    host_port, database_opts = server_part.split("/", 1)
-                    # Remove query params if present
-                    database = database_opts.split("?")[0] if "?" in database_opts else database_opts
-                else:
-                    host_port = server_part
-                    database = ""
-
-                host, port = host_port.split(":") if ":" in host_port else (host_port, "5432")
+                parts = split_db_url(
+                    connection_string.replace("postgresql://", ""),
+                    default_port="5432",
+                )
 
                 # Connect
                 conn = psycopg2.connect(
-                    host=host,
-                    port=int(port),
-                    user=username,
-                    password=password,
-                    database=database if database else "postgres",
+                    host=parts["host"],
+                    port=int(parts["port"]),
+                    user=parts["user"],
+                    password=parts["password"],
+                    database=parts["database"] or "postgres",
                     connect_timeout=CONNECTION_TIMEOUT_S
                 )
 

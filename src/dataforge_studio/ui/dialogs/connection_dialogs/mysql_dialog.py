@@ -57,34 +57,24 @@ class MySQLConnectionDialog(MultiModeConnectionDialog):
         try:
             import pymysql
 
-            # Parse connection string (SQLAlchemy format)
+            # Parse connection string (SQLAlchemy format) with the shared parser:
+            # splitting on the first '@' here used to shift the host whenever a
+            # password contained one.
             if connection_string.startswith("mysql+pymysql://"):
-                conn_str = connection_string.replace("mysql+pymysql://", "")
+                from ....utils.connection_helpers import split_db_url
 
-                # Parse username:password@host:port/database
-                if "@" in conn_str:
-                    auth_part, server_part = conn_str.split("@", 1)
-                    username, password = auth_part.split(":", 1) if ":" in auth_part else (auth_part, "")
-                else:
-                    username, password = "", ""
-                    server_part = conn_str
-
-                # Parse host:port/database
-                if "/" in server_part:
-                    host_port, database = server_part.split("/", 1)
-                else:
-                    host_port = server_part
-                    database = ""
-
-                host, port = host_port.split(":") if ":" in host_port else (host_port, "3306")
+                parts = split_db_url(
+                    connection_string.replace("mysql+pymysql://", ""),
+                    default_port="3306",
+                )
 
                 # Connect
                 conn = pymysql.connect(
-                    host=host,
-                    port=int(port),
-                    user=username,
-                    password=password,
-                    database=database if database else None,
+                    host=parts["host"],
+                    port=int(parts["port"]),
+                    user=parts["user"],
+                    password=parts["password"],
+                    database=parts["database"] or None,
                     connect_timeout=CONNECTION_TIMEOUT_S
                 )
 
