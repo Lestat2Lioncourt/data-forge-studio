@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.20] - 2026-08-20
 
 ### Fixed
+- **The updater launched its batch by bare name.** `cmd /c _update.bat` relies on
+  cmd searching the current directory, which it refuses to do when
+  `NoDefaultCurrentDirectoryInExePath=1` is set — hardened environments, or simply
+  inherited from the parent shell. The console opened, printed
+  `'_update.bat' is not recognized` and closed instantly. Now launched as
+  `.\_update.bat`, which resolves without searching PATH and carries no space of
+  its own, so it also avoids the quote-stripping an absolute path would
+  reintroduce when the install folder name contains a space
 - **The old window survived "update and relaunch" as an empty frame.** The close
   fix shipped in 0.6.19, but the version doing the closing is the one being
   replaced — so it only takes effect from an install that already has it. This
