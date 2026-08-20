@@ -54,9 +54,19 @@ class DataForgeMainWindow:
         self._setup_status_bar()
         self._connect_signals()
 
-        # Override close event to cleanup resources
+        # Override close event to cleanup resources.
+        #
+        # Both widgets must route here. With easy_resize=True the title-bar X is
+        # wired to the WRAPPER (which alone carries WA_QuitOnClose), while the
+        # File menu and the updater close the INNER window. Overriding only the
+        # inner one left each path broken in the opposite way: closing by the X
+        # skipped cleanup, geometry save and any pending update entirely, and
+        # closing from the menu tore the app down but left the wrapper on screen
+        # as an empty frame, so the process never quit.
+        self._closing = False
         self._original_close_event = self.window.closeEvent
         self.window.closeEvent = self._on_close_event
+        self.wrapper.closeEvent = self._on_close_event
 
         # Apply initial theme (uses current_theme set by generate_global_qss)
         self.theme_bridge.apply_theme(self.window, self.theme_bridge.current_theme)
@@ -984,6 +994,13 @@ class DataForgeMainWindow:
         """
         import threading
 
+        # Both the wrapper and the inner window route here, and each closes the
+        # other below - so the second arrival must be a no-op.
+        if self._closing:
+            event.accept()
+            return
+        self._closing = True
+
         # Save window geometry before anything else (cheap op, no threads involved)
         self._save_window_geometry()
 
@@ -1041,6 +1058,16 @@ class DataForgeMainWindow:
         # Call original close event immediately - don't wait for cleanup
         if self._original_close_event:
             self._original_close_event(event)
+
+        # Close the counterpart. Whichever of the two the user (or the updater)
+        # closed, the other has to follow: only the wrapper quits the app, and
+        # only closing it removes the empty frame it would otherwise leave.
+        if event.isAccepted():
+            for widget in (self.wrapper, self.window):
+                try:
+                    widget.close()
+                except RuntimeError:
+                    pass  # already destroyed on the C++ side
 
     def _run_update_on_quit(self):
         """Run update commands in a new terminal window."""
