@@ -1171,10 +1171,19 @@ pause
 (del "%~f0") & exit /b 1
 '''
             bat_path.write_text(bat_content, encoding='utf-8')
-            # Launch with cwd + bare filename so a space in the install path
-            # can't trigger cmd's "/c quoted path" quote-stripping (which would
-            # make the window flash and close instantly).
-            subprocess.Popen(['cmd', '/c', '_update.bat'], cwd=str(project_root),
+            # Launch with cwd + an explicitly relative path. Two traps at once:
+            #
+            # - a bare '_update.bat' relies on cmd searching the current
+            #   directory, which it refuses to do when
+            #   NoDefaultCurrentDirectoryInExePath=1 is set (hardened setups, or
+            #   simply inherited from the parent shell). The console then flashes
+            #   with "'_update.bat' is not recognized" and closes.
+            # - an absolute path would reintroduce cmd's "/c quoted path"
+            #   quote-stripping as soon as the install path contains a space.
+            #
+            # './_update.bat' resolves without searching PATH and carries no
+            # space of its own, whatever the install folder is called.
+            subprocess.Popen(['cmd', '/c', r'.\_update.bat'], cwd=str(project_root),
                              creationflags=subprocess.CREATE_NEW_CONSOLE)
 
         elif sys.platform == 'darwin':
