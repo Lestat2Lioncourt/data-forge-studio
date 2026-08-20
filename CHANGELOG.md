@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.18] - 2026-08-20
+
+### Fixed
+- **The in-app updater generated a batch file cmd refused to parse.** The console
+  flashed and closed instantly and the app was left on a frozen grey window, with
+  no Python traceback because the failure happened in `cmd`. Inside the
+  `if not exist ".git" (` block, the line `echo This install is standalone
+  (no .git folder).` had its closing parenthesis terminate the block, leaving a
+  stray `.` behind. Since `cmd` parses a parenthesised block before executing it,
+  this killed the batch on **every** install, including healthy git ones where
+  that branch is never taken
+  - Also removed two `::` comments with unbalanced parentheses and an em dash:
+    the file is written as UTF-8 but read by `cmd` under the OEM codepage
+- **A failed update launch could strand the app.** `_run_update_on_quit()` ran
+  unprotected and before the close event: any exception was invisible under
+  `pythonw.exe` and skipped the close, leaving the window up with its signals
+  disconnected and its managers torn down. It is now wrapped, logged with its
+  traceback, reported to the user with a pointer to `scripts/_force_update.bat`,
+  and the window always closes
+
+### Added
+- `tests/test_update_batch.py`: renders the generated batch and rejects unescaped
+  parentheses inside an `if (...)` block and any non-ASCII character. Both guards
+  were mutation-tested against the bug that shipped
+- `docs/RELEASE_CHECKLIST.md` and a pointer in `CONTRIBUTING.md`: publishing needs
+  a tagged GitHub release, not just a push — the app reads `releases/latest`
+
+
 ## [0.6.17] - 2026-08-20
 
 ### Added
