@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.20] - 2026-08-20
+
+### Fixed
+- **The old window survived "update and relaunch" as an empty frame.** The close
+  fix shipped in 0.6.19, but the version doing the closing is the one being
+  replaced — so it only takes effect from an install that already has it. This
+  release is the first that can be verified end to end from a fixed install
+- The whole update path is now exercised before publishing: a real clone at the
+  previous tag runs the real batch against the real remote, and the release is
+  only cut once the old process is confirmed to exit leaving nothing on screen
+
+
 ## [0.6.19] - 2026-08-20
 
 ### Fixed
