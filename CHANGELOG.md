@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.19] - 2026-08-20
+
+### Fixed
+- **A password ending with `@` broke the connection test.** Testing a remote MySQL
+  connection failed with `Can't connect to MySQL server on '@192.168.86.30'
+  ([Errno 11003] getaddrinfo failed)` — an `@` glued to the address, which of
+  course does not resolve, so no packet ever left the machine. Five hand-rolled
+  parsers all split the URL on the *first* `@`; the userinfo ends at the *last*
+  one, and the path only starts after it. Saving and browsing were unaffected
+  because stored connection strings carry no credentials — only the Test button
+  injects them
+  - `split_db_url()` is now the single parser (last-`@` rule, `/` in passwords,
+    IPv6 literals, query params, percent decoding); the four copies are gone
+  - credentials are percent-encoded when the test URL is built, so a raw `@`
+    never produces a malformed URL in the first place
+- **Closing the app left an empty frame on screen, or skipped its cleanup.** With
+  `easy_resize=True` the visible top-level widget is the resize wrapper and the
+  window sits inside it. Only the inner window's close was handled, leaving the
+  two paths broken in opposite ways: the title-bar X skipped geometry save,
+  manager cleanup and any pending update entirely, while the File menu and the
+  updater tore the app down but left the wrapper visible and the process alive
+- **The reachability probe could get the client IP blocked by MySQL** (error 1129,
+  `max_connect_errors`). MySQL speaks first, so opening a socket on 3306 and
+  closing it without answering the handshake counts as an aborted connection.
+  The connection dialog no longer probes before connecting — the driver's own
+  error is more precise and `parse_connection_error` already classifies it. Where
+  the probe remains, it drains and shuts down cleanly, sending a FIN rather than
+  the RST that network monitoring reported as coming from the client
+
+### Added
+- `tests/test_connection_url_parsing.py` — covers the reported URL verbatim and
+  the credential-less shape actually stored, so existing connections stay untouched
+
+
 ## [0.6.18] - 2026-08-20
 
 ### Fixed
