@@ -19,6 +19,43 @@ from ...core.i18n_bridge import tr
 logger = logging.getLogger(__name__)
 
 
+class ViewColumnsWorker(QThread):
+    """Load one view's columns off the UI thread.
+
+    Views are not shipped with their columns in the schema tree — on databases
+    made almost entirely of views, loading them all up front would be paid on
+    every connection. They are fetched when a node is expanded, and that query
+    must not run on the UI thread: against a remote server it blocks the whole
+    application, leaving the node stuck on its loading placeholder.
+    """
+
+    columns_loaded = Signal(object)   # list[SchemaNode]
+    load_failed = Signal(str)
+
+    def __init__(self, db_conn: DatabaseConnection, connection,
+                 view_name: str, schema_name: str, database_name: str, parent=None):
+        super().__init__(parent)
+        self.db_conn = db_conn
+        self.connection = connection
+        self.view_name = view_name
+        self.schema_name = schema_name
+        self.database_name = database_name
+
+    def run(self):
+        try:
+            loader = SchemaLoaderFactory.create(
+                self.db_conn.db_type, self.connection,
+                self.db_conn.id, self.db_conn.name
+            )
+            columns = loader.load_columns(
+                self.view_name, self.schema_name, self.database_name
+            ) or []
+            self.columns_loaded.emit(columns)
+        except Exception as e:
+            logger.error(f"Could not load columns for view {self.view_name}: {e}")
+            self.load_failed.emit(str(e))
+
+
 class DatabaseConnectionWorker(QThread):
     """
     Worker thread for database connection operations.

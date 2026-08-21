@@ -564,11 +564,32 @@ class ERDiagramManager(QWidget):
         ThemeBridge.get_instance().register_observer(self._on_theme_changed)
 
     def _on_theme_changed(self, theme_colors: dict):
-        """Reload current diagram + refresh hover overlay to pick up new palette."""
+        """Restyle every diagram this manager owns — its own view AND the
+        read-only previews it has rendered into other containers.
+
+        Restyling in place rather than reloading: a preview lives in another
+        view and has no reason to pay for a schema reload, and the editing view
+        would lose any unsaved layout if it were rebuilt.
+        """
         if getattr(self, '_hover_overlay', None) is not None:
             self._hover_overlay.apply_theme()
-        if self._current_diagram:
-            self._load_diagram(self._current_diagram.id)
+        if self._scene is not None:
+            self._scene.apply_theme()
+
+        for tabs in list(getattr(self, '_preview_tab_widgets', [])):
+            try:
+                count = tabs.count()
+            except RuntimeError:
+                self._preview_tab_widgets.remove(tabs)  # C++ side already gone
+                continue
+            for i in range(count):
+                page = tabs.widget(i)
+                scene = getattr(page, '_er_diagram_scene', None)
+                if scene is not None:
+                    scene.apply_theme()
+                overlay = getattr(page, '_er_hover_overlay', None)
+                if overlay is not None:
+                    overlay.apply_theme()
 
     def set_database_manager(self, db_manager):
         """Set reference to DatabaseManager for connections and schema loading."""

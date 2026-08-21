@@ -221,7 +221,7 @@ class SplashScreen(QSplashScreen):
         p.setPen(QColor(self._palette["tagline"]))
         p.drawText(QRectF(body.left(), body.top() + self.TAGLINE_Y, body.width(), 20),
                    Qt.AlignmentFlag.AlignCenter,
-                   _tr("splash_tagline", "Multi-Database Management Tool"))
+                   _tr("splash_tagline", "Multi-Datasource Management Tool"))
 
         # Version (bottom-right corner)
         ver_font = QFont("Segoe UI", 8)

@@ -612,6 +612,21 @@ class ERRelationshipLine(QGraphicsPathItem):
     # Hover
     # =====================================================================
 
+    def apply_theme(self):
+        """Refresh after a theme change.
+
+        The line itself re-reads the palette in paint(), so only the FK label —
+        whose colour is set once when it is created — and the drag points need
+        touching.
+        """
+        palette = self._palette()
+        if self._label is not None:
+            self._label.setDefaultTextColor(QColor(palette["popup_dim"]))
+        for dp in self._drag_points:
+            dp.setBrush(QBrush(QColor(palette["line"])))
+            dp.setPen(QPen(QColor(palette["header_fg"]), 1.5))
+        self.update()
+
     def set_read_only(self, read_only: bool):
         """Freeze the routing: no drag points, so the geometry cannot be edited.
         Hovering still emits relation_hovered — showing the FK columns is the

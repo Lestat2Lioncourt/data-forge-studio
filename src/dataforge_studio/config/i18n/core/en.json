@@ -689,7 +689,7 @@
     "er_save_diagram_unsaved": "Save diagram (unsaved changes)",
     "er_unsaved_title": "Unsaved changes",
     "er_unsaved_text": "The diagram \"{name}\" has unsaved changes.\n\nSave them before leaving?",
-    "splash_tagline": "Multi-Database Management Tool",
+    "splash_tagline": "Multi-Datasource Management Tool",
     "splash_loading": "Loading...",
 
     "help_topics": "Topics",
@@ -744,6 +744,8 @@
     "db_import_failed": "Import failed: {error}",
     "db_double_click_to_load": "Double-click to load...",
     "db_connecting_in_progress": "Connecting...",
+    "db_loading_columns": "Loading columns...",
+    "db_view_no_columns": "No columns",
 
     "ws_loading_workspace": "Loading workspace...",
     "ws_ftp_connecting": "FTP connection in progress ({count} remaining)...",

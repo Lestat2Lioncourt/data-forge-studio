@@ -689,7 +689,7 @@
     "er_save_diagram_unsaved": "Enregistrer le diagramme (modifications non enregistrées)",
     "er_unsaved_title": "Modifications non enregistrées",
     "er_unsaved_text": "Le diagramme « {name} » comporte des modifications non enregistrées.\n\nLes enregistrer avant de le quitter ?",
-    "splash_tagline": "Outil de gestion multi-bases de données",
+    "splash_tagline": "Outil de gestion multi-sources de données",
     "splash_loading": "Chargement...",
 
     "help_topics": "Rubriques",
@@ -744,6 +744,8 @@
     "db_import_failed": "Import échoué : {error}",
     "db_double_click_to_load": "Double-clic pour charger...",
     "db_connecting_in_progress": "⏳ Connexion en cours...",
+    "db_loading_columns": "Chargement des colonnes...",
+    "db_view_no_columns": "Aucune colonne",
 
     "ws_loading_workspace": "⏳ Chargement du workspace en cours...",
     "ws_ftp_connecting": "⏳ Connexion FTP en cours ({count} restante(s))...",

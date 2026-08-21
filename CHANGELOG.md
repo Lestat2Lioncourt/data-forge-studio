@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.21] - 2026-08-21
+
+### Fixed
+- **A view's columns could not be expanded in the database explorer.** All five
+  dialects attach columns to tables and none did for views — the node even showed
+  a column count while never loading them. Columns are now fetched when the node
+  is expanded, so databases made almost entirely of views pay nothing extra on
+  connection, and the query runs in a worker thread rather than blocking the UI
+  - SQL Server's `load_columns` joined `sys.tables`, which structurally excluded
+    views; it now uses `sys.objects` filtered on tables and views
+- **`load_columns` had drifted into four different signatures** while the abstract
+  base declared only one. Every existing caller passed the table name alone, so
+  nothing broke until the view expansion became the first caller to work without
+  knowing the engine — it then raised `TypeError` on MySQL, PostgreSQL, SQLite and
+  Access, silently degrading to "no columns". All six are now aligned on
+  `(table_name, schema_name=None, database_name=None)`, each dialect accepting
+  what it does not use
+- **Closing the last tab selected the "+" tab**, showing an empty widget. It now
+  falls back to the tab on the left; closing any other tab still selects the one
+  on the right. Fixed in `EditableTabWidget`, so all three tab containers benefit
+- **A theme change did not reach diagrams previewed in a workspace.** The scene
+  background and the table stylesheets are set at construction, and only the
+  editing view was reloaded. `ERDiagramScene.apply_theme()` restyles in place and
+  the manager now applies it to every preview it has rendered elsewhere
+
+### Changed
+- **Diagram columns are ordered primary key, then foreign keys, then the rest.**
+  The server returns physical order, so a key added late in a table's life landed
+  at the bottom — the first row hidden when a table is resized smaller than its
+  content. The sort is stable, preserving the original order inside each group
+- The splash tagline reads "Multi-Datasource" rather than "Multi-Database",
+  matching the README: the app handles more than databases
+
+### Added
+- `tests/test_schema_loader_contract.py` — asserts every loader accepts what the
+  abstract base declares, so a signature can no longer drift for a dialect nobody
+  has an instance of to try
+
+
 ## [0.6.20] - 2026-08-20
 
 ### Fixed

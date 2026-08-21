@@ -98,6 +98,18 @@ class DatabaseSchemaMixin:
                 if "db_name" not in metadata:
                     metadata["db_name"] = db_conn.name
                 item.setIcon(0, view_icon)
+                # Views carry no columns in the schema tree: loading them for
+                # every view would be paid up front on databases made almost
+                # entirely of views. A placeholder makes the node expandable and
+                # _on_item_expanded fetches the columns on demand.
+                if not node.children:
+                    metadata["columns_pending"] = True
+                    metadata["db_conn_id"] = db_conn.id
+                    placeholder = QTreeWidgetItem(item)
+                    placeholder.setText(0, tr("db_loading_columns"))
+                    placeholder.setForeground(0, Qt.GlobalColor.gray)
+                    placeholder.setData(0, Qt.ItemDataRole.UserRole,
+                                        {"type": "loading"})
 
             elif node.node_type == SchemaNodeType.COLUMN:
                 metadata["type"] = "column"

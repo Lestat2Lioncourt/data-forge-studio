@@ -326,8 +326,15 @@ class MySQLSchemaLoader(SchemaLoader):
 
         return functions
 
-    def load_columns(self, table_name: str, schema_name: str = None) -> List[SchemaNode]:
-        """Load columns for a table or view."""
+    def load_columns(self, table_name: str, schema_name: str = None,
+                     database_name: str = None) -> List[SchemaNode]:
+        """Load columns for a table or view.
+
+        In MySQL the schema IS the database, so database_name is accepted as a
+        fallback for schema_name — it keeps the signature identical across every
+        dialect, which callers that do not know the engine depend on.
+        """
+        schema_name = schema_name or database_name
         cursor = self.connection.cursor()
         columns = []
 

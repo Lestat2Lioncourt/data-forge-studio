@@ -774,6 +774,27 @@ class ERDiagramScene(QGraphicsScene):
         """Toggle grouping of multiple FKs between same pair of tables."""
         self._group_fks = group
 
+    def apply_theme(self):
+        """Re-read the ER palette and restyle every item in place.
+
+        The scene background and the table stylesheets are set at construction,
+        so nothing repaints them on its own. Reloading the diagram would work
+        for the editing view, but a preview rendered in another container cannot
+        be reloaded — hence an in-place refresh, with no database access.
+        """
+        from ...core.theme_bridge import ThemeBridge
+        palette = ThemeBridge.get_instance().get_er_diagram_colors()
+        self.setBackgroundBrush(QColor(palette["scene_bg"]))
+
+        for item in self._table_items.values():
+            item.apply_theme()
+        for line in self._relationship_lines:
+            line.apply_theme()
+        for group in self._group_items.values():
+            group.update()
+
+        self.update()
+
     def set_read_only(self, read_only: bool):
         """Freeze every item so the diagram can be shown outside the editor
         without pretending to be editable. Hover popups keep working."""

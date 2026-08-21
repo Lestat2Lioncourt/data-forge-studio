@@ -302,9 +302,10 @@ class SQLServerSchemaLoader(SchemaLoader):
                 SELECT c.name, ty.name, c.max_length, c.precision, c.scale
                 FROM [{database_name}].sys.columns c
                 INNER JOIN [{database_name}].sys.types ty ON c.user_type_id = ty.user_type_id
-                INNER JOIN [{database_name}].sys.tables t ON c.object_id = t.object_id
-                INNER JOIN [{database_name}].sys.schemas s ON t.schema_id = s.schema_id
-                WHERE t.name = '{table_name}' AND s.name = '{schema_name}'
+                INNER JOIN [{database_name}].sys.objects o ON c.object_id = o.object_id
+                INNER JOIN [{database_name}].sys.schemas s ON o.schema_id = s.schema_id
+                WHERE o.name = '{table_name}' AND s.name = '{schema_name}'
+                  AND o.type IN ('U', 'V')
                 ORDER BY c.column_id
             """)
             column_rows = cursor.fetchall()

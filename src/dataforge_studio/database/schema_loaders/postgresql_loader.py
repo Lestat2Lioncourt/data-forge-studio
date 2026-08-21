@@ -208,8 +208,13 @@ class PostgreSQLSchemaLoader(SchemaLoader):
 
         return procedures
 
-    def load_columns(self, table_name: str, schema_name: str = None) -> List[SchemaNode]:
-        """Load columns for a table or view."""
+    def load_columns(self, table_name: str, schema_name: str = None,
+                     database_name: str = None) -> List[SchemaNode]:
+        """Load columns for a table or view.
+
+        database_name is accepted but unused: a PostgreSQL connection is bound to
+        a single database. Kept so the signature matches every other dialect.
+        """
         cursor = self.connection.cursor()
         columns = []
 

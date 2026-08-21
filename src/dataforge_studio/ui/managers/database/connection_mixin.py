@@ -106,7 +106,14 @@ class DatabaseConnectionMixin:
     def _on_item_expanded(self, item: QTreeWidgetItem):
         """Handle item expansion - lazy load schema if needed"""
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not data or data.get("type") != "server":
+        if not data:
+            return
+
+        if data.get("type") == "view" and data.get("columns_pending"):
+            self._load_view_columns(item, data)
+            return
+
+        if data.get("type") != "server":
             return
 
         # Already connected?
@@ -119,6 +126,74 @@ class DatabaseConnectionMixin:
 
         # Try to connect (placeholder will be removed only on success)
         self._connect_and_load_schema(item, db_conn)
+
+    def _load_view_columns(self, item: QTreeWidgetItem, data: dict):
+        """Fetch a view's columns the first time its node is expanded.
+
+        Runs in a worker thread: against a remote server the query blocks the UI
+        long enough for the node to look permanently stuck on its placeholder.
+        """
+        from .connection_worker import ViewColumnsWorker
+
+        data["columns_pending"] = False          # never retry in a loop
+        item.setData(0, Qt.ItemDataRole.UserRole, data)
+
+        db_conn = get_config_db().get_database_connection(data.get("db_conn_id", ""))
+        connection = self.connections.get(data.get("db_conn_id", ""))
+        if not db_conn or not connection:
+            self._show_view_columns(item, [], None)
+            return
+
+        # `name` holds the qualified 'schema.view'; the loader wants the bare name
+        view_name = data.get("view") or data.get("name", "")
+
+        worker = ViewColumnsWorker(
+            db_conn, connection, view_name, data.get("schema"), data.get("db_name"),
+            parent=self,
+        )
+        # Keep a reference: a QThread garbage-collected mid-run takes the app with it
+        self._view_column_workers = getattr(self, '_view_column_workers', [])
+        self._view_column_workers.append(worker)
+
+        def done(columns, w=worker):
+            self._show_view_columns(item, columns, db_conn)
+            self._forget_worker(w)
+
+        def failed(_msg, w=worker):
+            self._show_view_columns(item, [], db_conn)
+            self._forget_worker(w)
+
+        worker.columns_loaded.connect(done)
+        worker.load_failed.connect(failed)
+        worker.start()
+
+    def _forget_worker(self, worker):
+        workers = getattr(self, '_view_column_workers', [])
+        if worker in workers:
+            workers.remove(worker)
+        worker.deleteLater()
+
+    def _show_view_columns(self, item: QTreeWidgetItem, columns, db_conn):
+        """Replace a view node's placeholder with its columns, or a notice."""
+        from ....database.schema_loaders import SchemaNode, SchemaNodeType
+
+        try:
+            while item.childCount() > 0:
+                item.removeChild(item.child(0))
+        except RuntimeError:
+            return          # node destroyed while the query was running
+
+        if not columns or db_conn is None:
+            empty = QTreeWidgetItem(item)
+            empty.setText(0, tr("db_view_no_columns"))
+            empty.setForeground(0, Qt.GlobalColor.gray)
+            empty.setData(0, Qt.ItemDataRole.UserRole, {"type": "empty"})
+            return
+
+        # The helper walks a node's children, so wrap the columns in a holder
+        holder = SchemaNode(node_type=SchemaNodeType.VIEW, name="")
+        holder.children = columns
+        self._populate_tree_from_schema(item, holder, db_conn)
 
     def _get_main_window(self):
         """Find the main window to access status bar"""

@@ -1,6 +1,6 @@
 # DataForge Studio - Roadmap & Analyse
 
-**Version**: 0.6.20
+**Version**: 0.6.21
 **Objectif**: POC v0.9.xx / Production v1.0
 **Date d'analyse**: Janvier 2025 (initiale) / Fevrier 2026 (audit #2) / Mars 2026 (audits #3, #4 & #5) / Avril 2026 (audits #6, #7 & #8) / Aout 2026 (audit #9)
 
@@ -51,6 +51,39 @@ Trois points identifies pendant le diagnostic MySQL, laisses en l'etat en accord
 | 3 | **Le champ port reste videable** sur MySQL/PostgreSQL/Oracle/MongoDB : `port = self.port_edit.text().strip() or self._get_default_port()` retombe silencieusement sur le defaut | Mineur — le port est deja toujours ecrit dans la chaine | P3 |
 
 Le point 1 est le seul qui traite aussi le cas « port indeterminable » : quand aucun port n'est connu, la bonne conduite est de ne pas sonder et de laisser le driver produire son propre message d'erreur, bien plus precis que « serveur injoignable ».
+
+### Palette ER toujours sombre - cause identifiee, differee (21/08/2026)
+
+Pour le futur chantier de refonte des themes et de leur moteur d'edition.
+
+`ThemeBridge.get_er_diagram_colors()` choisit sa palette ainsi :
+
+```python
+is_dark = colors.get("is_dark", True)
+defaults = _ER_DIAGRAM_DEFAULTS_DARK if is_dark else _ER_DIAGRAM_DEFAULTS_LIGHT
+```
+
+Or **`is_dark` n'est declare dans aucun theme** de `themes.json` — ni dans le bloc
+`colors` de `dark_mode`, ni dans celui de `light_mode`. Le `.get(..., True)` renvoie
+donc toujours `True` : **la palette sombre sort quel que soit le theme choisi**.
+Aucun theme ne definit non plus de cle `er_diagram_*` pour surcharger.
+
+Mesure : en `light_mode` comme en `dark_mode`, le fond de scene vaut `#1e1e1e` et
+le fond de table `#2d2d2d`.
+
+Consequence : le mecanisme de propagation fonctionne (la vue d'edition et les
+apercus se restylent bien en place via `ERDiagramScene.apply_theme()`), mais il
+propage toujours la meme palette. Le correctif de propagation n'est donc pas
+observable tant que les themes ne declarent pas leur nature.
+
+Deux issues possibles, non tranchees : declarer `is_dark` dans le bloc `colors`
+de chaque theme, ou le faire deduire par `get_theme_colors()` a partir de la
+luminosite du fond. La seconde evite d'avoir a maintenir une information
+redondante dans chaque theme, y compris ceux crees par l'utilisateur.
+
+Recoupe l'item reste ouvert du plan de correctifs #12 : « Ajouter clefs
+`er_diagram_*` dans themes.json (override possible) ».
+
 
 ### Axe de reflexion NON TRANCHE - portabilite d'un espace de travail (20/08/2026)
 
@@ -835,7 +868,7 @@ Avril 2026
 |-- ER diagrams polish: hover popup themable, Ctrl+wheel zoom, Fit View button, Column Types toggle, content-driven table width
 |-- v0.6.11
 |-- Fix: bootstrap theme defaults on fresh installs (palettes/dispositions/themes combos empty)
-|-- v0.6.20 (actuel)
+|-- v0.6.21 (actuel)
 ```
 
 ### Projection (estimee)
@@ -870,7 +903,7 @@ S2 2026
 
 ## Conclusion
 
-DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.20.
+DataForge Studio est une **application bien architecturee** avec un potentiel solide. Depuis Decembre 2025, le developpement est intensif avec ~140 commits en 4 mois, portant le projet de v0.2.0 a v0.6.21.
 
 **Score global (audit #8): 8.4/10** (-0.2 vs audit #7) — Progression fonctionnelle forte (ER Diagrams aboutis, workspace partage EVO-4, refactor icones SVG-only) mais introduction du critere #12 (conformite au theme) revele une dette visuelle: 54 `QColor("#...")`, 34 `background-color: #`, 77 `color: #` hardcodes dans le code. Les nouveaux composants custom-paint (ER Diagram) ne passent pas par `theme_bridge` et ne se reabonnent pas a `theme_changed`. Trois palettes de log sont triplees a l'identique (log_panel, file_viewer_widget, file_content_handler).
 

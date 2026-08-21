@@ -138,7 +138,8 @@ class SchemaLoader(ABC):
         return []
 
     @abstractmethod
-    def load_columns(self, table_name: str) -> List[SchemaNode]:
+    def load_columns(self, table_name: str, schema_name: str = None,
+                     database_name: str = None) -> List[SchemaNode]:
         """
         Load columns for a specific table or view.
 

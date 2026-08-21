@@ -126,6 +126,23 @@ class EditableTabWidget(QTabWidget):
             self.blockSignals(False)
             self.newTabRequested.emit()
 
+    def removeTab(self, index: int):
+        """Override so closing the last real tab does not land on the "+" tab.
+
+        Qt selects whatever ends up at the closed index, which is the tab to the
+        right — the expected behaviour, except for the last one, where the tab
+        shifting into place is the "+" placeholder. Selecting it shows an empty
+        widget, so fall back to the tab on the left instead.
+        """
+        super().removeTab(index)
+
+        if not self._has_new_tab_button:
+            return
+        plus_index = self.count() - 1
+        # count() > 1 means at least one real tab remains beside the "+"
+        if self.count() > 1 and self.currentIndex() == plus_index:
+            self.setCurrentIndex(plus_index - 1)
+
     def addTab(self, widget, *args):
         """Override to insert before the "+" tab when it exists."""
         if self._has_new_tab_button and self.count() > 0:

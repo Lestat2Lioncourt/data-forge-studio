@@ -100,8 +100,14 @@ class SQLiteSchemaLoader(SchemaLoader):
 
         return views
 
-    def load_columns(self, table_name: str) -> List[SchemaNode]:
-        """Load columns for a table."""
+    def load_columns(self, table_name: str, schema_name: str = None,
+                     database_name: str = None) -> List[SchemaNode]:
+        """Load columns for a table or view.
+
+        schema_name and database_name are accepted but unused: a SQLite file is a
+        single database with no schemas. Kept so the signature matches every other
+        dialect.
+        """
         cursor = self.connection.cursor()
         columns = []
 

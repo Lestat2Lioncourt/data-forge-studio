@@ -34,6 +34,47 @@ class _TableWidget(QFrame):
         self.table_name = table_name
         self.setObjectName("ERTableWidget")
 
+        self._apply_palette()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Header
+        display_name = f"{schema_name}.{table_name}" if schema_name else table_name
+        header = QLabel(display_name)
+        header.setObjectName("tableHeader")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setFixedHeight(26)
+        header.setCursor(Qt.CursorShape.OpenHandCursor)
+        layout.addWidget(header)
+
+        # Column list (scrollable)
+        self.column_list = QListWidget()
+        self.column_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.column_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.column_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.column_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        # Store for rebuild on toggle. Colours come from _apply_palette(), which
+        # runs above and again on every theme change.
+        self._columns = columns
+        self._pk_columns = pk_columns
+        self._fk_columns = fk_columns
+        self._show_types = True
+
+        self._populate_column_list()
+
+        layout.addWidget(self.column_list)
+
+        # Default size
+        self._calc_width()
+        self.setMinimumSize(160, 80)
+
+    def _apply_palette(self):
+        """(Re)read the ER palette and restyle. Split out of __init__ so a theme
+        change can be applied to an existing widget instead of rebuilding the
+        whole scene — previews live in other views and cannot be reloaded."""
         from ...core.theme_bridge import ThemeBridge
         palette = ThemeBridge.get_instance().get_er_diagram_colors()
         bg = palette["bg"]
@@ -41,9 +82,12 @@ class _TableWidget(QFrame):
         header_fg = palette["header_fg"]
         border = palette["border"]
         text = palette["text"]
-        pk_color = palette["pk"]
-        fk_color = palette["fk"]
-        type_color = palette["type"]
+
+        # Kept for _populate_column_list, which colours each row itself
+        self._pk_color = palette["pk"]
+        self._fk_color = palette["fk"]
+        self._type_color = palette["type"]
+        self._text_color = text
 
         self.setStyleSheet(f"""
             QFrame#ERTableWidget {{
@@ -73,46 +117,35 @@ class _TableWidget(QFrame):
             }}
         """)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Header
-        display_name = f"{schema_name}.{table_name}" if schema_name else table_name
-        header = QLabel(display_name)
-        header.setObjectName("tableHeader")
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setFixedHeight(26)
-        header.setCursor(Qt.CursorShape.OpenHandCursor)
-        layout.addWidget(header)
-
-        # Column list (scrollable)
-        self.column_list = QListWidget()
-        self.column_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.column_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.column_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.column_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-
-        # Store for rebuild on toggle
-        self._columns = columns
-        self._pk_columns = pk_columns
-        self._fk_columns = fk_columns
-        self._pk_color = pk_color
-        self._fk_color = fk_color
-        self._text_color = text
-        self._show_types = True
-
+    def apply_theme(self):
+        """Restyle in place after a theme change."""
+        self._apply_palette()
         self._populate_column_list()
 
-        layout.addWidget(self.column_list)
+    def _sorted_columns(self):
+        """Keys first: primary, then foreign, then the rest.
 
-        # Default size
-        self._calc_width()
-        self.setMinimumSize(160, 80)
+        The server returns columns in physical order (ORDER BY column_id), so a
+        foreign key added late in a table's life lands at the bottom — exactly
+        the column a relationship diagram is about, and the first one hidden when
+        the table is resized smaller than its content.
+
+        The sort is stable, so the original order is preserved inside each group.
+        A column that is both primary and foreign — common in link tables —
+        ranks as primary.
+        """
+        def rank(col):
+            name = col['name']
+            if name in self._pk_columns:
+                return 0
+            if name in self._fk_columns:
+                return 1
+            return 2
+        return sorted(self._columns, key=rank)
 
     def _populate_column_list(self):
         self.column_list.clear()
-        for col in self._columns:
+        for col in self._sorted_columns():
             col_name = col['name']
             col_type = col['type']
 
@@ -226,6 +259,11 @@ class ERTableItem(QGraphicsRectItem):
         self._resize_mode = None  # None | 'v' | 'h' | 'both'
         self._resize_start_pos = None
         self._resize_start_size = None
+
+    def apply_theme(self):
+        """Restyle after a theme change, without rebuilding the scene."""
+        self._table_widget.apply_theme()
+        self.update()
 
     def set_read_only(self, read_only: bool):
         """Freeze the table: no move, no resize. Hover events stay enabled so
