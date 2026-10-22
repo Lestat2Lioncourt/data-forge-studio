@@ -17,9 +17,9 @@ from PySide6.QtWidgets import (
     QPushButton, QSizePolicy, QSplitter, QApplication
 )
 from PySide6.QtCore import (
-    Qt, Signal, QTimer, QEvent, QSize
+    Qt, Signal, QTimer, QEvent, QSize, QColor
 )
-from PySide6.QtGui import QCursor, QEnterEvent
+from PySide6.QtGui import QCursor, QEnterEvent, QColor
 
 from ..core.theme_bridge import ThemeBridge
 from ...utils.image_loader import get_icon
